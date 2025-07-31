@@ -1,0 +1,5 @@
+PS C:\meilisearch> .\meilisearch.exe
+C:\Users\32471>C:\Users\32471\MonSiteMoniteur\monsite\venv\Scripts\Activate
+
+(venv) C:\Users\32471>
+python manage.py runserver

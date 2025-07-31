@@ -1,0 +1,51 @@
+# ▶️ Environnement virtuel
+venv/
+.env
+.env.*
+
+# ▶️ Fichiers logs
+logs/
+*.log
+
+# ▶️ Python bytecode et cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ▶️ Configs IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# ▶️ Bases de données temporaires
+*.sqlite3
+*.db
+
+# ▶️ Fichiers de données ou export temporaires
+*.csv
+*.xlsx
+*.tsv
+*.json
+*.pickle
+*.pkl
+
+# ▶️ Dumps ou exports PostgreSQL / MeiliSearch
+*.sql
+*.sql.gz
+*.dump
+*.backup
+
+# ▶️ HTML ou PDF scrapés (si tu les stockes localement temporairement)
+html_dumps/
+pdfs/
+*.pdf
+*.html
+
+# ▶️ Captures ou output temporaire (si tu fais du debug visuel)
+*.png
+*.jpg
+*.jpeg
+
+# ▶️ MeiliSearch cache ou tasks (rare, mais possible)
+.meili_data/
