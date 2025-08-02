@@ -26,78 +26,32 @@ with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
     tmp_file_path = tmp_file.name
     print(f"Fichier temporaire enregistré à : {tmp_file_path}")
 
-def convert_pdf_pages_to_text_range(pdf_url, start_page_index, page_count=6):
-    """
-    Télécharge un PDF depuis une URL, applique l’OCR sur plusieurs pages à partir de start_page_index.
-    Gère automatiquement les erreurs de rendu, les fichiers manquants, les permissions et les profils ICC.
-    """
+# Fonction pour convertir une page du PDF en image (300 DPI)
+def convert_pdf_to_image(pdf_path, page_number):
     try:
-        response = requests.get(pdf_url)
-        response.raise_for_status()
+        pdf_document = fitz.open(pdf_path)
+        page = pdf_document.load_page(page_number)  # Page indexée à partir de 0
+        
+        # Convertir la page en image à 300 DPI (haute résolution)
+        pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))  # dpi=300
+        img_path = f"page_{page_number + 1}.png"
+        pix.save(img_path)
+        pdf_document.close()
+        print(f"Page {page_number + 1} convertie en image et sauvegardée sous : {img_path}")
+        return img_path
     except Exception as e:
-        print(f"❌ Erreur lors du téléchargement du PDF : {e}")
-        return ""
+        print(f"Erreur lors de la conversion de la page {page_number + 1} en image : {e}")
+        return None
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        tmp_file.write(response.content)
-        tmp_path = tmp_file.name
-        print(f"[📄] PDF temporaire sauvegardé : {tmp_path}")
-
-    full_text = ""
-    pdf = None
-
+# Fonction pour extraire le texte de l'image avec OCR (Tesseract)
+def extract_text_from_image(image_path):
     try:
-        pdf = fitz.open(tmp_path)
-        total_pages = len(pdf)
-
-        # 🔒 Protection contre start_page_index = None
-        if start_page_index is None:
-            print(f"[⚠️] start_page_index est None — on démarre à la page 0")
-            start_page_index = 0
-
-        end_page_index = min(start_page_index + page_count, total_pages)
-
-        for i in range(start_page_index, end_page_index):
-            try:
-                page = pdf.load_page(i)
-                # ✅ Matrice à 2x + suppression des profils ICC
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), colorspace=fitz.csRGB)
-                img_path = f"ocr_page_{i + 1}.png"
-                pix.save(img_path)
-
-                if not os.path.exists(img_path):
-                    print(f"[❌] Image non créée pour la page {i + 1} : {img_path}")
-                    continue
-
-                # ✅ Libère le fichier après lecture
-                with Image.open(img_path) as img:
-                    text = pytesseract.image_to_string(img)
-
-                full_text += f"\n--- Page {i + 1} ---\n{text}"
-
-                try:
-                    os.remove(img_path)
-                except Exception as e_rm:
-                    print(f"[⚠️] Impossible de supprimer '{img_path}' : {e_rm}")
-
-            except Exception as e_page:
-                print(f"⚠️ Erreur OCR sur la page {i + 1} : {e_page}")
-                continue
-
-    except Exception as e_open:
-        print(f"❌ Erreur d’ouverture ou d’OCR : {e_open}")
-        return ""
-
-    finally:
-        if pdf:
-            pdf.close()
-        try:
-            os.remove(tmp_path)
-        except Exception as e_rm:
-            print(f"[⚠️] Erreur suppression fichier temporaire : {e_rm}")
-
-    return full_text.strip()
-
+        img = Image.open(image_path)
+        text = pytesseract.image_to_string(img)
+        return text
+    except Exception as e:
+        print(f"Erreur lors de l'extraction du texte avec OCR sur l'image {image_path}: {e}")
+        return None
 
 # Fonction pour extraire les noms et numéros de registre national (NRN) avec une regex
 def extract_names_and_nns(text):

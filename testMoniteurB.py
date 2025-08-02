@@ -41,8 +41,9 @@ from utils import generate_doc_hash_from_html  # ou où que soit ta fonction
 assert len(sys.argv) == 2, "Usage: python testMoniteurB.py \"mot+clef\""
 keyword = sys.argv[1]
 
-from_date = date.fromisoformat("2025-07-28")
-to_date = "2025-07-31" #date.today()  # prochaine date "2025-07-19"
+# a JOUR 1/8/2025
+from_date = date.fromisoformat("2025-06-01")
+to_date ="2025-07-09"  #date.today()
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -1430,6 +1431,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         pattern_ouverture = r"\bouverture\s+de\s+la\s+faillite\b"
         pattern_faillite = r"\bfaillite\b"
         pattern_designation_mandataire = r"(application\s+de\s+l['’]?art\.?\s*XX\.?(2[0-9]|3[0-9])\s*CDE)"
+        pattern_delai_modere = r"(?i)(délais?\s+modérés?.{0,80}article\s+5[.\s\-]?201)"
 
         pattern_ouverture_reorg = r"\bouverture\s+de\s+la\s+réorganisation\s+judiciaire\b"
         pattern_prorogation_reorg = r"\bprorogation\s+du\s+sursis\s+de\s+la\s+réorganisation\s+judiciaire\b"
@@ -1491,6 +1493,8 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 extra_keywords.append("designation_mandataire_tribunal_de_l_entreprise")
             if re.search(pattern_liquidation_bis, texte_brut, flags=re.IGNORECASE):
                 extra_keywords.append("ouverture_faillite_tribunal_de_l_entreprise")
+            if re.search(pattern_delai_modere, texte_brut, flags=re.IGNORECASE):
+                extra_keywords.append("delai_modere_tribunal_de_l_entreprise")
 
             if re.search(pattern_ouverture, texte_brut, flags=re.IGNORECASE):
                 extra_keywords.append("ouverture_faillite_tribunal_de_l_entreprise")
@@ -1624,6 +1628,16 @@ except meilisearch.errors.MeilisearchApiError:
 
 # ✅ Ajoute ces lignes ici (et non dans le try)
 index.update_filterable_attributes(["keyword"])
+index.update_searchable_attributes([
+    "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
+    "date_deces", "extra_links","administrateur"
+])
+index.update_displayed_attributes([
+    "id", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
+    "extra_links", "administrateur", "text", "url"
+])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
 
@@ -1659,8 +1673,9 @@ with requests.Session() as session:
             "administrateur": record[18],
 
         }
-        if record[6]:
-            doc["publications_pdfs"] = get_publication_pdfs_for_tva(session, record[6][0])
+        #rien a faire dans meili mettre dans postgre
+        #if record[6]:
+            #doc["publications_pdfs"] = get_publication_pdfs_for_tva(session, record[6][0])
         documents.append(doc)
 
         if keyword == "terrorisme":
@@ -1751,18 +1766,22 @@ print(f"[🔍] Documents uniques pour Meilisearch (par doc_hash): {len(documents
 
 # Supprime explicitement tous les documents avec ces doc_hash
 doc_ids = [doc["id"] for doc in documents]
-if doc_ids:
-    print(f"[🧹] Suppression des documents existants par ID ({len(doc_ids)} items)...")
-    task = index.delete_documents(doc_ids)
-    client.wait_for_task(task.task_uid)
+#if doc_ids:
+    #print(f"[🧹] Suppression des documents existants par ID ({len(doc_ids)} items)...")
+    #task = index.delete_documents(doc_ids)
+    #client.wait_for_task(task.task_uid)
 
 batch_size = 1000
+task_ids = []
+
 for i in tqdm(range(0, len(documents), batch_size), desc="Envoi vers Meilisearch"):
     batch = documents[i:i + batch_size]
     task = index.add_documents(batch)
-    index.wait_for_task(task.task_uid, timeout_in_ms=150_000)
-    print("[✅] Indexation terminée avec IA.")
+    task_ids.append(task.task_uid)
 
+# ✅ Attendre que toutes les tasks soient terminées à la fin
+for uid in task_ids:
+    index.wait_for_task(uid, timeout_in_ms=150_000)
 
 print("[📥] Connexion à PostgreSQL…")
 
