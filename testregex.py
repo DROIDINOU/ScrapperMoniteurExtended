@@ -1,28 +1,27 @@
-import re
+import csv, unicodedata
 
-import re
+def strip_accents(s):
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
 
-text = "Tribunal de l 'entreprise francophone de Bruxelles. Dissolution judiciaire de : SRL INST-BOUW-BOULEVARD DU MIDI 25-2, 1000 BRUXELLES Numéro d'entreprise : 0746.993.832Liquidateur : 1. ME S. HUART (SOPHIE.HUART@SYBARIUS.NET) - CHAUSSEE DE WATERLOO 880, 1000 BRUXELLES"
-def extract_liquidateur_nom_et_email(text):
-    """
-    Extrait le nom du liquidateur (ex. 'S. HUART') et l'email entre parenthèses s'il existe.
-    """
-    pattern = r"""
-        liquidateur(?:\(s\))?         # "Liquidateur" ou "Liquidateur(s)"
-        \s*:?\s*                      # Deux-points optionnels
-        \d*\.?\s*                     # Numérotation type "1." (optionnelle)
-        (?:me|maître|mr|mme|madame|m\.)?\s*  # Titre (optionnel)
-        (?P<nom>[A-Z]\.\s*[A-ZÉÈÀÂÊÎÔÛÇ]+)   # Nom de forme "S. HUART"
-        (?:\s*\((?P<email>[^\)]+)\))?        # Email éventuel entre parenthèses
-    """
+input_file = 'STREETS_ALL.csv'  # fichier téléchargé depuis Geoportail
+output_csv = 'villages_wallonie.csv'
 
-    match = re.search(pattern, text, flags=re.IGNORECASE | re.VERBOSE)
-    if match:
-        return {
-            "nom": match.group("nom").strip(),
-            "email": match.group("email").strip() if match.group("email") else None
-        }
-    return None
+with open(input_file, newline='', encoding='utf-8') as fin, \
+     open(output_csv, 'w', newline='', encoding='utf-8') as fout:
+    reader = csv.DictReader(fin)
+    writer = csv.writer(fout)
+    writer.writerow(['Commune', 'Section', 'Village'])
 
+    for row in reader:
+        # Exemple : champ TYPE = "section"
+        if row.get('TYPE', '').lower() not in ('section', 'hameau', 'village'):
+            continue
 
-print(extract_liquidateur_nom_et_email(text))
+        commune = strip_accents(row.get('COMMUNE', '')).upper().strip()
+        section = strip_accents(row.get('SECTION', '')).upper().strip()
+        village = strip_accents(row.get('NOM', '')).upper().strip()
+
+        writer.writerow([commune, section, village])
+
+print(f"✅ Généré : {output_csv}")

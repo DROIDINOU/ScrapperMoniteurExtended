@@ -4,14 +4,16 @@ from datetime import datetime
 # Connexion à Meilisearch
 client = meilisearch.Client("http://127.0.0.1:7700", 'TBVEHV1dBQBT7mVQpHXw2RXeICzQvONQ5p9CqI84gF4')
 index = client.index("moniteur_documents")
-
+# 🔥 Supprime tous les documents de l’index
+task = index.delete_all_documents()
+client.wait_for_task(task.task_uid)
 # Accepter plusieurs formats de date
 DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d"]
 start_date = datetime.strptime("01/06/2025", "%d/%m/%Y")
-end_date = datetime.strptime("01/08/2025", "%d/%m/%Y")
+end_date = datetime.strptime("02/08/2025", "%d/%m/%Y")
 
 # Récupération des documents
-result = index.search("", {"limit": 2500})
+result = index.search("", {"limit": 3000})
 ids_to_delete = []
 
 for doc in result["hits"]:
@@ -39,3 +41,5 @@ if ids_to_delete:
     print("✅ Suppression lancée. Réponse Meili:", delete_response)
 else:
     print("✅ Aucun document à supprimer dans l'intervalle spécifié.")
+result = index.search("", {"limit": 1})
+print("Nombre réel de documents :", result["estimatedTotalHits"])

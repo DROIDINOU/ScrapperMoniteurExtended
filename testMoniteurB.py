@@ -1,11 +1,12 @@
 import logging
-from logger_config import setup_logger  # adapte le chemin selon ton projet
-
-logger = setup_logger(__name__, level=logging.DEBUG)  # 👈 DEBUG pour voir tous les logs
-
+from logger_config import setup_logger, setup_fallback3_logger  # adapte le chemin selon ton projet
+logger = setup_logger("extraction", level=logging.DEBUG)  # 👈 nom unique et explicite
 logger.debug("✅ Logger initialisé dans le script principal.")
+loggerfallback3 = setup_fallback3_logger("fallback3", level=logging.DEBUG)  # 👈 nom unique et explicite
+loggerfallback3.debug("✅ Logger initialisé dans le script principal.")
 print(">>> CODE À JOUR")
 from extraction_noms import extract_name_before_birth
+from extract_adresses_entreprises import extract_add_entreprises
 from extraction_adresses_moniteur import extract_address
 from extraction_nom_entreprises import extract_noms_entreprises
 from extraction_administrateurs import extract_administrateur
@@ -30,7 +31,7 @@ import tempfile
 import os
 from collections import defaultdict
 import unicodedata
-from utils import generate_doc_hash_from_html  # ou où que soit ta fonction
+import json
 
 
 
@@ -42,7 +43,7 @@ assert len(sys.argv) == 2, "Usage: python testMoniteurB.py \"mot+clef\""
 keyword = sys.argv[1]
 
 # a JOUR 1/8/2025
-from_date = date.fromisoformat("2025-06-01")
+from_date = date.fromisoformat("2025-07-01")
 to_date ="2025-07-09"  #date.today()
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
@@ -1425,6 +1426,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         nom = None  # à vérifier si nécessaire
         nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
         administrateur = extract_administrateur(texte_brut)
+        adresse = extract_add_entreprises(str(main), doc_id=doc_id)
         pattern_cloture = r"\b[cC](l[oô]|olo)ture\b"
         pattern_liquidation = r"\bliquidations?\b"
         pattern_liquidation_bis = r"\bliquidation(?:s)?\s*de\b"
@@ -1619,22 +1621,31 @@ print("[INFO] Connexion à Meilisearch…")
 client = meilisearch.Client("http://127.0.0.1:7700", 'TBVEHV1dBQBT7mVQpHXw2RXeICzQvONQ5p9CqI84gF4')
 index_name = "moniteur_documents"
 
+# ✅ Si l'index existe, on le supprime proprement
 try:
     index = client.get_index(index_name)
+    print("✅ Clé primaire de l'index :", index.primary_key)
+    delete_task = index.delete()
+    client.wait_for_task(delete_task.task_uid)
+    print(f"[🗑️] Index '{index_name}' supprimé avec succès.")
 except meilisearch.errors.MeilisearchApiError:
-    task = client.create_index(index_name, {"primaryKey": "id"})
-    client.wait_for_task(task.task_uid)
-    index = client.get_index(index_name)
+    print(f"[ℹ️] Aucun index existant à supprimer.")
+
+# 🔄 Ensuite on recrée un nouvel index propre avec clé primaire
+create_task = client.create_index(index_name, {"primaryKey": "id"})
+client.wait_for_task(create_task.task_uid)
+index = client.get_index(index_name)
+print("✅ Index recréé avec clé primaire :", index.primary_key)
 
 # ✅ Ajoute ces lignes ici (et non dans le try)
 index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
-    "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "id","title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
     "date_deces", "extra_links","administrateur"
 ])
 index.update_displayed_attributes([
-    "id", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "id","doc_hash", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
     "extra_links", "administrateur", "text", "url"
 ])
@@ -1651,8 +1662,8 @@ with requests.Session() as session:
         texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
         doc_hash = generate_doc_hash_from_html(record[3], record[1])  # ✅ Hash du texte brut + date
         doc = {
-            "id": record[19],  # ✅ L’ID est celui généré dans scrap_informations_from_url
-            "doc_hash": record[19],  # ✅ Tu peux aussi réutiliser cet ID comme hash si c’est ce que tu veux
+            "id": doc_hash,  # ✅ L’ID est celui généré dans scrap_informations_from_url
+            "doc_hash": doc_hash,  # ✅ Tu peux aussi réutiliser cet ID comme hash si c’est ce que tu veux
             "date_document": record[1],
             "lang": record[2],
             "text": record[3],
@@ -1736,12 +1747,15 @@ for doc in documents:
     if doc["doc_hash"] not in unique_docs:
         unique_docs[doc["doc_hash"]] = doc
 print(f"[📋] Total de documents avant déduplication : {len(documents)}")
-# 🔁 Supprimer les doublons exacts (même texte) par doc_hash — garder le plus récent
-#unique_docs = {}
-#for doc in sorted(documents, key=lambda d: d["date_document"], reverse=True):
-    #unique_docs[doc["doc_hash"]] = doc
-#documents = list(unique_docs.values())
+seen_hashes = set()
+deduped_docs = []
 
+for doc in documents:
+    if doc["doc_hash"] not in seen_hashes:
+        seen_hashes.add(doc["doc_hash"])
+        deduped_docs.append(doc)
+
+documents = deduped_docs
 
 # 🔍 Log des doublons avant déduplication
 hash_to_docs = defaultdict(list)
@@ -1776,12 +1790,35 @@ task_ids = []
 
 for i in tqdm(range(0, len(documents), batch_size), desc="Envoi vers Meilisearch"):
     batch = documents[i:i + batch_size]
+
+    # 🔍 Vérifie si un document n'a pas d'ID
+    for doc in batch:
+        if not doc.get("id"):
+            print("❌ Document sans ID :", json.dumps(doc, indent=2))
+
+    print("\n[🧾] Exemple de document envoyé à Meilisearch :")
+    print(json.dumps(batch[0], indent=2))
+
     task = index.add_documents(batch)
     task_ids.append(task.task_uid)
+
 
 # ✅ Attendre que toutes les tasks soient terminées à la fin
 for uid in task_ids:
     index.wait_for_task(uid, timeout_in_ms=150_000)
+
+
+
+# 🧪 TEST : Vérifie que le document a bien été indexé avec l'ID attendu
+import json
+test_id = documents[0]["id"]
+print(f"\n🔍 Test récupération document avec ID = {test_id}")
+try:
+    found_doc = index.get_document(test_id)
+    print("✅ Document trouvé dans Meilisearch :")
+    print(json.dumps(dict(found_doc), indent=2))
+except meilisearch.errors.MeilisearchApiError:
+    print("❌ Document non trouvé par ID dans Meilisearch.")
 
 print("[📥] Connexion à PostgreSQL…")
 
@@ -1809,7 +1846,7 @@ print("🛠️ Recréation de la table PostgreSQL moniteur_documents...")
 cur.execute("""
     CREATE TABLE IF NOT EXISTS moniteur_documents (
     id          SERIAL PRIMARY KEY,
-    date_doc    DATE,
+    date_document    DATE,
     lang        TEXT,
     text        TEXT,
     url         TEXT,
@@ -1856,7 +1893,7 @@ for doc in tqdm(documents, desc="PostgreSQL Insert"):
     # Insertion des données dans la base PostgreSQL sans embeddings
     cur.execute("""
     INSERT INTO moniteur_documents (
-    date_doc, lang, text, url, doc_hash, keyword, tva, titre, sous_titre, num_nat, extra_keyword,nom, date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur
+    date_document, lang, text, url, doc_hash, keyword, tva, titre, subtitle, num_nat, extra_keyword,nom, date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur
 )
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s, %s,%s,%s, %s)
 ON CONFLICT (doc_hash) DO NOTHING

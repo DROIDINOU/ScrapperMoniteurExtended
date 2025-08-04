@@ -1,11 +1,11 @@
-from logger_config import setup_logger
-logger = setup_logger(__name__)
+import logging
 from bs4 import BeautifulSoup
 import re
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTES
 # ─────────────────────────────────────────────────────────────
+logger = logging.getLogger("extraction")  # 👈 on réutilise le même nom
 
 # noms / abreviations debuts d'adresse pour FR et NL et DE
 ADRESSE_REGEX = r"(RUE|R\.|AVENUE|AV\.|CHEE|CHAUSS[ÉE]E|ROUTE|RTE|PLACE|PL\.?|BOULEVARD|BD|CHEMIN|CH\.?|GALERIE|IMPASSE|SQUARE|ALL[ÉE]E|CLOS|VOIE|RY|PASSAGE|QUAI|PARC|Z\.I\.?|ZONE|SITE|PROMENADE|FAUBOURG|FBG|QUARTIER|CITE|HAMEAU|LOTISSEMENT)"
