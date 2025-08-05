@@ -1,9 +1,16 @@
 import meilisearch
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+MEILI_URL = os.getenv("MEILI_URL")
+MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
+INDEX_NAME = os.getenv("INDEX_NAME")
 
 # Connexion
-client = meilisearch.Client(MEILI_URL, MEILI_MASTER_KEY)
-index = client.index("moniteur_documents")
+client = meilisearch.Client(MEILI_URL, MEILI_KEY)
+index = client.index(INDEX_NAME)
 
 # Formats de date
 DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d"]

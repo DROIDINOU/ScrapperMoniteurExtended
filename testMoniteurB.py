@@ -11,7 +11,7 @@ from datetime import date, datetime
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urljoin
 import logging
-from concurrent import futures  # ou concurrent.futures si nécessaire
+import concurrent.futures
 
 # --- Bibliothèques tierces ---
 from dotenv import load_dotenv
@@ -46,18 +46,14 @@ print(">>> CODE À JOUR")
 load_dotenv()
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
-
-
-
-
-
+INDEX_NAME = os.getenv("INDEX_NAME")
 
 assert len(sys.argv) == 2, "Usage: python testMoniteurB.py \"mot+clef\""
 keyword = sys.argv[1]
 
 # a JOUR 1/8/2025
 from_date = date.fromisoformat("2025-06-01")
-to_date ="2025-06-30"  #date.today()
+to_date = "2025-06-30"  # date.today()
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -73,9 +69,11 @@ escaped_villes = [re.escape(v) for v in VILLE_TRIBUNAUX]
 # Joindre avec |
 villes = "|".join(escaped_villes)
 
+
 def generate_doc_id_from_metadata(url, date_doc):
     base = f"{url.strip()}|{date_doc.strip()}"
     return hashlib.md5(base.encode()).hexdigest()
+
 
 def extract_date_after_rendu_par(texte_brut):
     jour_map = {
@@ -128,15 +126,15 @@ def extract_date_after_rendu_par(texte_brut):
         jour, mois, annee = match_numeric.groups()
         if len(annee) == 2:
             annee = f"20{annee}"  # suppose 21e siècle
-        return f"{annee}-{int(mois):02d}-{int(jour):02d}"
+        return f"{annee}-{int(mois): 02d}-{int(jour): 02d}"
 
     # 3️⃣ Format ISO : 2024-12-18, 2024/12/18, etc.
     match_iso = re.search(r"\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b", texte_brut)
     if match_iso:
         annee, mois, jour = match_iso.groups()
-        return f"{annee}-{int(mois):02d}-{int(jour):02d}"
-
+        return f"{annee}-{int(mois): 02d}-{int(jour): 02d}"
     return None
+
 
 def get_month_name(month_num):
     mois = [
@@ -144,6 +142,7 @@ def get_month_name(month_num):
         "juillet", "août", "septembre", "octobre", "novembre", "décembre"
     ]
     return mois[month_num] if 1 <= month_num <= 12 else ""
+
 
 def detect_erratum(texte_html):
     """
@@ -310,6 +309,8 @@ def extract_name_before_birth(texte_html):
 
     return nom_list
     """
+
+
 def remove_footer_metadata(text):
     """
     Supprime les liens bas de page du Moniteur belge (PDF, copier le lien, haut de page…).
@@ -320,6 +321,7 @@ def remove_footer_metadata(text):
         text,
         flags=re.DOTALL
     )
+
 
 def convert_french_text_date_to_numeric(text_date):
     """
@@ -396,8 +398,6 @@ def extract_jugement_date(text):
                     return f"{int(dd)} {get_month_name(int(mm))} {yyyy}"
                 else:
                     return match_date.group(1).strip()
-
-
     # 🔹 3. Date après "division [Ville]" suivie de "le ..."
     match_division = re.search(
         r"division(?:\s+de)?\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+.{0,60}?\b(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
@@ -468,7 +468,6 @@ def extract_jugement_date(text):
         flags=re.IGNORECASE
     )
     if match_jugement_intro:
-
         return match_jugement_intro.group(1).strip()
 
     match_ville_date_fin = re.search(
@@ -477,9 +476,8 @@ def extract_jugement_date(text):
         flags=re.IGNORECASE
     )
     if match_ville_date_fin:
-         return match_ville_date_fin.group(1).strip()
-
-         # Cas spécial : date juste après "par jugement du", avec contexte "tribunal de première instance"
+        return match_ville_date_fin.group(1).strip()
+    # Cas spécial : date juste après "par jugement du", avec contexte "tribunal de première instance"
     match = re.search(
         r"par\s+jugement\s+du\s+(\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{1,2}(?:er)?\s+\w+\s+\d{4})",
         text,
@@ -618,9 +616,9 @@ def extract_dates_after_decede(html):
 
     # Regex pour formats de date
     date_pattern = re.compile(
-        r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4}"                # ex: 01.09.2024 ou 01/09/2024
-        r"|\d{4}-\d{2}-\d{2}"                              # ex: 2024-09-01
-        r"|\d{1,2}(?:er)?\s+[a-zéûîà]+\s+\d{4})",          # ex: 1er septembre 2024
+        r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4}"  # ex: 01.09.2024 ou 01/09/2024
+        r"|\d{4}-\d{2}-\d{2}"  # ex: 2024-09-01
+        r"|\d{1,2}(?:er)?\s+[a-zéûîà]+\s+\d{4})",  # ex: 1er septembre 2024
         re.IGNORECASE
     )
 
@@ -643,11 +641,7 @@ def extract_dates_after_decede(html):
             total_with_dates += 1
             date_list.extend(cleaned_matches)
 
-
     return date_list
-
-
-
 
 
 def extract_date_after_birthday(texte_html):
@@ -732,8 +726,10 @@ def extract_date_after_birthday(texte_html):
 
     return date_list
 
+
 def extract_name_from_text(text):
     return extract_name_before_birth(text)
+
 
 excluded_sources = {
     "Agence Fédérale pour la Sécurité de la Chaîne Alimentaire",
@@ -813,6 +809,7 @@ def detect_cour_constitutionnelle_title(title: str) -> bool:
     title_clean = re.sub(r"[^\w\s]", " ", title.lower())
     return "article 74 de la loi spéciale du 6 janvier 1989" in title_clean
 
+
 def detect_autre_juridiction_title(title: str) -> str | None:
     """
     Détecte si le titre mentionne explicitement une juridiction importante
@@ -826,6 +823,7 @@ def detect_autre_juridiction_title(title: str) -> str | None:
         return "tribunal_premiere_instance"
 
     return None
+
 
 def detect_societe_title(title: str) -> bool:
     societes_abrev = {"SA", "SRL", "SE", "SPRL", "SIIC", "SC", "SNC", "SCS", "COMMV", "SCRL", "SAS", "ASBL", "SCA"}
@@ -850,6 +848,7 @@ def detect_societe_title(title: str) -> bool:
             return True
 
     return False
+
 
 def extract_clean_text(soup):
     """
@@ -894,9 +893,10 @@ def extract_clean_text(soup):
     text = text.replace('\u00a0', ' ')  # espace insécable
     text = text.replace('\u200b', '')  # zero-width space
     text = text.replace('\ufeff', '')  # BOM UTF-8
-    text = re.sub(r'\s+', ' ', text)   # remplace tous les blancs par un seul espace
+    text = re.sub(r'\s+', ' ', text)  # remplace tous les blancs par un seul espace
 
     return text.strip()
+
 
 def generate_doc_hash_from_html(html, date_doc):
     soup = BeautifulSoup(html, 'html.parser')
@@ -912,6 +912,7 @@ def generate_doc_hash_from_html(html, date_doc):
     # 💡 Inclure la date dans le hash
     full_string = f"{date_doc}::{text}"
     return hashlib.sha256(full_string.encode("utf-8")).hexdigest()
+
 
 def clean_url(url):
     parsed = urlparse(url)
@@ -937,6 +938,7 @@ def retry(url, session, params=None):
         time.sleep(10)
         return retry(url, session, params)
 
+
 def find_linklist_in_items(item, keyword, link_list):
     link_tag = item.find("div", class_="list-item--button").find("a")
     numac = re.search(r'numac_search=(\d+)', link_tag["href"]).group(1)
@@ -952,6 +954,7 @@ def find_linklist_in_items(item, keyword, link_list):
 
     link_list.append((full_url, numac, datepub, lang, keyword, title, subtitle))
 
+
 def get_page_amount(session, start_date, end_date, keyword):
     encoded = keyword.replace(" ", "+")
     today = date.today()
@@ -963,6 +966,7 @@ def get_page_amount(session, start_date, end_date, keyword):
         return 1
     match = re.search(r'page=(\d+)', last_link["href"])
     return int(match.group(1)) if match else 1
+
 
 def ask_belgian_monitor(session, start_date, end_date, keyword):
     page_amount = get_page_amount(session, start_date, end_date, keyword)
@@ -985,64 +989,68 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
             title = title_elem.get_text(strip=True) if title_elem else ""
             if keyword == "Liste+des+entites+enregistrees" and subtitle_text == "Service public fédéral Economie, P.M.E., Classes moyennes et Énergie":
                 find_linklist_in_items(item, keyword, link_list)
-            elif keyword == "Conseil+d+'+Etat" and subtitle_text == "Conseil d'État" and title.lower().startswith("avis prescrit"):
+            elif keyword == "Conseil+d+'+Etat" and subtitle_text == "Conseil d'État" and title.lower().startswith(
+                    "avis prescrit"):
                 find_linklist_in_items(item, keyword, link_list)
             elif keyword == "Cour+constitutionnelle" and subtitle_text == "Cour constitutionnelle":
                 find_linklist_in_items(item, keyword, link_list)
             elif keyword == "terrorisme":
                 cleaned_title = title.strip().lower()
-                print("voici le titre:",cleaned_title)
+                print("voici le titre:", cleaned_title)
                 if "entités visée aux articles 3 et 5 de l'arrêté royal du 28 décembre 2006" in cleaned_title:
-                     print(f"[🪦] Document succession détecté : {title}")
-                     find_linklist_in_items(item, keyword, link_list)
+                    print(f"[🪦] Document succession détecté : {title}")
+                    find_linklist_in_items(item, keyword, link_list)
                 else:
                     print(f"[❌] Ignoré (terrorisme mais pas SPF Finances) : {title}")
 
             elif keyword in ("succession", "successions"):
-                
+
                 cleaned_title = title.strip().lower()
-                
+
                 # Vérifie si le titre correspond exactement à ce que tu recherches
-                if cleaned_title == "administration générale de la documentation patrimoniale" or cleaned_title.startswith("les créanciers et les légataires sont invités à "):
-                     print(f"[🪦] Document succession détecté : {title}")
-                     find_linklist_in_items(item, keyword, link_list)
-                       # faut le faire pour chacun ici!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                if cleaned_title == "administration générale de la documentation patrimoniale" or cleaned_title.startswith(
+                        "les créanciers et les légataires sont invités à "):
+                    print(f"[🪦] Document succession détecté : {title}")
+                    find_linklist_in_items(item, keyword, link_list)
+                    # faut le faire pour chacun ici!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             elif keyword in ("tribunal+de+premiere+instance"):
                 if (
                         title.lower().startswith("tribunal de première instance")
 
                 ):
-                    #print(title)
+                    # print(title)
                     find_linklist_in_items(item, keyword, link_list)
                 else:
-                    print(f"[❌] Ignoré (source ou titre non pertinent pour tribunal de première instance) : {title} | Source : {subtitle_text}")
+                    print(
+                        f"[❌] Ignoré (source ou titre non pertinent pour tribunal de première instance) : {title} | Source : {subtitle_text}")
             elif keyword in ("tribunal+de+l"):
                 if (
                         title.lower().startswith("tribunal de l")
 
                 ):
-                    #print(title)
+                    # print(title)
                     find_linklist_in_items(item, keyword, link_list)
                 else:
-                    print(f"[❌] Ignoré (source ou titre non pertinent pour trib entreprise) : {title} | Source : {subtitle_text}")
+                    print(
+                        f"[❌] Ignoré (source ou titre non pertinent pour trib entreprise) : {title} | Source : {subtitle_text}")
 
             elif keyword in ("justice+de+paix"):
-                    if (
-                            title.lower().startswith("justice de paix")
+                if (
+                        title.lower().startswith("justice de paix")
 
+                ):
+                    # print(title)
+                    find_linklist_in_items(item, keyword, link_list)
 
-                    ):
-                        #print(title)
-                        find_linklist_in_items(item, keyword, link_list)
-                    
-                    else:
-                        print(f"[❌] Ignoré (source ou titre non pertinent pourjustice de paix) : {title} | Source : {subtitle_text}")
+                else:
+                    print(
+                        f"[❌] Ignoré (source ou titre non pertinent pourjustice de paix) : {title} | Source : {subtitle_text}")
             elif keyword in ("cour+de+d"):
                 if (
                         title.lower().startswith("cour d'appel")
 
                 ):
-                    #print(title)
+                    # print(title)
                     find_linklist_in_items(item, keyword, link_list)
                 else:
                     print(
@@ -1053,18 +1061,19 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
 
     return link_list
 
+
 def strip_html_tags(text):
     return re.sub('<.*?>', '', text)
 
 
-
 def extract_terrorism_data(html):
-        """Fonction spécifique pour le traitement du terrorisme"""
-        texte = extract_clean_text(html)
-        nom = extract_name_from_text(texte)
-        match_nn_all = re.findall(r'(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{3})[\s.\-]?(\d{2})', texte)
-        numero_national = ''.join(match_nn_all[0]) if match_nn_all else None
-        return [nom, numero_national]
+    """Fonction spécifique pour le traitement du terrorisme"""
+    texte = extract_clean_text(html)
+    nom = extract_name_from_text(texte)
+    match_nn_all = re.findall(r'(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{3})[\s.\-]?(\d{2})', texte)
+    numero_national = ''.join(match_nn_all[0]) if match_nn_all else None
+    return [nom, numero_national]
+
 
 def extract_page_index_from_url(pdf_url):
     match = re.search(r'#page=(\d+)', pdf_url)
@@ -1072,7 +1081,8 @@ def extract_page_index_from_url(pdf_url):
         page_number = int(match.group(1))
         print("numéro de la page pdf", page_number)
         return page_number - 1  # PyMuPDF indexe à partir de 0
-    return None 
+    return None
+
 
 def extract_names_and_nns(text):
     results = []
@@ -1108,6 +1118,7 @@ def extract_names_and_nns(text):
         results.append(nn)
 
     return list(dict.fromkeys(results))
+
 
 def convert_pdf_pages_to_text_range(pdf_url, start_page_index, page_count=6):
     """
@@ -1197,13 +1208,15 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     main = soup.find("main", class_="page__inner page__inner--content article-text")
     if not main:
-        return (numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None,None,None, None, None,None,None,None, None)
+        return (
+            numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
+            None, None, None)
 
     texte_brut = extract_clean_text(main)
-    #if re.search(r"statuant", texte_brut, flags=re.IGNORECASE):
-        #print("✅ 'statuant' trouvé dans texte_brut")
-    #if re.search(r"statuant\s+en\s+degr[ée]?\s+d[’'`´]appel", texte_brut, flags=re.IGNORECASE):
-        #print("✅ Match complet trouvé")
+    # if re.search(r"statuant", texte_brut, flags=re.IGNORECASE):
+    # print("✅ 'statuant' trouvé dans texte_brut")
+    # if re.search(r"statuant\s+en\s+degr[ée]?\s+d[’'`´]appel", texte_brut, flags=re.IGNORECASE):
+    # print("✅ Match complet trouvé")
     date_jugement = None
     administrateur = None
     nom_trib_entreprise = None
@@ -1226,7 +1239,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         if noms_paires:
             return (
                 numac, date_doc, langue, texte_brut, url, keyword,
-                None, title, subtitle, noms_paires, None, None, None, None,None,None,None, None
+                None, title, subtitle, noms_paires, None, None, None, None, None, None, None, None
             )
 
         # Sinon, OCR fallback
@@ -1247,7 +1260,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 noms_ocr = [(name.strip(), nn.strip()) for _, name, nn in ocr_matches]
                 return (
                     numac, date_doc, langue, texte_brut, url, keyword,
-                    None, title, subtitle, noms_ocr, None, None, None, None,None, nom_trib_entreprise, None, None, None
+                    None, title, subtitle, noms_ocr, None, None, None, None, None, nom_trib_entreprise, None, None, None
                 )
             else:
                 print("⚠️ Texte OCR vide.")
@@ -1279,7 +1292,8 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             print(texte_brut)
             date_deces = extract_dates_after_decede(str(texte_brut))
             date_deces = ", ".join(date_deces) if date_deces else None
-        if re.search(r"\bsuccession[s]?.{0,30}?(réputée[s]?.{0,10}?vacante[s]?|en\s+déshérence)", texte_brut, flags=re.IGNORECASE| re.DOTALL):
+        if re.search(r"\bsuccession[s]?.{0,30}?(réputée[s]?.{0,10}?vacante[s]?|en\s+déshérence)", texte_brut,
+                     flags=re.IGNORECASE | re.DOTALL):
             extra_keywords.append("succession_vacante_desherence")
         if re.search(r"\bdésign[ée]?\b", texte_brut, flags=re.IGNORECASE):
             print("designation")
@@ -1304,21 +1318,24 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
         # ✅ Nouveau cas : réforme de l'ordonnance
         if re.search(r"\br[ée]forme\s+l[’']?ordonnance", texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("reforme_ordonnance")
+            extra_keywords.append("reforme_ordonnance")
         if re.search(r"\bsuccession[s]?\s+vacante[s]?\b", texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("succession_vacante")
         if re.search(r"\bsuccession[s]?\s+en\s+déshérence\b", texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("succession_deshérence")
         if re.search(r"\bl[èe]ve\s+la\s+mesure\s+d[’']?observation", texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("levee_mesure_observation")
-        if re.search(r"(?:jugement|ordonnance)[^.,:\n]{0,100}du\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})[^.\n]{0,50}\(RG", texte_brut, flags=re.IGNORECASE):
+        if re.search(
+                r"(?:jugement|ordonnance)[^.,:\n]{0,100}du\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})[^.\n]{0,50}\(RG",
+                texte_brut, flags=re.IGNORECASE):
             match_rg_date = re.search(
                 r"(?:jugement|ordonnance)[^.,:\n]{0,100}du\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})[^.\n]{0,50}\(RG",
                 texte_brut,
                 flags=re.IGNORECASE
             )
             if match_rg_date:
-                print("🎯 Date capturée!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! :", match_rg_date.group(1))
+                print("🎯 Date capturée!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! :",
+                      match_rg_date.group(1))
                 extra_links.append(f"levee_{match_rg_date.group(1)}")
             else:
                 print("❌ Aucun match pour RG date")
@@ -1350,20 +1367,21 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         else:
             print("❌ Aucune date pour 'réforme et mise à néant'")
         if re.search(r"ordonnance\s+du\s+juge\s+de\s+paix.{0,300}?"
-              r"(\d{1,2}(?:er)?\s+\w+\s+\d{4})",  # on ne va matcher ici que 23 février 2023 pour plus de contrôle
-              texte_brut,
-              flags=re.IGNORECASE | re.DOTALL):
-              match_rh_date = re.search(
-                 r"ordonnance\s+du\s+juge\s+de\s+paix.{0,300}?"
-                 r"(\d{1,2}(?:er)?\s+\w+\s+\d{4})",  # on ne va matcher ici que 23 février 2023 pour plus de contrôle
-                 texte_brut,
-                 flags=re.IGNORECASE | re.DOTALL
-                 )
-              if match_rh_date:
-                     print("✅ Date trouvée :", match_rh_date.group(1))
-                     extra_links.append(f"levee_{match_rh_date.group(1)}")
-              else:
-                     print("❌ Aucune date trouvée")
+                     r"(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
+                     # on ne va matcher ici que 23 février 2023 pour plus de contrôle
+                     texte_brut,
+                     flags=re.IGNORECASE | re.DOTALL):
+            match_rh_date = re.search(
+                r"ordonnance\s+du\s+juge\s+de\s+paix.{0,300}?"
+                r"(\d{1,2}(?:er)?\s+\w+\s+\d{4})",  # on ne va matcher ici que 23 février 2023 pour plus de contrôle
+                texte_brut,
+                flags=re.IGNORECASE | re.DOTALL
+            )
+            if match_rh_date:
+                print("✅ Date trouvée :", match_rh_date.group(1))
+                extra_links.append(f"levee_{match_rh_date.group(1)}")
+            else:
+                print("❌ Aucune date trouvée")
 
         match_neant_date = re.search(
             r"met\s+à\s+néant\s+la\s+décision\s+du.{0,30}?"
@@ -1501,7 +1519,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                     extra_keywords.append("cloture_faillite_tribunal_de_l_entreprise")
                 elif re.search(pattern_liquidation, texte_brut, flags=re.IGNORECASE):
                     extra_keywords.append("cloture_liquidation_tribunal_de_l_entreprise")
-            #rajouter else ici? 1b8a3b9f6d69a6ed271a5b1fabceaff959aeaff8150df0ce8a53fd11bd2e581d
+            # rajouter else ici? 1b8a3b9f6d69a6ed271a5b1fabceaff959aeaff8150df0ce8a53fd11bd2e581d
             if re.search(r"\bdissolution\s+judiciaire\b", texte_brut, flags=re.IGNORECASE):
                 extra_keywords.append("dissolution_judiciaire_tribunal_de_l_entreprise")
             if re.search(pattern_designation_mandataire, texte_brut, flags=re.IGNORECASE):
@@ -1525,10 +1543,14 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 extra_keywords.append("sans_effacement_tribunal_de_l_entreprise")
             elif re.search(pattern_effacement_partiel, texte_brut, flags=re.IGNORECASE):
                 extra_keywords.append("effacement_partiel_tribunal_de_l_entreprise")
-            elif re.search(pattern_effacement, texte_brut, flags=re.IGNORECASE) or re.search(pattern_effacement_bis, texte_brut, flags=re.IGNORECASE) or re.search(pattern_effacement_ter, texte_brut, flags=re.IGNORECASE):
+            elif re.search(pattern_effacement, texte_brut, flags=re.IGNORECASE) or re.search(pattern_effacement_bis,
+                                                                                             texte_brut,
+                                                                                             flags=re.IGNORECASE) or re.search(
+                pattern_effacement_ter, texte_brut, flags=re.IGNORECASE):
                 extra_keywords.append("effacement_tribunal_de_l_entreprise")
 
-            if re.search(pattern_remplacement_juge_commissaire, texte_brut, flags=re.IGNORECASE) or re.search(pattern_remplacement_juge_commissaire_bis, texte_brut, flags=re.IGNORECASE) :
+            if re.search(pattern_remplacement_juge_commissaire, texte_brut, flags=re.IGNORECASE) or re.search(
+                    pattern_remplacement_juge_commissaire_bis, texte_brut, flags=re.IGNORECASE):
                 extra_keywords.append("remplacement_juge_commissaire_tribunal_de_l_entreprise")
             # Fallback intelligent, en tout dernier recours
             elif re.search(pattern_remplacement_administrateur, texte_brut, flags=re.IGNORECASE):
@@ -1583,7 +1605,8 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
     return (
         numac, date_doc, langue, texte_brut, url, keyword,
-        tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, doc_id
+        tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement, nom_trib_entreprise,
+        date_deces, extra_links, administrateur, doc_id
     )
 
 
@@ -1602,6 +1625,7 @@ def get_publication_pdfs_for_tva(session, tva, max_pages=7):
             publications.append("https://www.ejustice.just.fgov.be" + link["href"])
     return publications
 
+
 # MAIN
 final = []
 with requests.Session() as session:
@@ -1609,7 +1633,7 @@ with requests.Session() as session:
 
     link_list = raw_link_list  # on garde le nom pour compatibilité
 
-    #print(f"[INFO] Liens collectés : {len(link_list)}")
+    # print(f"[INFO] Liens collectés : {len(link_list)}")
     scrapped_data = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
         futures = [
@@ -1629,46 +1653,42 @@ with requests.Session() as session:
 # ✅ Supprime les None avant de les envoyer à Meilisearch
 final.extend(scrapped_data)  # ou final = [r for r in scrapped_data if r is not None]
 
-
 print("[INFO] Connexion à Meilisearch…")
-client = meilisearch.Client(MEILI_MASTER_KEY,MEILI_MASTER_KEY )
-index_name = "moniteur_documents"
+client = meilisearch.Client(MEILI_URL, MEILI_KEY)
 
 # ✅ Si l'index existe, on le supprime proprement
 try:
-    index = client.get_index(index_name)
+    index = client.get_index(INDEX_NAME)
     print("✅ Clé primaire de l'index :", index.primary_key)
     delete_task = index.delete()
     client.wait_for_task(delete_task.task_uid)
-    print(f"[🗑️] Index '{index_name}' supprimé avec succès.")
+    print(f"[🗑️] Index '{INDEX_NAME}' supprimé avec succès.")
 except meilisearch.errors.MeilisearchApiError:
     print(f"[ℹ️] Aucun index existant à supprimer.")
 
 # 🔄 Ensuite on recrée un nouvel index propre avec clé primaire
-create_task = client.create_index(index_name, {"primaryKey": "id"})
+create_task = client.create_index(INDEX_NAME, {"primaryKey": "id"})
 client.wait_for_task(create_task.task_uid)
-index = client.get_index(index_name)
+index = client.get_index(INDEX_NAME)
 print("✅ Index recréé avec clé primaire :", index.primary_key)
 
 # ✅ Ajoute ces lignes ici (et non dans le try)
 index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
-    "id","title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "id", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links","administrateur"
+    "date_deces", "extra_links", "administrateur"
 ])
 index.update_displayed_attributes([
-    "id","doc_hash", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "id", "doc_hash", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
     "extra_links", "administrateur", "text", "url"
 ])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
 
-
 documents = []
 with requests.Session() as session:
-
     for record in tqdm(final, desc="Préparation Meilisearch"):
         cleaned_url = clean_url(record[4])
         texte = record[3].strip()
@@ -1697,9 +1717,9 @@ with requests.Session() as session:
             "administrateur": record[18],
 
         }
-        #rien a faire dans meili mettre dans postgre
-        #if record[6]:
-            #doc["publications_pdfs"] = get_publication_pdfs_for_tva(session, record[6][0])
+        # rien a faire dans meili mettre dans postgre
+        # if record[6]:
+        # doc["publications_pdfs"] = get_publication_pdfs_for_tva(session, record[6][0])
         documents.append(doc)
 
         if keyword == "terrorisme":
@@ -1719,6 +1739,7 @@ def tronque_texte_apres_adresse(chaine):
         if m in chaine:
             return chaine.split(m)[0].strip()
     return chaine.strip()
+
 
 # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste
 for doc in documents:
@@ -1793,10 +1814,10 @@ print(f"[🔍] Documents uniques pour Meilisearch (par doc_hash): {len(documents
 
 # Supprime explicitement tous les documents avec ces doc_hash
 doc_ids = [doc["id"] for doc in documents]
-#if doc_ids:
-    #print(f"[🧹] Suppression des documents existants par ID ({len(doc_ids)} items)...")
-    #task = index.delete_documents(doc_ids)
-    #client.wait_for_task(task.task_uid)
+# if doc_ids:
+# print(f"[🧹] Suppression des documents existants par ID ({len(doc_ids)} items)...")
+# task = index.delete_documents(doc_ids)
+# client.wait_for_task(task.task_uid)
 
 batch_size = 1000
 task_ids = []
@@ -1815,15 +1836,13 @@ for i in tqdm(range(0, len(documents), batch_size), desc="Envoi vers Meilisearch
     task = index.add_documents(batch)
     task_ids.append(task.task_uid)
 
-
 # ✅ Attendre que toutes les tasks soient terminées à la fin
 for uid in task_ids:
     index.wait_for_task(uid, timeout_in_ms=150_000)
 
-
-
 # 🧪 TEST : Vérifie que le document a bien été indexé avec l'ID attendu
 import json
+
 test_id = documents[0]["id"]
 print(f"\n🔍 Test récupération document avec ID = {test_id}")
 try:
@@ -1911,26 +1930,26 @@ for doc in tqdm(documents, desc="PostgreSQL Insert"):
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s, %s,%s,%s, %s)
 ON CONFLICT (doc_hash) DO NOTHING
 """, (
-    doc["date_document"],
-    doc["lang"],
-    text,
-    doc["url"],
-    doc["doc_hash"],
-    doc["keyword"],
-    doc["TVA"],
-    doc["title"],
-    doc["subtitle"],
-    doc["num_nat"],
-    doc.get("extra_keyword"),
-    doc["nom"],
-    doc["date_naissance"],
-    doc["adresse"],
-    doc["date_jugement"],
-    doc["nom_trib_entreprise"],
-    doc["date_deces"],
-    doc.get("extra_links"),
-    doc["administrateur"]
-))
+        doc["date_document"],
+        doc["lang"],
+        text,
+        doc["url"],
+        doc["doc_hash"],
+        doc["keyword"],
+        doc["TVA"],
+        doc["title"],
+        doc["subtitle"],
+        doc["num_nat"],
+        doc.get("extra_keyword"),
+        doc["nom"],
+        doc["date_naissance"],
+        doc["adresse"],
+        doc["date_jugement"],
+        doc["nom_trib_entreprise"],
+        doc["date_deces"],
+        doc.get("extra_links"),
+        doc["administrateur"]
+    ))
 
 conn.commit()
 cur.close()

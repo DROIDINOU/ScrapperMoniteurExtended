@@ -2,8 +2,14 @@ import re
 import csv
 import ast
 from meilisearch import Client
+from dotenv import load_dotenv
+import os
 
-INDEX_NAME = "moniteur_documents"
+load_dotenv()
+MEILI_URL = os.getenv("MEILI_URL")
+MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
+INDEX_NAME = os.getenv("INDEX_NAME")
+
 
 ADRESSE_PREFIXES_FILTRE = r"(RUE|R\.|AVENUE|COURS|COUR|AV\.|CHEE|CHAUSS[ÉE]E|ROUTE|RTE|PLACE|PL\.?|BOULEVARD|BD|CHEMIN|CH\.?|GALERIE|IMPASSE|SQUARE|ALL[ÉE]E|CLOS|VOIE|RY|PASSAGE|QUAI|PARC|Z\.I\.?|ZONE|SITE|PROMENADE|FAUBOURG|FBG|QUARTIER|CITE|HAMEAU|LOTISSEMENT|RESIDENCE)"
 
@@ -11,7 +17,7 @@ log_file = "logs/extraction.log"
 corrections_csv = "corrections_faites.csv"
 LONGUEUR_MIN = 60
 
-client = Client(MEILI_URL, MEILI_MASTER_KEY)
+client = Client(MEILI_URL, MEILI_KEY)
 index = client.index(INDEX_NAME)
 
 with open(corrections_csv, "a", newline="", encoding="utf-8") as csvfile:
