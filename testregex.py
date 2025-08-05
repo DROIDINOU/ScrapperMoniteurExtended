@@ -7,7 +7,7 @@ def strip_accents(s):
 input_file = 'STREETS_ALL.csv'  # fichier téléchargé depuis Geoportail
 output_csv = 'villages_wallonie.csv'
 
-with open(input_file, newline='', encoding='utf-8') as fin, \
+with open(input_file, newline='', encoding='latin') as fin, \
      open(output_csv, 'w', newline='', encoding='utf-8') as fout:
     reader = csv.DictReader(fin)
     writer = csv.writer(fout)

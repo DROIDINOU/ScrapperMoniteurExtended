@@ -1,38 +1,51 @@
+# --- Imports standards ---
+import os
+import re
+import sys
+import time
+import json
+import locale
+import hashlib
+import tempfile
+from datetime import date, datetime
+from collections import defaultdict
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urljoin
 import logging
-from logger_config import setup_logger, setup_fallback3_logger  # adapte le chemin selon ton projet
-logger = setup_logger("extraction", level=logging.DEBUG)  # 👈 nom unique et explicite
-logger.debug("✅ Logger initialisé dans le script principal.")
-loggerfallback3 = setup_fallback3_logger("fallback3", level=logging.DEBUG)  # 👈 nom unique et explicite
-loggerfallback3.debug("✅ Logger initialisé dans le script principal.")
-print(">>> CODE À JOUR")
+from concurrent import futures  # ou concurrent.futures si nécessaire
+
+# --- Bibliothèques tierces ---
+from dotenv import load_dotenv
+import requests
+from tqdm import tqdm
+import meilisearch
+import psycopg2
+from psycopg2.extras import Json
+import fitz  # PyMuPDF
+import pytesseract
+from PIL import Image
+from bs4 import BeautifulSoup, NavigableString, Tag
+
+# --- Modules internes au projet ---
+from logger_config import setup_logger, setup_fallback3_logger
 from extraction_noms import extract_name_before_birth
 from extract_adresses_entreprises import extract_add_entreprises
 from extraction_adresses_moniteur import extract_address
 from extraction_nom_entreprises import extract_noms_entreprises
 from extraction_administrateurs import extract_administrateur
-import concurrent.futures
-import re
-import time
-from datetime import date, datetime
-from bs4 import BeautifulSoup, NavigableString, Tag
-import requests
-import locale
-from tqdm import tqdm
-import meilisearch
-import sys
-import psycopg2
-from psycopg2.extras import Json
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urljoin
-import hashlib
-import fitz  # PyMuPDF
-import pytesseract
-from PIL import Image
-import tempfile
-import os
-from collections import defaultdict
-import unicodedata
-import json
 
+# --- Configuration du logger ---
+logger = setup_logger("extraction", level=logging.DEBUG)
+logger.debug("✅ Logger initialisé dans le script principal.")
+
+loggerfallback3 = setup_fallback3_logger("fallback3", level=logging.DEBUG)
+loggerfallback3.debug("✅ Logger initialisé dans le script principal.")
+
+print(">>> CODE À JOUR")
+
+# --- Chargement des variables d'environnement ---
+load_dotenv()
+MEILI_URL = os.getenv("MEILI_URL")
+MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 
 
 
@@ -43,8 +56,8 @@ assert len(sys.argv) == 2, "Usage: python testMoniteurB.py \"mot+clef\""
 keyword = sys.argv[1]
 
 # a JOUR 1/8/2025
-from_date = date.fromisoformat("2025-07-01")
-to_date ="2025-07-09"  #date.today()
+from_date = date.fromisoformat("2025-06-01")
+to_date ="2025-06-30"  #date.today()
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -1426,7 +1439,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         nom = None  # à vérifier si nécessaire
         nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
         administrateur = extract_administrateur(texte_brut)
-        adresse = extract_add_entreprises(str(main), doc_id=doc_id)
+        adresse = extract_add_entreprises(texte_brut, doc_id=doc_id)
         pattern_cloture = r"\b[cC](l[oô]|olo)ture\b"
         pattern_liquidation = r"\bliquidations?\b"
         pattern_liquidation_bis = r"\bliquidation(?:s)?\s*de\b"
@@ -1618,7 +1631,7 @@ final.extend(scrapped_data)  # ou final = [r for r in scrapped_data if r is not 
 
 
 print("[INFO] Connexion à Meilisearch…")
-client = meilisearch.Client("http://127.0.0.1:7700", 'TBVEHV1dBQBT7mVQpHXw2RXeICzQvONQ5p9CqI84gF4')
+client = meilisearch.Client(MEILI_MASTER_KEY,MEILI_MASTER_KEY )
 index_name = "moniteur_documents"
 
 # ✅ Si l'index existe, on le supprime proprement

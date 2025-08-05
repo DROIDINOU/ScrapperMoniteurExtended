@@ -1,18 +1,16 @@
 import meilisearch
 from datetime import datetime
 
-# Connexion à Meilisearch
-client = meilisearch.Client("http://127.0.0.1:7700", 'TBVEHV1dBQBT7mVQpHXw2RXeICzQvONQ5p9CqI84gF4')
+# Connexion
+client = meilisearch.Client(MEILI_URL, MEILI_MASTER_KEY)
 index = client.index("moniteur_documents")
-# 🔥 Supprime tous les documents de l’index
-task = index.delete_all_documents()
-client.wait_for_task(task.task_uid)
-# Accepter plusieurs formats de date
+
+# Formats de date
 DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d"]
 start_date = datetime.strptime("01/06/2025", "%d/%m/%Y")
 end_date = datetime.strptime("02/08/2025", "%d/%m/%Y")
 
-# Récupération des documents
+# Récupérer tous les documents
 result = index.search("", {"limit": 3000})
 ids_to_delete = []
 
@@ -28,18 +26,21 @@ for doc in result["hits"]:
                 parsed = True
                 if start_date <= doc_date <= end_date:
                     ids_to_delete.append(doc_id)
-                break  # dès qu’un format a fonctionné, on sort
+                break
             except ValueError:
                 continue
         if not parsed:
             print(f"⚠️ Format de date invalide pour ID={doc_id} : '{date_str}'")
 
-# Suppression si nécessaire
+# Suppression et attente
 if ids_to_delete:
     print(f"🗑️ Suppression de {len(ids_to_delete)} document(s)...")
-    delete_response = index.delete_documents(ids_to_delete)
-    print("✅ Suppression lancée. Réponse Meili:", delete_response)
+    delete_task = index.delete_documents(ids_to_delete)
+    client.wait_for_task(delete_task.task_uid)  # attendre la fin
+    print("✅ Suppression terminée.")
 else:
-    print("✅ Aucun document à supprimer dans l'intervalle spécifié.")
-result = index.search("", {"limit": 1})
-print("Nombre réel de documents :", result["estimatedTotalHits"])
+    print("✅ Aucun document à supprimer.")
+
+# Vérifier le nombre de documents après suppression
+check = index.search("", {"limit": 1})
+print("📊 Nombre réel de documents restants :", check["estimatedTotalHits"])
