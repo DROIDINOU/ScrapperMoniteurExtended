@@ -15,7 +15,7 @@ index = client.index(INDEX_NAME)
 # Formats de date
 DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d"]
 start_date = datetime.strptime("01/06/2025", "%d/%m/%Y")
-end_date = datetime.strptime("02/08/2025", "%d/%m/%Y")
+end_date = datetime.strptime("05/08/2025", "%d/%m/%Y")
 
 # Récupérer tous les documents
 result = index.search("", {"limit": 3000})
@@ -51,3 +51,25 @@ else:
 # Vérifier le nombre de documents après suppression
 check = index.search("", {"limit": 1})
 print("📊 Nombre réel de documents restants :", check["estimatedTotalHits"])
+
+r"""from dotenv import load_dotenv
+import os
+
+# Charger les variables d'environnement
+load_dotenv()
+MEILI_URL = os.getenv("MEILI_URL")
+MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
+INDEX_NAME = os.getenv("INDEX_NAME")
+
+# Connexion au client Meilisearch
+client = meilisearch.Client(MEILI_URL, MEILI_KEY)
+index = client.index(INDEX_NAME)
+
+# Supprimer tous les documents
+print(f"🗑️ Suppression de tous les documents dans l'index '{INDEX_NAME}'...")
+task = index.delete_all_documents()
+
+# Attendre que la tâche soit terminée
+client.wait_for_task(task.task_uid)
+print("✅ Tous les documents ont été supprimés.")
+"""

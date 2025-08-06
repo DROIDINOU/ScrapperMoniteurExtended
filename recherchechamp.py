@@ -1,7 +1,16 @@
+# --- Imports standards ---
+import os
+# --- Bibliothèques tierces ---
+from dotenv import load_dotenv
 import meilisearch
 
+# --- Chargement des variables d'environnement ---
+load_dotenv()
+MEILI_URL = os.getenv("MEILI_URL")
+MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
+INDEX_NAME = os.getenv("INDEX_NAME")
 # Connexion à MeiliSearch
-client = meilisearch.Client(MEILI_URL, MEILI_MASTER_KEY)
+client = meilisearch.Client(MEILI_URL, MEILI_KEY)
 index = client.index("moniteur_documents")
 
 # Nombre total de docs
@@ -32,7 +41,7 @@ docs_sans = []
 
 for doc in all_docs:
     doc_id = doc.get("id")
-    adresse = doc.get("adresse")
+    adresse = doc.get("extra_keyword")
 
     if adresse is None:
         docs_sans.append(doc)
