@@ -92,3 +92,11 @@ with open(CORRECTIONS_CSV, "a", newline="", encoding="utf-8") as csvfile:
                     index.update_documents([{"id": doc_id, "extra_keyword": nouveau_keyword}])
                     print("✅ extra_keyword inséré.")
 
+                # 🔹 Vérification et correction du champ administrateur
+                if not doc_data.get("administrateur"):
+                    print(f"\n📌 ID sans administrateur: {doc_id}")
+                    print(f"Titre : {doc_data.get('titre', '[Pas de titre]')}")
+                    nouveau_admin = input("Nouvel administrateur : ").strip()
+                    index.update_documents([{"id": doc_id, "administrateur": nouveau_admin}])
+                    print("✅ administrateur inséré.")
+

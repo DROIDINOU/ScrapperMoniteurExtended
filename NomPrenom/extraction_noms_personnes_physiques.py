@@ -1,6 +1,107 @@
-from bs4 import BeautifulSoup
 import re
+import unicodedata
 
+
+def nettoyer_noms_avances(noms, longueur_max=80):
+    """
+    Nettoie une liste de noms :
+    - Extrait les noms à partir d'expressions du type "pour la succession de NOM"
+    - Supprime les titres et doublons
+    - Normalise pour éviter les répétitions ou versions tronquées
+    """
+
+    titres_regex = r"\b(madame|monsieur|mme|mr)\b[\s\-]*"
+    deja_vus = set()
+    noms_filtres = []
+
+    def extraire_nom_depuis_phrase(nom):
+        # Patterns possibles
+        patterns = [
+            r"pour la succession de\s+(.*)",
+            r"en possession de la succession de\s+(.*)",
+            r"succession de\s+(.*)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, nom, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        return nom.strip()
+
+def nettoyer_noms_avances(noms, longueur_max=80):
+    """
+    Nettoie une liste de noms :
+    - Extrait les noms à partir d'expressions du type "pour la succession de NOM"
+    - Supprime les titres et doublons
+    - Normalise pour éviter les répétitions ou versions tronquées
+    - Supprime les entrées contenant des termes comme "la personne"
+    """
+
+    titres_regex = r"\b(madame|monsieur|mme|mr)\b[\s\-]*"
+    deja_vus = set()
+    noms_filtres = []
+
+    # Termes à ignorer
+    termes_ignores = ["la personne", "personne", "Par ordonnance", "de la"]
+
+    def extraire_nom_depuis_phrase(nom):
+        # Patterns possibles
+        patterns = [
+            r"pour la succession de\s+(.*)",
+            r"en possession de la succession de\s+(.*)",
+            r"succession de\s+(.*)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, nom, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        return nom.strip()
+
+    def nettoyer_et_normaliser(nom):
+        nom = extraire_nom_depuis_phrase(nom)
+
+        # Supprimer les titres
+        nom = re.sub(titres_regex, '', nom, flags=re.IGNORECASE)
+
+        # Inversion "NOM, Prénom"
+        if ',' in nom:
+            parts = [p.strip() for p in nom.split(',')]
+            if len(parts) == 2:
+                nom = f"{parts[1]} {parts[0]}"
+
+        # Supprimer accents
+        nom_normalise = ''.join(
+            c for c in unicodedata.normalize('NFD', nom)
+            if unicodedata.category(c) != 'Mn'
+        ).lower().strip()
+
+        nom_normalise = re.sub(r'\s+', ' ', nom_normalise)
+        nom = re.sub(r'\s+', ' ', nom).strip()
+
+        return nom, nom_normalise
+
+    noms_nettoyes = []
+    noms_normalises = []
+
+    for nom in noms:
+        # Ignorer les noms contenant des termes comme "la personne"
+        if any(terme in nom.lower() for terme in termes_ignores):
+            continue
+
+        if len(nom) > longueur_max:
+            continue
+
+        nom_nettoye, norm = nettoyer_et_normaliser(nom)
+
+        if len(nom_nettoye.split()) < 2:
+            continue
+
+        if any(norm == exist or norm in exist or exist in norm for exist in noms_normalises):
+            continue
+
+        noms_nettoyes.append(nom_nettoye)
+        noms_normalises.append(norm)
+
+    return noms_nettoyes
 
 def extract_name_before_birth(texte_html):
     from bs4 import BeautifulSoup
@@ -10,55 +111,6 @@ def extract_name_before_birth(texte_html):
     full_text = soup.get_text(separator=" ").strip()
     nom_list = []
 
-#______________________________________________________________________________________________________
-
-    #                       *******************  SOCIETES *****************************
-
-#_____________________________________________________________________________________________________
-
-    # 🔹 Cherche un nom de société (en majuscules) dans les 40 caractères suivant "ouverture de la faillite"
-    match_faillite_societe = re.findall(
-        r"ouverture\s+de\s+la\s+faillite\s*:?\s*.{0,40}?\b([A-Z0-9&.\-'\s]{2,})\b",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for nom_societe in match_faillite_societe:
-        nom_list.append(nom_societe.strip())
-
-    # 🔹 Cherche un nom de société (en majuscules) dans les 40 caractères suivant "réorganisation judiciaire de"
-    match_reorg_societe = re.findall(
-        r"réorganisation\s+judiciaire\s+de\s*:?\s*.{0,40}?\b([A-Z0-9&.\-'\s]{2,})\b",
-        full_text  # pas de flags=re.IGNORECASE pour rester en majuscules strictes
-    )
-    for nom_societe in match_reorg_societe:
-        nom_list.append(nom_societe.strip())
-
-    # 🔹 Cherche un nom de société dans les 40 caractères suivant "a condamné"
-    match_condamne_societe = re.findall(
-        r"a\s+condamné\s*:?\s*.{0,40}?\b([A-Z0-9&.\-'\s]{2,})\b",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for nom_societe in match_condamne_societe:
-        nom_list.append(nom_societe.strip())
-
-    # 🔹 Extrait un nom de société en majuscules après "dissolution" (éventuellement "judiciaire"), dans les 30 caractères suivants
-    match_dissolution = re.findall(
-        r"dissolution(?:\s+judiciaire)?[^A-Za-z0-9]{0,5}.{0,40}?\b([A-Z][A-Z0-9\.\-& ]{2,})",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom_societe in match_dissolution:
-        nom_list.append(nom_societe.strip())
-
-    # 🔹 Cherche un nom de société après "clôture de [la liquidation :]", dans les 30 caractères suivants
-    match_cloture = re.findall(
-        r"clôture\s+de\s+(?:la\s+liquidation\s*:\s*)?.{0,40}?\b([A-Z][A-Z0-9&\.\- ]{2,})\b",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for nom_societe in match_cloture:
-        nom_list.append(nom_societe.strip())
 
     # ______________________________________________________________________________________________________
 
@@ -101,6 +153,15 @@ def extract_name_before_birth(texte_html):
     )
     for nom in match_curateur_sv:
         nom_list.append(nom.strip())
+    # Cas : "succession en déshérence de NOM, Prénom(s)"
+    match_nom_virgule_prenom = re.findall(
+        r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-\s]+)",
+        full_text,
+        re.IGNORECASE
+    )
+    for nom, prenoms in match_nom_virgule_prenom:
+        nom_complet = f"{nom.strip()}, {prenoms.strip()}"
+        nom_list.append(nom_complet)
 
     match_feu_succession = re.findall(
         r"(?:succession\s+de\s+feu|à\s+la\s+succession\s+de\s+feu).{0,30}?(?:M(?:onsieur)?|Madame)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)[,\s]+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
@@ -702,10 +763,13 @@ def extract_name_before_birth(texte_html):
     for prenom, nom in match_sv_monsieur:
         nom_complet = f"{nom.strip()}, {prenom.strip()}"
         nom_list.append(nom_complet)
+    # Expression régulière pour capturer le nom complet avant "né à"
+    match_noms_complets = re.findall(
+        r"((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+){1,6}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),?\s+(né|née|né\(e\))\s+à",
+        full_text,
+        re.IGNORECASE
+    )
+    for nom_complet, _ in match_noms_complets:
+        nom_list.append(nom_complet.strip())
 
-    noms_uniques = []
-    for nom in nom_list:
-        if nom not in seen:
-            noms_uniques.append(nom)
-            seen.add(nom)
-    return noms_uniques
+    return nettoyer_noms_avances(nom_list)

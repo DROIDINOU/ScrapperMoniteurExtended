@@ -1,75 +1,39 @@
+r"""
+from meilisearch import Client
+
+# Connexion à Meilisearch
+client = Client("http://127.0.0.1:7700")
+
+# Nom de ton index
+index_name = "moniteur_documents"
+
+# Récupération de l'index
+index = client.get_index(index_name)
+
+# Suppression complète de l'index
+response = index.delete()
+
+print("Suppression de l'index lancée. Task UID:", response.task_uid)
+
+# Attendre la fin de la tâche
+client.wait_for_task(response.task_uid)
+
+print(f"L'index '{index_name}' a été supprimé définitivement.")"""
+
 import meilisearch
-from datetime import datetime
-from dotenv import load_dotenv
-import os
 
-load_dotenv()
-MEILI_URL = os.getenv("MEILI_URL")
-MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
-INDEX_NAME = os.getenv("INDEX_NAME")
+# Connecte-toi à MeiliSearch
+client = meilisearch.Client("http://127.0.0.1:7700")
 
-# Connexion
-client = meilisearch.Client(MEILI_URL, MEILI_KEY)
-index = client.index(INDEX_NAME)
+# Accède à l'index
+index = client.get_index('moniteur_documents')
 
-# Formats de date
-DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d"]
-start_date = datetime.strptime("01/06/2025", "%d/%m/%Y")
-end_date = datetime.strptime("05/08/2025", "%d/%m/%Y")
+# Recherche tous les documents où le champ 'date' est vide
+result = index.search("", filters="date=''", attributes_to_retrieve=['id', 'date'])
 
-# Récupérer tous les documents
-result = index.search("", {"limit": 3000})
-ids_to_delete = []
+# Récupérer les ids des documents avec une date vide
+documents_with_empty_date = [doc['id'] for doc in result['hits']]
 
-for doc in result["hits"]:
-    doc_id = doc.get("id")
-    date_str = doc.get("date_document")
+# Afficher les ids récupérés
+print(f"ID des documents avec 'date' vide : {documents_with_empty_date}")
 
-    if doc_id and date_str:
-        parsed = False
-        for fmt in DATE_FORMATS:
-            try:
-                doc_date = datetime.strptime(date_str, fmt)
-                parsed = True
-                if start_date <= doc_date <= end_date:
-                    ids_to_delete.append(doc_id)
-                break
-            except ValueError:
-                continue
-        if not parsed:
-            print(f"⚠️ Format de date invalide pour ID={doc_id} : '{date_str}'")
-
-# Suppression et attente
-if ids_to_delete:
-    print(f"🗑️ Suppression de {len(ids_to_delete)} document(s)...")
-    delete_task = index.delete_documents(ids_to_delete)
-    client.wait_for_task(delete_task.task_uid)  # attendre la fin
-    print("✅ Suppression terminée.")
-else:
-    print("✅ Aucun document à supprimer.")
-
-# Vérifier le nombre de documents après suppression
-check = index.search("", {"limit": 1})
-print("📊 Nombre réel de documents restants :", check["estimatedTotalHits"])
-
-r"""from dotenv import load_dotenv
-import os
-
-# Charger les variables d'environnement
-load_dotenv()
-MEILI_URL = os.getenv("MEILI_URL")
-MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
-INDEX_NAME = os.getenv("INDEX_NAME")
-
-# Connexion au client Meilisearch
-client = meilisearch.Client(MEILI_URL, MEILI_KEY)
-index = client.index(INDEX_NAME)
-
-# Supprimer tous les documents
-print(f"🗑️ Suppression de tous les documents dans l'index '{INDEX_NAME}'...")
-task = index.delete_all_documents()
-
-# Attendre que la tâche soit terminée
-client.wait_for_task(task.task_uid)
-print("✅ Tous les documents ont été supprimés.")
-"""

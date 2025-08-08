@@ -29,11 +29,15 @@ from tqdm import tqdm
 
 # --- Modules internes au projet ---
 from logger_config import setup_logger, setup_fallback3_logger
-from extraction_noms import extract_name_before_birth
+from NomPrenom.extraction_noms_personnes_physiques import extract_name_before_birth
 from extract_adresses_entreprises import extract_add_entreprises
 from extraction_adresses_moniteur import extract_address
 from extraction_nom_entreprises import extract_noms_entreprises
-from extraction_administrateurs import extract_administrateur
+from Gerant.extraction_administrateurs import extract_administrateur
+from Keyword.tribunal_entreprise_keyword import detect_tribunal_entreprise_keywords
+from Keyword.justice_paix_keyword import detect_justice_paix_keywords
+from NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
+from MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte, chemin_csv
 
 # --- Configuration du logger ---
 logger = setup_logger("extraction", level=logging.DEBUG)
@@ -54,8 +58,8 @@ assert len(sys.argv) == 2, "Usage: python testMoniteurB.py \"mot+clef\""
 keyword = sys.argv[1]
 
 # a JOUR 1/8/2025
-from_date = date.fromisoformat("2025-07-01")
-to_date = "2025-07-10"  # date.today()
+from_date = date.fromisoformat("2025-06-20")
+to_date = "2025-07-20"  # date.today()
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -855,6 +859,20 @@ def detect_societe_title(title: str) -> bool:
 
     return False
 
+def clean_date_jugement(raw):
+    """
+    Extrait uniquement la date au format '16 juin 2025'
+    et ignore ce qui suit (points, texte...).
+    """
+    mois = (
+        "janvier|février|mars|avril|mai|juin|juillet|août|"
+        "septembre|octobre|novembre|décembre"
+    )
+    pattern_date = rf"\b\d{{1,2}}\s+(?:{mois})\s+\d{{4}}\b"
+    match = re.search(pattern_date, raw, flags=re.IGNORECASE)
+    if match:
+        return match.group(0).strip()
+    return None
 
 def extract_clean_text(soup):
     """
@@ -1215,7 +1233,6 @@ def convert_pdf_pages_to_text_range(pdf_url, start_page_index, page_count=6):
 
 def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, title, subtitle):
     response = retry(url, session)
-    print (f"bon c est quoi date doc bordelllllllllllllllllllllllllllllllllllllllllllllllllll{date_doc}")
     soup = BeautifulSoup(response.text, 'html.parser')
     extra_keywords = []
     extra_links = []
@@ -1224,7 +1241,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     if not main:
         return (
             numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
-            None, None, None)
+            None, None, None, None)
 
     texte_brut = extract_clean_text(main)
     # if re.search(r"statuant", texte_brut, flags=re.IGNORECASE):
@@ -1235,14 +1252,14 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     administrateur = None
     nom_trib_entreprise = None
     date_deces = None
+    nom_interdit = None
     doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
     if detect_erratum(texte_brut):
         extra_keywords.append("erratum")
 
     # Cas spécial : TERRORISME
     if re.search(r"terrorisme", keyword, flags=re.IGNORECASE):
-        print("🔍 Détection d’un document lié au terrorisme.")
-
+        # print("🔍 Détection d’un document lié au terrorisme.")
         # 🔎 Extraction directe depuis le texte HTML (dans certains cas ça suffit)
         pattern = r"(\d+)[,\.]\s*([A-Za-z\s]+)\s*\(NRN:\s*(\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2})\)"
         matches = re.findall(pattern, texte_brut)
@@ -1253,7 +1270,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         if noms_paires:
             return (
                 numac, date_doc, langue, texte_brut, url, keyword,
-                None, title, subtitle, noms_paires, None, None, None, None, None, None, None, None
+                None, title, subtitle, noms_paires, None, None, None, None, None, None, None, None, None, None
             )
 
         # Sinon, OCR fallback
@@ -1274,7 +1291,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 noms_ocr = [(name.strip(), nn.strip()) for _, name, nn in ocr_matches]
                 return (
                     numac, date_doc, langue, texte_brut, url, keyword,
-                    None, title, subtitle, noms_ocr, None, None, None, None, None, nom_trib_entreprise, None, None, None
+                    None, title, subtitle, noms_ocr, None, None, None, None, None, nom_trib_entreprise, None, None, None, None
                 )
             else:
                 print("⚠️ Texte OCR vide.")
@@ -1300,7 +1317,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             extra_keywords.append("acceptation_sous_benefice_inventaire")
 
     if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
-        print(keyword)
+
         if re.search(r"\bsuccession[s]?", texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("succession")
             print(texte_brut)
@@ -1454,201 +1471,19 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             print("❌ 'rendu par' non trouvé")
 
     if re.search(r"justice\s+de\s+paix", keyword.replace("+", " "), flags=re.IGNORECASE):
-        if re.search(r"\b[dD]ésignation\b", texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("designation_justice_de_paix")
-        elif re.search(r"\b[nN]omm(e|é|ée)\b", texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("nomination_justice_de_paix")
-        elif re.search(r"\b[rR]emplacement\b", texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("remplacement_justice_de_paix")
-        elif re.search(r"\b[Mm]ainlevée\b", texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("mainlevée_justice_de_paix")
-        elif re.search(r"\b[fF]in\s+aux\s+mesures\b", texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("fin_aux_mesures_justice_de_paix")
-        if re.search(r"curateur(?:\s+aux\s+meubles)?", texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("curateur_aux_meubles_justice_de_paix")
+        administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
+                                                     ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
+        detect_justice_paix_keywords(texte_brut, extra_keywords)
 
     if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
 
         nom = None  # à vérifier si nécessaire
+        # verifier a quoi sert id ici
+        nom_interdit = extraire_personnes_interdites(texte_brut) # va falloir deplacer dans fonction ?
         nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
         administrateur = extract_administrateur(texte_brut)
         adresse = extract_add_entreprises(texte_brut, doc_id=doc_id)
-
-        # --- FAILLITE ---
-        pattern_ouverture = r"\bouverture\s+de\s+la\s+faillite\b"
-        pattern_faillite = r"faillite"
-        pattern_rapporte = r"\brapporte\s+(la\s+)?faillite(s)?(\s+\w+)?"
-        pattern_effacement = r"\beffacement\s+de\s+la\s+faillite\s+de\b[.:]?\s*"
-
-        # --- LIQUIDATION ---
-        pattern_liquidation = r"\bliquidations?\b"
-        pattern_liquidation_bis = r"\bliquidation(?:s)?\s*de\b"
-        pattern_ouverture_liquidation_judiciaire = (
-            r"\bouverture\s+de\s+la\s+procédure\s+de\s+liquidation\s+judiciaire(?:\s+immédiate)?\b"
-        )
-
-        # --- DISSOLUTION ---
-        pattern_cloture_dissolution_judiciaire = (r"\bcl[oô]ture\s+de\s+la\s+dissolution\s+judiciaire\b")
-        pattern_ouverture_dissolution_judiciaire = (r"\bouverture\s+de\s+la\s+dissolution\s+judiciaire\b")
-        pattern_dissolution_judiciaire_generique = (r"\bdissolution\s+judiciaire\b")
-        pattern_dissolution_judiciaire_ultra_generique = (r"\bdissolution\b")
-        # --- REORGANISATION JUDICIAIRE ---
-        pattern_revocation_plan_reorganisation_judiciaire = r"révocation\s+du\s+plan\s+de\s+réorganisation\s+judiciaire"
-        pattern_reorg_generique = r"\bréorganisation\s+judiciaire\s+de\b"
-        pattern_ouverture_reorg = r"\bouverture\s+de\s+la\s+réorganisation\s+judiciaire\b"
-        pattern_prorogation_reorg = r"\bprorogation\s+du\s+sursis\s+de\s+la\s+réorganisation\s+judiciaire\b"
-        pattern_nouveau_plan_reorg = r"\bautorisation\s+de\s+d[ée]p[oô]t\s+d['’]un\s+nouveau\s+plan\s+de\s+la\s+réorganisation\s+judiciaire\b"
-        pattern_accord_collectif = r"réorganisation\s+judiciaire\s+par\s+accord\s+collectif"
-
-        # --- TRANSFERT SOUS AUTORITE DE JUSTICE ---
-        pattern_ouverture_transfert = (
-            r"\bouverture\s+du\s+transfert\s+sous\s+autorit[ée]\s+judiciaire(?:\s+\w+)?"
-        )
-        pattern_ouverture_transfert_bis = (
-            r"ouverture\s+du\s+transfert\s+sous\s+autorit(?:é|e)\s+judiciaire"
-        )
-
-        # --- information sur l'état de la procédure       ---
-        pattern_administrateur_provisoire = r"administrateur\s+provisoire\s+d[ée]sign[ée]?"
-        pattern_cloture = r"\b[cC](l[oô]|olo)ture\b"
-        pattern_cloture_insuffisance_actif = r"\binsuffisance\s+d[’'\s]?actif\b"
-        pattern_prolongation_administrateur_provisoire = (
-            r"\bprolong\w*\s+le\s+mandat\b.{0,120}?\badministrateur\s+provisoire\b"
-        )
-        pattern_designation_mandataire = (
-            r"application\s+de\s+l['’]?art\.?\s*XX\.?(2\d{1,2}|3\d{1,2})\s*CDE"
-        )
-        pattern_delai_modere = r"(?i)(délais?\s+modérés?.{0,80}article\s+5[.\s\-]?201)"
-        pattern_homologation_plan = r"\bhomologation\s+du\s+plan\s+de\b"
-        pattern_homologation_accord = r"\bhomologation\s+de\s+l[’']accord\s+amiable\s+de\b"
-        pattern_rapporte_bis = r"\best\s+rapportée(s)?(\s+.*)?"
-        pattern_effacement_partiel = r"(?:\b[lL]['’]?\s*)?[eé]ffacement\s+partiel\b"
-        pattern_excusabilite = r"\ble\s+failli\s+est\s+déclaré\s+excusable\b[\.]?\s*"
-        pattern_effacement_ter = r"(l['’]?\s*)?effacement\s+(est\s+)?accordé"
-        pattern_sans_effacement = r"\bsans\s+effacement\s+de\s+la\s+faillite\s+de\b[.:]?\s*"
-        pattern_effacement_bis = r"\boctroie\s+l['’]effacement\s+à\b[.:]?\s*"
-        pattern_interdiction = (
-            r"\b(interdit[ée]?|interdiction).{0,150}?"
-            r"\b(exploiter|exercer|diriger|gérer|administrer).{0,100}?"
-            r"\b(entreprise|fonction|personne\s+morale|société)\b"
-        )
-        pattern_remplacement_administrateur = (
-            r"(curateur|liquidateur|administrateur).*?remplac[ée]?(?:\s+à\s+sa\s+demande)?\s+par"
-        )
-        pattern_remplacement_juge_commissaire = r"est\s+remplac[ée]?\s+par\s+le\s+juge\s+commissaire"
-        pattern_remplacement_juge_commissaire_bis = (
-            r"est\s+remplac[ée]?\s+par\s+(le|les)\s+juges?\s+commissaires?"
-        )
-
-        pattern_report_cessation_paiement = r"report[\s\w,.'’():\-]{0,80}?cessation\s+des\s+paiements"
-
-        if re.search(pattern_rapporte, texte_brut, flags=re.IGNORECASE) or re.search(pattern_rapporte_bis, texte_brut,
-                                                                                     flags=re.IGNORECASE):
-            extra_keywords.append("rapporte_faillite_tribunal_de_l_entreprise")
-        else:
-            if re.search(r"\b[dD]ésignation\b", texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("designation_tribunal_de_l_entreprise")
-
-            if re.search(pattern_cloture, texte_brut, flags=re.IGNORECASE):
-                if re.search(pattern_cloture_insuffisance_actif, texte_brut, flags=re.IGNORECASE):
-                    extra_keywords.append("cloture_insuffisance_actif_tribunal_de_l_entreprise")
-                if re.search(pattern_cloture_dissolution_judiciaire, texte_brut, flags=re.IGNORECASE):
-                    extra_keywords.append("cloture_dissolution_tribunal_de_l_entreprise")
-                if re.search(pattern_dissolution_judiciaire_ultra_generique, texte_brut, flags=re.IGNORECASE):
-                    extra_keywords.append("cloture_dissolution_tribunal_de_l_entreprise")
-                if re.search(pattern_faillite, texte_brut, flags=re.IGNORECASE):
-                    extra_keywords.append("cloture_faillite_tribunal_de_l_entreprise")
-                elif re.search(pattern_liquidation, texte_brut, flags=re.IGNORECASE):
-                    extra_keywords.append("cloture_liquidation_tribunal_de_l_entreprise")
-            # rajouter else ici? 1b8a3b9f6d69a6ed271a5b1fabceaff959aeaff8150df0ce8a53fd11bd2e581d
-            if re.search(pattern_dissolution_judiciaire_generique, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("dissolution_judiciaire_tribunal_de_l_entreprise")
-            if re.search(pattern_ouverture_dissolution_judiciaire, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("ouverture_dissolution_judiciaire_tribunal_de_l_entreprise")
-            if re.search(pattern_ouverture_liquidation_judiciaire, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("ouverture_liquidation_judiciaire_tribunal_de_l_entreprise")
-            if re.search(pattern_designation_mandataire, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("designation_mandataire_tribunal_de_l_entreprise")
-            if re.search(pattern_liquidation_bis, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("liquidation_tribunal_de_l_entreprise")
-            if re.search(pattern_delai_modere, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("delai_modere_tribunal_de_l_entreprise")
-
-            if re.search(pattern_ouverture, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("ouverture_faillite_tribunal_de_l_entreprise")
-            elif re.search(pattern_ouverture_transfert, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise")
-            elif re.search(pattern_ouverture_transfert_bis, texte_brut.replace("\xa0", " "), flags=re.IGNORECASE):
-                extra_keywords.append("ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise")
-            if re.search(pattern_interdiction, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("interdiction_gestion_tribunal_de_l_entreprise")
-
-            # Effacement : priorité au refus, ensuite partiel, ensuite complet
-            if re.search(r"\b(?:\(?[eE]\)?[\s:\.-]*)?effacement\b", texte_brut, flags=re.IGNORECASE) and re.search(
-                    r"\brefus[ée]?\b", texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("effacement_refusé_tribunal_de_l_entreprise")
-            elif re.search(pattern_sans_effacement, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("sans_effacement_tribunal_de_l_entreprise")
-            elif re.search(pattern_effacement_partiel, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("effacement_partiel_tribunal_de_l_entreprise")
-            elif re.search(pattern_effacement, texte_brut, flags=re.IGNORECASE) or re.search(pattern_effacement_bis,
-                                                                                             texte_brut,
-                                                                                             flags=re.IGNORECASE) or re.search(
-                pattern_effacement_ter, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("effacement_tribunal_de_l_entreprise")
-
-            if re.search(pattern_remplacement_juge_commissaire, texte_brut, flags=re.IGNORECASE) or re.search(
-                    pattern_remplacement_juge_commissaire_bis, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("remplacement_juge_commissaire_tribunal_de_l_entreprise")
-            # Fallback intelligent, en tout dernier recours
-            elif re.search(pattern_remplacement_administrateur, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("remplacement_administrateur_tribunal_de_l_entreprise")
-
-            if re.search(pattern_prolongation_administrateur_provisoire, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("prolongation_administrateur_tribunal_de_l_entreprise")
-
-            # pas vraiment utile?
-            elif not any(k.startswith("cloture") or k.startswith("ouverture") for k in extra_keywords):
-                if re.search(
-                        r"(faillite\s+de\s*:?.{0,80}?(déclar[ée]e?|prononc[ée]e?))"
-                        r"|\bfaillite\b.{0,80}?(déclar[ée]e?|prononc[ée]e?)",
-                        texte_brut,
-                        flags=re.IGNORECASE
-                ):
-                    extra_keywords.append("ouverture_faillite_tribunal_de_l_entreprise")
-            if re.search(pattern_report_cessation_paiement, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("report_cessation_paiement_tribunal_de_l_entreprise")
-            # Réorganisations
-            reorg_tags = 0
-            if re.search(pattern_ouverture_reorg, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("ouverture_reorganisation_tribunal_de_l_entreprise")
-                reorg_tags += 1
-            if re.search(pattern_prorogation_reorg, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("prorogation_reorganisation_tribunal_de_l_entreprise")
-                reorg_tags += 1
-            if re.search(pattern_nouveau_plan_reorg, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("nouveau_plan_reorganisation_tribunal_de_l_entreprise")
-                reorg_tags += 1
-            if re.search(pattern_homologation_plan, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("homologation_plan_tribunal_de_l_entreprise")
-                reorg_tags += 1
-            elif re.search(pattern_homologation_accord, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("homologation_accord_amiable_tribunal_de_l_entreprise")
-                reorg_tags += 1
-            elif re.search(pattern_revocation_plan_reorganisation_judiciaire, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("revocation_plan_reorganisation_judicaire_tribunal_de_l_entreprise")
-                reorg_tags += 1
-
-            if re.search(pattern_reorg_generique, texte_brut, flags=re.IGNORECASE) and reorg_tags == 0:
-                extra_keywords.append("reorganisation_tribunal_de_l_entreprise")
-            if re.search(pattern_accord_collectif, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("reorganisation_judiciaire_par_accord_collectif_tribunal_de_l_entreprise")
-            # Autres
-            if re.search(pattern_administrateur_provisoire, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("administrateur_provisoire_tribunal_de_l_entreprise")
-            if re.search(pattern_excusabilite, texte_brut, flags=re.IGNORECASE):
-                extra_keywords.append("excusable_tribunal_de_l_entreprise")
-
+        detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
     tvas = extract_numero_tva(texte_brut)
     match_nn_all = re.findall(r'(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{2})[\s.\-]?(\d{3})[\s.\-]?(\d{2})', texte_brut)
     match_nn_all = extract_names_and_nns(texte_brut)
@@ -1657,7 +1492,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     return (
         numac, date_doc, langue, texte_brut, url, keyword,
         tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement, nom_trib_entreprise,
-        date_deces, extra_links, administrateur, doc_id
+        date_deces, extra_links, administrateur, doc_id, nom_interdit
     )
 
 
@@ -1728,12 +1563,12 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur"
+    "date_deces", "extra_links", "administrateur", "nom_interdit"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
-    "extra_links", "administrateur", "text", "url"
+    "extra_links", "administrateur", "text", "url", "nom_interdit"
 ])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
@@ -1742,6 +1577,10 @@ documents = []
 with requests.Session() as session:
     for record in tqdm(final, desc="Préparation Meilisearch"):
         cleaned_url = clean_url(record[4])
+        print(f"et ici ca devient quoi ce putain de nom_interdit?????????????????????????{record[19]}")
+        date_jugement = None  # Valeur par défaut si record[14] est None
+        if record[14] is not None:
+            date_jugement = clean_date_jugement(record[14])
         texte = record[3].strip()
         texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
         doc_hash = generate_doc_hash_from_html(record[3], record[1])  # ✅ Hash du texte brut + date
@@ -1761,11 +1600,12 @@ with requests.Session() as session:
             "nom": record[11],  # Ajout du champ nom extrait ici
             "date_naissance": record[12],  # Ajout du champ nom extrait ici
             "adresse": record[13],  # Ajout du champ nom extrait ici
-            "date_jugement": record[14],
+            "date_jugement": date_jugement,
             "nom_trib_entreprise": record[15],
             "date_deces": record[16],
             "extra_links": record[17],
             "administrateur": record[18],
+            "nom_interdit": record[20]
 
         }
         # rien a faire dans meili mettre dans postgre
@@ -1777,6 +1617,14 @@ with requests.Session() as session:
             if isinstance(record[9], list):
                 doc["nom_terrorisme"] = [pair[0] for pair in record[9] if len(pair) == 2]
                 doc["num_nat_terrorisme"] = [pair[1] for pair in record[9] if len(pair) == 2]
+
+                # ✅ Forcer administrateur à être une liste si ce n’est pas None
+        if isinstance(doc["administrateur"], str):
+                    doc["administrateur"] = [doc["administrateur"]]
+        elif doc["administrateur"] is None:
+                    doc["administrateur"] = None
+        elif not isinstance(doc["administrateur"], list):
+                    doc["administrateur"] = [str(doc["administrateur"])]
 
 
 # 🔪 Fonction pour tronquer tout texte après le début du récit
@@ -1945,7 +1793,8 @@ cur.execute("""
     nom_trib_entreprise TEXT,
     date_deces TEXT,
     extra_links TEXT,
-    administrateur TEXT  
+    administrateur TEXT,
+    nom_interdit TEXT 
 );
 """)
 
@@ -1975,9 +1824,9 @@ for doc in tqdm(documents, desc="PostgreSQL Insert"):
     cur.execute("""
     INSERT INTO moniteur_documents (
     date_doc, lang, text, url, doc_hash, keyword, tva, titre, subtitle, num_nat, extra_keyword,nom, 
-    date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur
+    date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, nom_interdit
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s, %s,%s,%s, %s)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s, %s,%s,%s, %s, %s)
 ON CONFLICT (doc_hash) DO NOTHING
 """, (
         doc["date_doc"],
@@ -1998,7 +1847,8 @@ ON CONFLICT (doc_hash) DO NOTHING
         doc["nom_trib_entreprise"],
         doc["date_deces"],
         doc.get("extra_links"),
-        doc["administrateur"]
+        doc["administrateur"],
+        doc["nom_interdit"]
     ))
 
 conn.commit()
