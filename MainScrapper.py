@@ -620,39 +620,45 @@ def extract_date_after_birthday(texte_html):
     return date_list
 """
 
-
 def extract_dates_after_decede(html):
     soup = BeautifulSoup(html, 'html.parser')
     date_list = []
 
     # Regex pour formats de date
     date_pattern = re.compile(
-        r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4}"  # ex: 01.09.2024 ou 01/09/2024
-        r"|\d{4}-\d{2}-\d{2}"  # ex: 2024-09-01
-        r"|\d{1,2}(?:er)?\s+[a-zéûîà]+\s+\d{4})",  # ex: 1er septembre 2024
+        r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4}"  # formats ex: 01.09.2024 ou 01/09/2024
+        r"|\d{4}-\d{2}-\d{2}"  # formats ex: 2024-09-01
+        r"|\d{1,2}(?:er)?\s+[a-zéûîà]+\s+\d{4})",  # formats ex: 1er septembre 2024
         re.IGNORECASE
     )
 
     total_detected = 0
     total_with_dates = 0
 
+    # Chercher tous les morceaux de texte dans le HTML
     for text in soup.stripped_strings:
-        match_decede = re.search(r"décéd[ée](?:\(e\))?", text, re.IGNORECASE)
-        if not match_decede:
-            continue
+        # Cherche toutes les occurrences de "décédé" ou des variantes dans le texte
+        matches_decede = re.finditer(r"décéd[eé](?:e|ée?)?", text, re.IGNORECASE)
 
-        total_detected += 1
-        start_pos = match_decede.end()
-        following_text = text[start_pos:start_pos + 60]
+        for match_decede in matches_decede:
+            total_detected += 1
+            start_pos = match_decede.end()  # Position du texte après "décédé"
+            following_text = text[start_pos:start_pos + 60]  # Limiter à 60 caractères après le mot "décédé"
 
-        matches = date_pattern.findall(following_text)
-        cleaned_matches = [date.strip() for date in matches]
+            # Extraire les dates après "décédé"
+            matches = date_pattern.findall(following_text)
+            cleaned_matches = [date.strip() for date in matches]
 
-        if cleaned_matches:
-            total_with_dates += 1
-            date_list.extend(cleaned_matches)
+            # Ajouter les dates valides à la liste
+            for date in cleaned_matches:
+                date_list.append(date)  # Utilisation de append() pour ajouter chaque date individuellement
+
+    # Debugging: Vérifier si date_list est bien une liste et contient des données
+    print(f"Total de dates trouvées : {total_with_dates}")
+    print(f"Liste des dates extraites : {date_list}")
 
     return date_list
+
 
 
 def extract_date_after_birthday(texte_html):
@@ -1309,7 +1315,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
         date_deces = extract_dates_after_decede(str(texte_brut))
-        date_deces = ", ".join(date_deces) if date_deces else None
+        #date_deces = ", ".join(date_deces) if date_deces else None PLUS NECESSAIRE VU QUE LISTE A VERIFIER
         adresse = extract_address(str(main))
         if re.search(r"\bdéshérence", texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("déshérence")
