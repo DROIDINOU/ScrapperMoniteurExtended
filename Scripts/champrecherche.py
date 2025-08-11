@@ -228,6 +228,7 @@ st.markdown(f"Documents sans nom interdit : {len(docs_sans_nom_interdit)} <span 
 show_results(docs_sans_date_naissance, "Documents SANS date de naissance")
 show_results(docs_sans_date_deces, "Documents SANS date de décès")
 show_results(docs_sans_adresse, "Documents SANS adresse")
+show_results(docs_sans_nom, "Documents SANS nom")
 
 # --- Recherche spécifique pour "liquidateur" ---
 motifs = re.compile(r"\bliquidateur(s|\(s\))?\b", re.IGNORECASE)
