@@ -29,6 +29,8 @@ from tqdm import tqdm
 
 # --- Modules internes au projet ---
 from logger_config import setup_logger, setup_fallback3_logger
+from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBIS, MOISMAPBIS, \
+    ANNEEMAPBIS, EXCLUDEDSOURCES, SOCIETESABRV, SOCIETESFORMELLES
 from NomPrenom.extraction_noms_personnes_physiques import extract_name_before_birth
 from extract_adresses_entreprises import extract_add_entreprises
 from extraction_adresses_moniteur import extract_address
@@ -38,6 +40,7 @@ from Keyword.tribunal_entreprise_keyword import detect_tribunal_entreprise_keywo
 from Keyword.justice_paix_keyword import detect_justice_paix_keywords
 from NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
 from MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte, chemin_csv
+from Utilitaire.ConvertDateToMeili import convertir_date
 
 # --- Configuration du logger ---
 logger = setup_logger("extraction", level=logging.DEBUG)
@@ -58,22 +61,12 @@ assert len(sys.argv) == 2, "Usage: python testMoniteurB.py \"mot+clef\""
 keyword = sys.argv[1]
 
 # a JOUR 1/8/2025
-from_date = date.fromisoformat("2025-06-20")
-to_date = "2025-07-20"  # date.today()
+from_date = date.fromisoformat("2025-01-01")
+to_date = "2025-8-11"  # date.today()
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-VILLE_TRIBUNAUX = [
-    "Bruxelles", "Charleroi", "Mons", "Namur", "Liège", "Huy",
-    "Tournai", "Neufchâteau", "Marche-en-Famenne", "Arlon", "Dinant", "Eupen", "Nivelles", "Verviers"
-]
-
-escaped_villes = [re.escape(v) for v in VILLE_TRIBUNAUX]
-
-# Joindre avec |
-villes = "|".join(escaped_villes)
 
 
 def generate_doc_id_from_metadata(url, date_doc):
@@ -83,35 +76,11 @@ def generate_doc_id_from_metadata(url, date_doc):
 
 
 def extract_date_after_rendu_par(texte_brut):
-    jour_map = {
-        'premier': 1, 'un': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5, 'six': 6,
-        'sept': 7, 'huit': 8, 'neuf': 9, 'dix': 10, 'onze': 11, 'douze': 12, 'treize': 13,
-        'quatorze': 14, 'quinze': 15, 'seize': 16, 'dix-sept': 17, 'dix-huit': 18,
-        'dix-neuf': 19, 'vingt': 20, 'vingt-et-un': 21, 'vingt-deux': 22, 'vingt-trois': 23,
-        'vingt-quatre': 24, 'vingt-cinq': 25, 'vingt-six': 26, 'vingt-sept': 27,
-        'vingt-huit': 28, 'vingt-neuf': 29, 'trente': 30, 'trente-et-un': 31
-    }
-
-    mois_map = {
-        'janvier': '01', 'février': '02', 'mars': '03', 'avril': '04',
-        'mai': '05', 'juin': '06', 'juillet': '07', 'août': '08',
-        'septembre': '09', 'octobre': '10', 'novembre': '11', 'décembre': '12'
-    }
-
-    annee_map = {
-        'deux mille vingt': '2020',
-        'deux mille vingt et un': '2021',
-        'deux mille vingt deux': '2022',
-        'deux mille vingt trois': '2023',
-        'deux mille vingt quatre': '2024',
-        'deux mille vingt cinq': '2025',
-        'deux mille vingt six': '2026'
-    }
 
     # 1️⃣ Format écrit en lettres
     match_lettres = re.search(
-        r"le\s+(" + "|".join(jour_map.keys()) + r")\s+(" + "|".join(
-            mois_map.keys()) + r")\s+((?:deux\s+mille(?:[\s\-]\w+){0,2}))",
+        r"le\s+(" + "|".join(JOURMAP.keys()) + r")\s+(" + "|".join(
+            MOISMAP.keys()) + r")\s+((?:deux\s+mille(?:[\s\-]\w+){0,2}))",
         texte_brut,
         flags=re.IGNORECASE
     )
@@ -120,12 +89,12 @@ def extract_date_after_rendu_par(texte_brut):
         mois_txt = match_lettres.group(2).lower()
         annee_txt = match_lettres.group(3).lower().replace("-", " ").strip()
 
-        jour = jour_map.get(jour_txt)
-        mois = mois_map.get(mois_txt)
-        annee = annee_map.get(annee_txt)
+        jour = JOURMAP.get(jour_txt)
+        mois = MOISMAP.get(mois_txt)
+        annee = ANNEMAP.get(annee_txt)
 
         if jour and mois and annee:
-            return f"{annee}-{mois}-{int(jour):02d}"
+            return f"{annee}-{mois}-{int(jour): 02d}"
 
     # 2️⃣ Format numérique classique : 18/12/2024, 18-12-2024, 18.12.2024
     match_numeric = re.search(r"\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b", texte_brut)
@@ -271,53 +240,6 @@ def extract_numero_tva(text: str, format_output: bool = False) -> list[str]:
     return [x for x in tvas if not (x in seen or seen.add(x))]
 
 
-r"""def extract_numero_tva(text: str, format_output: bool = False) -> list[str]:
-    Extrait les numéros de TVA belges valides (10 chiffres), avec ou sans séparateurs.
-    Exemples détectés : 1008.529.190, 0108 529 190, 0423456789, etc.
-
-    Args:
-        text (str): Texte brut contenant des numéros
-        format_output (bool): Si True → format 'XXXX.XXX.XXX', sinon 'XXXXXXXXXX'
-
-    Returns:
-        list[str]: Liste de TVA détectées
-    text = text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
-
-    # Matche exactement 10 chiffres, divisés en 4 + 3 + 3
-    pattern = r"\b(\d{4})[\s.\-]?(\d{3})[\s.\-]?(\d{3})\b"
-    matches = re.findall(pattern, text)
-
-    tvas = []
-    for a, b, c in matches:
-        raw = f"{a}{b}{c}"
-        if len(raw) == 10 and raw.isdigit():
-            tvas.append(f"{raw[:4]}.{raw[4:7]}.{raw[7:]}" if format_output else raw)
-
-    return tvas"""
-
-r"""
-def extract_name_before_birth(texte_html):
-    soup = BeautifulSoup(texte_html, 'html.parser')
-    nom_list = []
-    # Cherche toutes les balises <br>
-    for br in soup.find_all('br'):
-        text = br.previous_element.strip() if isinstance(br.previous_element, str) else ''
-
-        if text:
-            match = re.search(r"(.*?)\s*(né|née|,né|,née|né\(e\))\s*à", text, re.IGNORECASE)
-            if match:
-                nom_list.append(match.group(1).strip())
-            match_bis = re.search(r"([A-Za-z\s]+),\s*(né\(e\)?|née)\s*le\s*(\d{4}-\d{2}-\d{2})\s*à\s*([A-Za-z\s]+)", text, re.IGNORECASE)
-            if match_bis:
-                nom_list.append(match_bis.group(1).strip())
-            match_ter = re.search(r"([A-Za-z\s]+),\s*(né\(e\)?|née)\s*le\s*(\d{4}-\d{2}-\d{2})\s*à\s*([A-Za-z\s]+)", text, re.IGNORECASE)
-            if match_ter:
-                nom_list.append(match_ter.group(1).strip())
-
-    return nom_list
-    """
-
-
 def remove_footer_metadata(text):
     """
     Supprime les liens bas de page du Moniteur belge (PDF, copier le lien, haut de page…).
@@ -336,34 +258,13 @@ def convert_french_text_date_to_numeric(text_date):
     Convertit une date en lettres (ex : 'trente mai deux mil vingt-trois')
     en format '30 mai 2023'
     """
-    jour_map = {
-        'premier': 1, 'un': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5, 'six': 6,
-        'sept': 7, 'huit': 8, 'neuf': 9, 'dix': 10, 'onze': 11, 'douze': 12,
-        'treize': 13, 'quatorze': 14, 'quinze': 15, 'seize': 16, 'dix-sept': 17,
-        'dix-huit': 18, 'dix-neuf': 19, 'vingt': 20, 'vingt-et-un': 21, 'vingt-deux': 22,
-        'vingt-trois': 23, 'vingt-quatre': 24, 'vingt-cinq': 25, 'vingt-six': 26,
-        'vingt-sept': 27, 'vingt-huit': 28, 'vingt-neuf': 29, 'trente': 30, 'trente-et-un': 31
-    }
-
-    mois_map = {
-        'janvier': 'janvier', 'février': 'février', 'mars': 'mars', 'avril': 'avril',
-        'mai': 'mai', 'juin': 'juin', 'juillet': 'juillet', 'août': 'août',
-        'septembre': 'septembre', 'octobre': 'octobre', 'novembre': 'novembre', 'décembre': 'décembre'
-    }
-
-    annee_map = {
-        'deux mil vingt-trois': '2023', 'deux mille vingt-trois': '2023',
-        'deux mil vingt-quatre': '2024', 'deux mille vingt-quatre': '2024',
-        'deux mil vingt-cinq': '2025', 'deux mille vingt-cinq': '2025'
-        # Ajouter plus de combinaisons si besoin
-    }
 
     words = text_date.lower().strip().split()
 
     # Créer une date si les 3 parties sont reconnaissables
-    jour = next((v for k, v in jour_map.items() if k in text_date), None)
-    mois = next((v for k, v in mois_map.items() if k in text_date), None)
-    annee = next((v for k, v in annee_map.items() if k in text_date), None)
+    jour = next((v for k, v in JOURMAPBIS.items() if k in text_date), None)
+    mois = next((v for k, v in MOISMAPBIS.items() if k in text_date), None)
+    annee = next((v for k, v in ANNEEMAPBIS.items() if k in text_date), None)
 
     if jour and mois and annee:
         return f"{jour} {mois} {annee}"
@@ -479,7 +380,7 @@ def extract_jugement_date(text):
         return match_jugement_intro.group(1).strip()
 
     match_ville_date_fin = re.search(
-        rf"\.{{0,5}}\s*(?:{villes})\b[^a-zA-Z0-9]{{1,5}}le\s+(\d{{1,2}}(?:er)?\s+\w+\s+\d{{4}})\.",
+        rf"\.{{0,5}}\s*(?:{VILLES})\b[^a-zA-Z0-9]{{1,5}}le\s+(\d{{1,2}}(?:er)?\s+\w+\s+\d{{4}})\.",
         text[-300:],
         flags=re.IGNORECASE
     )
@@ -584,42 +485,6 @@ def extract_jugement_date(text):
     return None
 
 
-r"""
-def extract_date_after_birthday(texte_html):
-    soup = BeautifulSoup(texte_html, 'html.parser')
-    date_list = []
-
-    # Cherche toutes les balises <br>
-    for br in soup.find_all('br'):
-        text = br.previous_element.strip() if isinstance(br.previous_element, str) else ''
-
-        # Si on a du texte avant le <br>
-        if text:
-            match = re.search(r"(né|née)\(e\)?\s*le\s*(\d{2}/\d{2}/\d{4})", text, re.IGNORECASE)
-            if match:
-                date_list.append(match.group(2).strip())
-                return date_list
-            # Regex pour capturer la première date après "né à" ou "née à"
-            match = re.search(r"(né|née)\s*à\s*[\w\s]+(?:\s*le\s*(\d{1,2}\s\w+\s\d{4}))[\s,]*", text, re.IGNORECASE)
-            if match:
-                # Si une correspondance est trouvée, on ajoute la date à la liste
-                date_list.append(match.group(2).strip())
-                return date_list
-            match1 = re.search(r"(né|née)\s*à\s*[\w\s]+(?:\s*le\s*(\d{1,2}\s\w+\s\d{4}))[\s,]*", text, re.IGNORECASE)
-            if match1 : 
-                date_list.append(match1.group(4).strip())
-                # Si une autre correspondance est trouvée, on peut faire quelque chose d'autre
-            match2 = re.search(r"([A-Za-z\s]+),\s*(né\(e\)?|née)\s*le\s*(\d{4}-\d{2}-\d{2})\s*à\s*([A-Za-z\s]+)",
-                     text, 
-                     re.IGNORECASE)
-
-            if match2 : 
-                date_list.append(match2.group(3).strip())
-                # Si une autre correspondance est trouvée, on peut faire quelque chose d'autre
-
-    return date_list
-"""
-
 def extract_dates_after_decede(html):
     soup = BeautifulSoup(html, 'html.parser')
     date_list = []
@@ -653,22 +518,15 @@ def extract_dates_after_decede(html):
             for date in cleaned_matches:
                 date_list.append(date)  # Utilisation de append() pour ajouter chaque date individuellement
 
-    # Debugging: Vérifier si date_list est bien une liste et contient des données
-    print(f"Total de dates trouvées : {total_with_dates}")
-    print(f"Liste des dates extraites : {date_list}")
-
     return date_list
 
-
-
 def extract_date_after_birthday(texte_html):
-
     soup = BeautifulSoup(texte_html, 'html.parser')
     date_list = []
 
     raw_text = soup.get_text(separator=" ")
     full_text = unicodedata.normalize("NFC", unicodedata.normalize("NFKC", raw_text)).replace('\u00a0', ' ')
-    full_text = full_text.replace('\u202f', ' ').replace('\u200b', '').replace('\ufeff', '')
+    full_text = full_text.replace('\u202f', ' ').replace('\u200b', '').replace('\ufeff', ' ')
     full_text = re.sub(r"\s+", " ", full_text)
     publications = [full_text]
 
@@ -698,124 +556,34 @@ def extract_date_after_birthday(texte_html):
         r"succession\s+vacante\s+de\s+(?:M(?:onsieur)?|Madame)?\.?\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+,\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+,\s+né\s+à\s+[^\n\d]{1,50}?\s+le\s+(\d{1,2}\s+\w+\s+\d{4})(?=\s*[\(\.,;])"
     ]
 
+    # Extraire toutes les dates possibles dans le texte
     for pub in publications:
         pub = pub.strip()
         if not pub:
             continue
-        found = False
 
         for pat in patterns:
-            match = re.search(pat, pub, re.IGNORECASE)
-            if match:
-                if len(match.groups()) == 3:
-                    yy, mm, dd = match.groups()
+            # Trouver toutes les occurrences de la date
+            matches = re.findall(pat, pub, re.IGNORECASE)
+            for match in matches:
+                if len(match) == 3:
+                    # Format date complet à partir de yy, mm, dd
+                    yy, mm, dd = match
                     yyyy = f"19{yy}" if int(yy) > 30 else f"20{yy}"
-                    date = f"{int(dd): 02d}/{int(mm): 02d}/{yyyy}"
-                else:
-                    date = match.group(1).strip()
-                date_list.append(date)
-                found = True
-                break
-
-        if found:
-            continue
-
-        # fallback ligne à ligne
-        for line in pub.split("\n"):
-            text = line.strip()
-            if not text:
-                continue
-            for pat in patterns:
-                match = re.search(pat, text, re.IGNORECASE)
-                if match:
-                    if len(match.groups()) == 3:
-                        yy, mm, dd = match.groups()
-                        yyyy = f"19{yy}" if int(yy) > 30 else f"20{yy}"
-                        date = f"{int(dd): 02d}/{int(mm): 02d}/{yyyy}"
-                    else:
-                        date = match.group(1).strip()
+                    date = f"{int(dd):02d}/{int(mm):02d}/{yyyy}"
                     date_list.append(date)
-                    found = True
-                    break
-            if found:
-                break
+                else:
+                    date_list.append(match.strip())
 
     return date_list
+
+
+
 
 
 def extract_name_from_text(text):
     return extract_name_before_birth(text)
 
-
-excluded_sources = {
-    "Agence Fédérale pour la Sécurité de la Chaîne Alimentaire",
-    "Agence Fédérale des Médicaments et des Produits de Santé",
-    "Assemblée de la Commission Communautaire Française de la Région ...",
-    "Autorité Flamande",
-    "Banque Nationale de Belgique",
-    "Chambre",
-    "Collège de la Commission Communautaire Française",
-    "Commission Bancaire et Financière",
-    "Commission Communautaire Commune de Bruxelles-Capitale",
-    "Commission Communautaire Française de la Région de Bruxelles-Capitale",
-    "Commission de la Protection de la vie privee",
-    "Communauté Française",
-    "Conseil d'Etat",
-    "Conseil Supérieur de la Justice",
-    "Corps Interfédéral de l'Inspection des Finances",
-    "Cour d'Arbitrage",
-    "Cour des Comptes",
-    "Cour Constitutionnelle",
-    "Institut National d'Assurance Maladie-Invalidite",
-    "Ministère de l'Emploi et du Travail",
-    "Ministère de l'Intérieur",
-    "Ministère de la Communauté Flamande",
-    "Ministère de la Communauté Française",
-    "Ministère de la Communauté Germanophone",
-    "Ministère de la Défense Nationale",
-    "Ministère de la Défense",
-    "Ministère de la Fonction Publique",
-    "Ministère de la Justice",
-    "Ministère de la Région de Bruxelles-Capitale",
-    "Ministere de la Region de Bruxelles-Capitale",
-    "Ministere de la Region de Bruxelles-capitale",
-    "Ministere de La Region de Bruxelles-Capitale",
-    "Ministère de la Région Wallonne",
-    "Ministère des Affaires Economiques",
-    "Ministère des Affaires Etrangères",
-    "Ministère des Affaires Sociales",
-    "Ministère des Classes Moyennes et de l'Agriculture",
-    "Ministère des Communications et de l'Infrastructure",
-    "Ministère des Finances",
-    "Ministère Wallon de l'Equipement et des Transports",
-    "Pouvoir Judiciaire",
-    "Selor - Bureau de Selection de l'Administration Fédérale",
-    "Sénat",
-    "Service Public de Wallonie",
-    "Service Public Fédéral Affaires Etrangères, ...",
-    "Service Public Fédéral Budget et controle de la gestion",
-    "Service Public Fédéral Chancellerie du Premier Ministre",
-    "Service Public Fédéral Chancellerie et Services Généraux",
-    "Service Public Fédéral de Programmation Développement Durable",
-    "Service Public Fédéral de Programmation Gestion des Actifs",
-    "Service Public Fédéral de Programmation Intégration sociale",
-    "Service Public Fédéral de Programmation Politique Scientifique",
-    "Service Public Fédéral de Programmation Protection des Consommateurs",
-    "Service Public Fédéral de Programmation Telecommunications",
-    "Service Public Fédéral Economie, P.M.E., Classes Moyennes et Enérgie",
-    "Service Public Fédéral Emploi, Travail et Concertation Sociale",
-    "Service Public Fédéral Finances",
-    "Service Public Fédéral Interieur",
-    "Service Public Fédéral Justice",
-    "Service Public Fédéral Mobilite et Transports",
-    "Service Public Fédéral Personnel et Organisation",
-    "Service Public Fédéral Sante Publique, Sécurité de la chaîne ...",
-    "Service Public Fédéral Securite Sociale",
-    "Service Public Fédéral Stratégie et Appui",
-    "Service Public Fédéral Technologie de l'Information et de la Communication",
-    "Services du Premier Ministre",
-    "Services Fédéraux des Affaires Scientifiques, Techniques et Culturelles"
-}
 
 
 def detect_cour_constitutionnelle_title(title: str) -> bool:
@@ -842,23 +610,18 @@ def detect_autre_juridiction_title(title: str) -> str | None:
 
 
 def detect_societe_title(title: str) -> bool:
-    societes_abrev = {"SA", "SRL", "SE", "SPRL", "SIIC", "SC", "SNC", "SCS", "COMMV", "SCRL", "SAS", "ASBL", "SCA"}
-    societes_formelles = [
-        "société anonyme", "société à responsabilité limitée", "société coopérative",
-        "société européenne", "société en commandite", "société civile"
-    ]
 
     # Retire ponctuations internes inutiles
     title_clean = re.sub(r"[^\w\s]", " ", title).strip()
 
     # 1. Vérifie si le titre commence par une séquence MAJUSCULES suivie d'une abréviation
-    for abrev in societes_abrev:
+    for abrev in SOCIETESABRV:
         pattern = r'^([A-Z][A-Z\s\-&]{2,})\s+' + abrev + r'\b'
         if re.match(pattern, title_clean):
             return True
 
     # 2. Vérifie si le titre commence par une séquence MAJUSCULES suivie d'un nom complet de société
-    for full in societes_formelles:
+    for full in SOCIETESFORMELLES:
         pattern = r'^([A-Z][A-Z\s\-&]{2,})\s+' + re.escape(full) + r'\b'
         if re.match(pattern, title_clean, flags=re.IGNORECASE):
             return True
@@ -1057,7 +820,6 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
                     # faut le faire pour chacun ici!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             elif keyword in ("tribunal+de+premiere+instance"):
                 if title.lower().startswith("tribunal de première instance"):
-                    # print(title)
                     find_linklist_in_items(item, keyword, link_list)
                 else:
                     print(
@@ -1087,7 +849,6 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
                         title.lower().startswith("cour d'appel")
 
                 ):
-                    # print(title)
                     find_linklist_in_items(item, keyword, link_list)
                 else:
                     print(
@@ -1116,7 +877,6 @@ def extract_page_index_from_url(pdf_url):
     match = re.search(r'#page=(\d+)', pdf_url)
     if match:
         page_number = int(match.group(1))
-        print("numéro de la page pdf", page_number)
         return page_number - 1  # PyMuPDF indexe à partir de 0
     return None
 
@@ -1250,10 +1010,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             None, None, None, None)
 
     texte_brut = extract_clean_text(main)
-    # if re.search(r"statuant", texte_brut, flags=re.IGNORECASE):
-    # print("✅ 'statuant' trouvé dans texte_brut")
-    # if re.search(r"statuant\s+en\s+degr[ée]?\s+d[’'`´]appel", texte_brut, flags=re.IGNORECASE):
-    # print("✅ Match complet trouvé")
     date_jugement = None
     administrateur = None
     nom_trib_entreprise = None
@@ -1308,13 +1064,15 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     # Cas normal
     nom = extract_name_from_text(str(main))
-    date_naissance = extract_date_after_birthday(str(main))
+    raw_naissance = extract_date_after_birthday(str(main))
+    date_naissance = convertir_date(raw_naissance)
     adresse = extract_address(str(main))
     if not date_jugement:
         date_jugement = extract_jugement_date(str(texte_brut))
 
     if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
-        date_deces = extract_dates_after_decede(str(texte_brut))
+        raw_deces = extract_dates_after_decede(str(texte_brut))
+        date_deces = convertir_date(raw_deces)
         #date_deces = ", ".join(date_deces) if date_deces else None PLUS NECESSAIRE VU QUE LISTE A VERIFIER
         adresse = extract_address(str(main))
         if re.search(r"\bdéshérence", texte_brut, flags=re.IGNORECASE):
@@ -1370,12 +1128,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 texte_brut,
                 flags=re.IGNORECASE
             )
-            if match_rg_date:
-                print("🎯 Date capturée!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! :",
-                      match_rg_date.group(1))
-                extra_links.append(f"levee_{match_rg_date.group(1)}")
-            else:
-                print("❌ Aucun match pour RG date")
         # 🔍 Bloc 1 : levée de la mesure du [date]
         match_levee = re.search(
             r"levée\s+de\s+la\s+mesure(?:\s+de\s+protection)?[^.,:\n]{0,50}du\s+"
@@ -1385,7 +1137,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         )
         if match_levee:
             date_str = match_levee.group(1)
-            print("✅ Date levée trouvée :", date_str)
             extra_links.append(f"levee_{date_str}")
         else:
             print("❌ Aucune date pour 'levée de la mesure'")
@@ -1399,7 +1150,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         )
         if match_rl_date:
             date_str = match_rl_date.group(1)
-            print("✅ Date levée trouvée :", date_str)
             extra_links.append(f"levee_{date_str}")
         else:
             print("❌ Aucune date pour 'réforme et mise à néant'")
@@ -1415,7 +1165,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 flags=re.IGNORECASE | re.DOTALL
             )
             if match_rh_date:
-                print("✅ Date trouvée :", match_rh_date.group(1))
                 extra_links.append(f"levee_{match_rh_date.group(1)}")
             else:
                 print("❌ Aucune date trouvée")
@@ -1432,7 +1181,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
         if match_neant_date:
             extra_links.append(f"levee_{match_neant_date.group(1)}")
-            print("✅ Date trouvée :", match_neant_date.group(1))
         else:
             print("❌ Aucune date trouvée")
         match_reforme_date = re.search(
@@ -1447,7 +1195,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
         if match_reforme_date:
             extra_links.append(f"levee_{match_reforme_date.group(1)}")
-            print("✅ Date trouvée :", match_reforme_date.group(1))
         else:
             print("❌ Aucune date trouvée")
 
@@ -1457,20 +1204,16 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             flags=re.IGNORECASE
         )
         if match_rep_date:
-            print("✅ Date de régime de représentation :", match_rep_date.group(1))
             extra_links.append(f"regime_repr_{match_rep_date.group(1)}")
         else:
             print("❌ Aucune date de régime de représentation trouvée")
 
         match_rendu = re.search(r"rendu[e]?(?:\s+(?:par|le|à))?", texte_brut, flags=re.IGNORECASE)
         if match_rendu:
-            print("matcreeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeendu")
             zone = texte_brut[match_rendu.start():match_rendu.end() + 300]
             date_convertie = extract_date_after_rendu_par(zone)
-            print("date convertieeeeeeeeeeeeeeeeeeeeeee", date_convertie)
             if date_convertie:
                 extra_links.append(f"levee_{date_convertie}")
-                print("✅ Date extraite et convertie :", date_convertie)
             else:
                 print("❌ Date présente mais non reconnue dans la zone")
         else:
@@ -1521,11 +1264,9 @@ def get_publication_pdfs_for_tva(session, tva, max_pages=7):
 # MAIN
 final = []
 with requests.Session() as session:
+
     raw_link_list = ask_belgian_monitor(session, from_date, to_date, keyword)
-
     link_list = raw_link_list  # on garde le nom pour compatibilité
-
-    # print(f"[INFO] Liens collectés : {len(link_list)}")
     scrapped_data = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
         futures = [
@@ -1583,10 +1324,11 @@ documents = []
 with requests.Session() as session:
     for record in tqdm(final, desc="Préparation Meilisearch"):
         cleaned_url = clean_url(record[4])
-        print(f"et ici ca devient quoi ce putain de nom_interdit?????????????????????????{record[19]}")
         date_jugement = None  # Valeur par défaut si record[14] est None
         if record[14] is not None:
-            date_jugement = clean_date_jugement(record[14])
+            brut = clean_date_jugement(record[14])
+            date_jugement = convertir_date(brut)  # <= on récupère le résultat
+
         texte = record[3].strip()
         texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
         doc_hash = generate_doc_hash_from_html(record[3], record[1])  # ✅ Hash du texte brut + date
@@ -1719,11 +1461,6 @@ print(f"[🔍] Documents uniques pour Meilisearch (par doc_hash): {len(documents
 
 # Supprime explicitement tous les documents avec ces doc_hash
 doc_ids = [doc["id"] for doc in documents]
-# if doc_ids:
-# print(f"[🧹] Suppression des documents existants par ID ({len(doc_ids)} items)...")
-# task = index.delete_documents(doc_ids)
-# client.wait_for_task(task.task_uid)
-
 batch_size = 1000
 task_ids = []
 

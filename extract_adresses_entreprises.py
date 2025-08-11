@@ -5,8 +5,6 @@ import csv
 import unicodedata
 
 # --- Bibliothèques tierces ---
-from bs4 import BeautifulSoup
-
 # --- Configuration du logger ---
 logger = logging.getLogger("extraction")
 loggerfallback3 = logging.getLogger("fallback3")

@@ -64,12 +64,7 @@ def extract_address(texte_html):
     for idx, pattern in enumerate(patterns, 1):
         matches = re.findall(pattern, texte)
         for m in matches:
-            #print(f"   ➜ {m}")
             adresse_list.append(m.strip())
-
     # 🔄 Suppression des doublons
     adresse_list = list(set(adresse_list))
-
-    #print(f"\n✅ Total adresses extraites (uniques) : {len(adresse_list)}")
-    #print("📦 Adresses :", adresse_list)
     return adresse_list
