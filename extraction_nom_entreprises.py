@@ -44,6 +44,32 @@ FORMS = [
     "KG", "GMBH & CO KG"
 ]
 
+
+def _build_en_cause_de_societe_rx(forms:list[str]) -> re.Pattern:
+    """
+    Capture le nom de société juste après « En cause de : ».
+    Accepte forme juridique en préfixe *ou* suffixe.
+    Ex.: « En cause de : FRIGOMAN SPRL, … » → 'FRIGOMAN SPRL'
+         « En cause de : SCOMM NOPPS SERVICES, … » → 'SCOMM NOPPS SERVICES'
+    """
+    forms_re = r"(?:%s)" % "|".join(re.escape(f) for f in forms)
+    token = r"[A-ZÀ-ÖØ-Þ0-9][A-ZÀ-ÖØ-Þ0-9&'’.\-]*"
+    name_multi = rf"{token}(?:\s+{token})+"  # ≥ 2 tokens pour éviter 'BRAUN' (personne)
+
+    pattern = rf"""
+        en\s*cause\s*de\s*:?\s*
+        (?P<societe>
+            (?:
+                (?:{forms_re})\s+{name_multi}        # forme en préfixe
+                |
+                {name_multi}(?:\s+(?:{forms_re}))?   # nom (≥2 tokens) + forme éventuelle en suffixe
+            )
+        )
+        \s*(?=,|;|—|-|\n|$)                           # stop avant la virgule/fin de ligne
+    """
+    return re.compile(pattern, re.IGNORECASE | re.VERBOSE)
+
+RX_EN_CAUSE_DE_SOCIETE = _build_en_cause_de_societe_rx(FORMS)
 # ─────────────────────────────────────────────────────────────
 # FONCTIONS FALLBACK AVEC LOG
 # ─────────────────────────────────────────────────────────────
@@ -74,7 +100,9 @@ def fallback_nom_extraction(text, forms, doc_id=None):
             head_text
         )
         if match:
-            fallbackgroup.append(match.group(1).strip())
+            candidat = match.group(1).strip()
+            if not candidat.isdigit():  # ⚠️ exclure les pures suites numériques
+                fallbackgroup.append(candidat)
     logger.debug(f"↪️ [Fallback Extraction]{f' ID={doc_id}' if doc_id else ''} Résultat : {fallbackgroup}")
     return fallbackgroup
 
@@ -149,12 +177,14 @@ def extract_noms_entreprises(texte_html, doc_id=None):
     full_text = soup.get_text(separator=" ").strip()
     # Nettoyage : remplacer les SRL- / SA- etc. par "SRL "
     for form in FORMS:
-        full_text = re.sub(rf"({re.escape(form)})[\s\-:]+", r"\1 ", texte_html)
+        full_text = re.sub(rf"({re.escape(form)})[\s\-:]+", r"\1 ", full_text)
     form_regex = '|'.join(re.escape(f) for f in FORMS)
     form_regex = rf"(?:{form_regex})[-:]?"  # 👈 accepte un tiret à la fin (optionnel)
     nom_list = []
     flags = re.IGNORECASE | re.DOTALL
-
+    # 🆕 1) Détection dédiée : « En cause de : … »
+    for m in RX_EN_CAUSE_DE_SOCIETE.finditer(full_text):
+        nom_list.append(m.group("societe").strip())
     # 🔹 Extractions simples
     simple_patterns = [
         r"ouverture\s+de\s+la\s+faillite\s*:?\s*((?:[A-Z0-9&@\".\-']+\s*){1,8})",
@@ -235,6 +265,12 @@ def extract_noms_entreprises(texte_html, doc_id=None):
         extract_nom_forme(full_text, déclencheur, form_regex, nom_list, is_nl=False)
         extract_nom_forme(full_text, déclencheur, form_regex, nom_list, is_nl=True)
 
+    # 🔹 Cas spéciaux : formes juridiques en préfixe (ASBL SOCOBEL → SOCOBEL ASBL)
+    for form in FORMS:
+            pattern = rf"\b{re.escape(form)}\s+([A-ZÉÈÀÙÂÊÎÔÛÇ0-9&@.\-']{{2,}}(?:\s+[A-ZÉÈÀÙÂÊÎÔÛÇ0-9&@.\-']{{2,}}){{0,5}})"
+            matches = re.findall(pattern, full_text, flags=re.IGNORECASE)
+            for m in matches:
+                nom_list.append(f"{m.strip()} {form}")
     # Cas spécial : "a accordé à ..."
     adresse_patterns.append(
         rf"a\s+accordé\s+à\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,6}})\s+{form_regex}(?=,?\s*{ADRESSE_REGEX})"

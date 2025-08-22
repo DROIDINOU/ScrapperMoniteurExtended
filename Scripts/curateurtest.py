@@ -279,13 +279,14 @@ if __name__ == '__main__':
         "Laurence ROOSEN", "Bénédicte DELVIGNE", "Alexandre REIJNDERS", "Thibault DELAEY", "Jean-Christophe ANDRE",
         "Sarah BRUYNINCKX", "Graziella MARTINI", "Sylvie GUIMIN", "Céline DEVILLE", "Benoît KETTELS", "Anne LAMBIN",
         "Marjorie WILMOTTE", "Pierre FRANCHIMONT", "Nathalie Leleux", "Murielle Billen",
-        "oséphine Louise Henriette Honoré", "Vincent LIEGEOIS", "Denis DRION", "Jacques LEJEUNE", "Claudine TERWAGNE",
-        "Aline Pierrard", "ean-François LIEGEOIS", "Geert Coene", "Lydia BOUADDOU", "Justine LAMBERT", "Coralie ANQUET",
+        "Joséphine Louise Henriette Honoré", "Vincent LIEGEOIS", "Denis DRION", "Jacques LEJEUNE", "Claudine TERWAGNE",
+        "Aline Pierrard", "Jean-François LIEGEOIS", "Geert Coene", "Lydia BOUADDOU", "Justine LAMBERT", "Coralie ANQUET",
         "Philippe GODIN", "Emeline HANNIER", "Jean-Luc NAVARRE", "Renaud de BIOURGE", "Marie VANDENPLAS",
         "Isabelle TRIVINO", "Jean-Philippe POCHART", "Laurence LAMBRECHTS", "Corentin LUCIFORA", "Lucie HERMANT",
         "Bruno LECLERCQ", "Manuella COMBLIN", "Catherine HINS", "Cassandra LESSIRE", "Adrien KAISIN", "Valérie PIRSON",
         "Yves DUQUENNE", "Coppieters't Wallant", "Laurie ROMAN", "Hélène PREUMONT", "Valérie SAINT-GHISLAIN",
-        "Alessandra BUFFA", "Jolanta KACZOROWSKA", "Fabienne HOECK", "Stéphanie Palate"
+        "Alessandra BUFFA", "Jolanta KACZOROWSKA", "Fabienne HOECK", "Stéphanie Palate", "Anne-Catherine LEPAGE",
+        "Géry DERREVEAUX"
     ]
     # Nettoyage final (utile si tu copies-colles depuis plusieurs sources)
     selected = list(set(curateurs + administrateurs_provisoires))

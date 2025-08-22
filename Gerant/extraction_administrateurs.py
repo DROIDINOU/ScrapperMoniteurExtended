@@ -83,6 +83,25 @@ def extract_administrateur(text):
 
     administrateurs = []
 
+    # --- A. "a déchargé Me X Y de sa mission de curateur/curatrice"
+    pattern_decharge = (
+        r"(?:a\s+)?d[ée]charg[ée]?\s+"  # "a déchargé" / "déchargé(e)"
+        r"(?:Me|Ma(?:ître)?|M(?:\.|onsieur)?|Mme|Madame)?\s*"
+        r"([A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÀ-ÖØ-öø-ÿ\-']+(?:\s+[A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÀ-ÖØ-öø-ÿ\-']+){0,4})"
+        r"\s+de\s+sa\s+mission\s+de\s+curateur(?:rice)?\b"
+    )
+    m_decharge = re.search(pattern_decharge, text, flags=re.IGNORECASE)
+    if m_decharge:
+        administrateurs.append(m_decharge.group(1).strip())
+
+    # --- B. "X Y, curateur/curatrice"
+    pattern_suffix = (
+        r"(?:Me|Ma(?:ître)?|M(?:\.|onsieur)?|Mme|Madame|Mr)?\s*"
+        r"([A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÀ-ÖØ-öø-ÿ\-']+(?:\s+[A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÀ-ÖØ-öø-ÿ\-']+){0,4})"
+        r"\s*,\s*curateur(?:rice)?\b"
+    )
+    for nom in re.findall(pattern_suffix, text, flags=re.IGNORECASE):
+        administrateurs.append(nom.strip())
     # 0. Multi-liquidateurs (liste numérotée avec tiret avant adresse)
     pattern_multi = (
         r"(?:liquidateur(?:s)?(?:\s+désigné\(s\))?\s*:?\s*)"

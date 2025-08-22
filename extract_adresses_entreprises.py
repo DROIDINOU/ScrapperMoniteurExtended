@@ -3,6 +3,7 @@ import logging
 import re
 import csv
 import unicodedata
+from Utilitaire.outils.MesOutils import chemin_csv
 
 # --- Bibliothèques tierces ---
 # --- Configuration du logger ---
@@ -19,21 +20,30 @@ def strip_accents(s):
 # =========================
 noms_de_rue = set()
 
-with open('STREETS_ALL.csv', newline='', encoding='latin1') as csvfile:
+with open(chemin_csv("STREETS_ALL.csv"), newline='', encoding='latin1') as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         nom_complet = row['ICAR_NOM_RUE'].strip().upper()
         if nom_complet:
             nom_sans_accents = strip_accents(nom_complet)
+
+            # garder la version originale (avec accents)
+            noms_de_rue.add(nom_complet)
+
+            # garder aussi la version sans accents
+            noms_de_rue.add(nom_sans_accents)
+
+            # variations
             if "-" in nom_sans_accents:
                 noms_de_rue.add(nom_sans_accents.replace("-", " "))
+
             if nom_sans_accents.startswith("EN "):
-                print(nom_sans_accents)
                 noms_de_rue.add(nom_sans_accents)
             else:
                 noms_de_rue.add("NEBLON-LE-MOULIN")
                 premier_mot = nom_sans_accents.split()[0]
                 noms_de_rue.add(premier_mot)
+
 
 # =========================
 # 📌 Regex fixes (précompilées une seule fois)
@@ -101,8 +111,6 @@ RE_ADDRESS_FALLBACK_NO_PREFIX = re.compile(ADDRESS_FALLBACK_NO_PREFIX, flags=re.
 def nettoyer_adresse(adresse):
     if not adresse:
         return None, False
-    if "AVENUE DU 11E" in adresse:
-        print(f"elle est bien trouvée c est pas les lignes: {adresse}")
     alerte = False
 
     match = RE_FORM_PATTERN.search(adresse)
@@ -127,11 +135,13 @@ def nettoyer_adresse(adresse):
 # 🔍 Extraction
 # =========================
 def extract_add_entreprises(texte, doc_id=None):
+    print("on rentre dans extraction")
     texte = re.sub(r'\s+', ' ', texte).strip().upper()
     lignes = texte.splitlines()
     lignes = [l.strip() for l in lignes if l.strip()][:8]
 
     for ligne in lignes:
+
         # D'abord vérifier un préfixe rapide
         if not RE_ADRESSE_PREFIXES.search(ligne):
             continue
@@ -141,12 +151,13 @@ def extract_add_entreprises(texte, doc_id=None):
             continue
 
         # Match avec code postal
-        fallback = RE_ADDRESS_UNTIL_POSTAL.search(ligne)
-        if fallback:
-            adresse_nettoyee_fallback = nettoyer_adresse(fallback.group(0).strip())
-            if adresse_nettoyee_fallback:
-                logger.debug(f"↪️ [Extraction adresse entreprise avec post verif]{f' ID={doc_id}' if doc_id else ''} Résultat : {adresse_nettoyee_fallback}")
-                return adresse_nettoyee_fallback
+        m = RE_ADDRESS_UNTIL_POSTAL.search(ligne)
+        if m:
+            addr, alerte = nettoyer_adresse(m.group(0).strip())
+            if addr:
+                logger.debug(
+                    f"↪️ [Extraction adresse OK]{f' ID={doc_id}' if doc_id else ''} : {addr} | alerte={alerte}")
+                return addr
 
     # Fallback sans préfixe
     for ligne in lignes:

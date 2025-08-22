@@ -1,10 +1,15 @@
 import re
 
 def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
+    # --- annulation ag
+    pattern_annulation_ag = r"(?:prononc[ée]e?|d[ée]cid[ée]e?)\s+l[’']?annulation\s+de\s+la\s+d[ée]cision\s+de\s+l[’']?assembl[ée]e\s+g[ée]n[ée]rale"
     # --- FAILLITE ---
     pattern_ouverture = r"\bouverture\s+de\s+la\s+faillite\b"
+
     pattern_faillite = r"faillite"
     pattern_rapporte = r"\brapporte\s+(la\s+)?faillite(s)?(\s+\w+)?"
+    pattern_ordonne_rapporter_faillite = r"\bordonne\s+de\s+rapporter\s+la\s+faillite(s)?\b"
+
     pattern_effacement = r"\beffacement\s+de\s+la\s+faillite\s+de\b[.:]?\s*"
 
     # --- LIQUIDATION ---
@@ -21,6 +26,20 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     pattern_dissolution_judiciaire_ultra_generique = (r"\bdissolution\b")
     # --- REORGANISATION JUDICIAIRE ---
     pattern_revocation_plan_reorganisation_judiciaire = r"révocation\s+du\s+plan\s+de\s+réorganisation\s+judiciaire"
+    # Pattern combiné pour "refus homologation plan" + "clôture procédure RJ"
+    pattern_refus_homologation_cloture_reorg = (
+        r"(?:refus[ée]?\s+(?:d['’]homologation|l['’]homologation)\s+du\s+plan)"  # refus homologation du plan
+        r".{0,200}?"  # jusqu’à 120 caractères max
+        r"(?:cl[oô]tur[ée]?\s+(?:la\s+)?proc[ée]dure\s+de\s+r[ée]organisation\s+judiciaire)"  # clôture procédure RJ
+    )
+
+    texte = """
+    Par un arrêt du 15 mai 2025, la Cour d 'appel de Bruxelles a refusé l'homologation du plan déposé le 18 décembre 2024, par la SRL Mamma Invest ... et clôturé la procédure de réorganisation judiciaire .
+    """
+
+    match = re.search(pattern_refus_homologation_cloture_reorg, texte, flags=re.IGNORECASE)
+    print("Match trouvé ✅" if match else "Pas de match ❌")
+
     pattern_reorg_generique = r"\bréorganisation\s+judiciaire\s+de\b"
     pattern_ouverture_reorg = r"\bouverture\s+de\s+la\s+réorganisation\s+judiciaire\b"
     pattern_prorogation_reorg = r"\bprorogation\s+du\s+sursis\s+de\s+la\s+réorganisation\s+judiciaire\b"
@@ -36,6 +55,7 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     )
 
     # --- information sur l'état de la procédure       ---
+    pattern_suspend_effets_publication_pv_ag = r"\b(?:ordonne\s+de\s+)?suspend(?:re)?\s+les\s+effets?\s+à\s+l?['’]?égard\s+des\s+tiers\s+de\s+la\s+publication(?:\s+aux?\s+annexes?\s+du\s+moniteur\s+belge)?[\s\S]*?proc[èe]s[-\s]?verbaux\s+des?\s+assembl[ée]es?\s+g[ée]n[ée]rales?"
     pattern_administrateur_provisoire = r"administrateur\s+provisoire\s+d[ée]sign[ée]?"
     pattern_cloture = r"\b[cC](l[oô]|olo)ture\b"
     pattern_cloture_insuffisance_actif = r"\binsuffisance\s+d[’'\s]?actif\b"
@@ -72,10 +92,14 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     )
 
     pattern_report_cessation_paiement = r"report[\s\w,.'’():\-]{0,80}?cessation\s+des\s+paiements"
+    if re.search(pattern_annulation_ag, texte_brut, flags=re.IGNORECASE):
+        extra_keywords.append("annulation_decision_ag_tribunal_de_l_entreprise")
 
-    if re.search(pattern_rapporte, texte_brut, flags=re.IGNORECASE) or re.search(pattern_rapporte_bis, texte_brut,
-                                                                                 flags=re.IGNORECASE):
+    if re.search(pattern_rapporte, texte_brut, flags=re.IGNORECASE) \
+            or re.search(pattern_rapporte_bis, texte_brut) \
+            or re.search(pattern_ordonne_rapporter_faillite, texte_brut, flags=re.IGNORECASE):
         extra_keywords.append("rapporte_faillite_tribunal_de_l_entreprise")
+
     else:
         if re.search(r"\b[dD]ésignation\b", texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("designation_tribunal_de_l_entreprise")
@@ -171,7 +195,8 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
         elif re.search(pattern_revocation_plan_reorganisation_judiciaire, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("revocation_plan_reorganisation_judicaire_tribunal_de_l_entreprise")
             reorg_tags += 1
-
+        if re.search(pattern_refus_homologation_cloture_reorg,texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("refus_hologation_revocation_plan_reorganisation_judicaire_tribunal_de_l_entreprise")
         if re.search(pattern_reorg_generique, texte_brut, flags=re.IGNORECASE) and reorg_tags == 0:
             extra_keywords.append("reorganisation_tribunal_de_l_entreprise")
         if re.search(pattern_accord_collectif, texte_brut, flags=re.IGNORECASE):
@@ -179,5 +204,7 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
         # Autres
         if re.search(pattern_administrateur_provisoire, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("administrateur_provisoire_tribunal_de_l_entreprise")
+        if re.search(pattern_suspend_effets_publication_pv_ag , texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("suspension_effets_ag")
         if re.search(pattern_excusabilite, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("excusable_tribunal_de_l_entreprise")

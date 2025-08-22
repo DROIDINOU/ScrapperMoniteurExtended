@@ -132,8 +132,8 @@ def extract_date_after_birthday(html: str) -> list[str]:
     full_text = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", text)  # "1er er" -> "1er"
     full_text = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", full_text)  # "1er" -> "1"
     # 1) même logique "ancre + fenêtre"
-    birthday_anchor = r"\b(n[ée](?:\(?e\)?)?\s+le|(?:né|née)\s+à)\b"
-    dates = _extract_after_anchor(text, birthday_anchor, window=140)
+    birthday_anchor = r"\bn[ée](?:e)?(?:\s+à\s+[A-Za-zÀ-ÖØ-öø-ÿ'\- ]+)?\s+le\b"
+    dates = _extract_after_anchor(text, birthday_anchor, window=30)
 
     # 2) (optionnel) motifs supplémentaires spécifiques aux RN/NN, etc.
     extra_patterns = [

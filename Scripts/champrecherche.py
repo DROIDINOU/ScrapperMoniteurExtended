@@ -44,6 +44,7 @@ while True:
 st.write(f"✅ Documents récupérés : {len(all_docs)} / {total_docs}")
 
 # --- Fonction de validation des formats de date ---
+# je pense que l on va pouvoir supprimer cette fonction
 def is_valid_date(date):
     """
     Vérifie les formats de date suivants :
@@ -86,12 +87,17 @@ def is_valid_extra_keyword(extra_keyword):
     return isinstance(extra_keyword, str) and extra_keyword.strip() or (isinstance(extra_keyword, list) and any(isinstance(k, str) and k.strip() for k in extra_keyword))
 
 def is_valid_nom_trib_entreprise(nom_trib_entreprise):
-    """
-    Valide le nom du tribunal ou de l'entreprise
-    """
-    return isinstance(nom_trib_entreprise, str) and nom_trib_entreprise.strip()
-
-
+    if isinstance(nom_trib_entreprise, str):
+        return bool(nom_trib_entreprise.strip())
+    if isinstance(nom_trib_entreprise, list):
+        return any(isinstance(k, str) and k.strip() for k in nom_trib_entreprise)
+    if isinstance(nom_trib_entreprise, dict):
+        return any([
+            _nonempty_str(nom_trib_entreprise.get("canonical", "")),
+            _nonempty_str(nom_trib_entreprise.get("name", "")),
+            any(_nonempty_str(alias) for alias in nom_trib_entreprise.get("aliases", []))
+        ])
+    return False
 # --- Fonction de validation pour le nom interdit ---
 def is_valid_nom_interdit(nom_interdit):
     """
@@ -103,17 +109,44 @@ def is_valid_nom_interdit(nom_interdit):
 def is_valid_admin(administrateur):
     return isinstance(administrateur, str) and administrateur.strip() or (isinstance(administrateur, list) and any(isinstance(ad, str) and ad.strip() for ad in administrateur))
 
+
+def _nonempty_str(x):
+    return isinstance(x, str) and x.strip()
+
+
 def is_valid_nom(nom):
-    return isinstance(nom, str) and nom.strip() or (isinstance(nom, list) and any(isinstance(no, str) and no.strip() for no in nom))
+    # ancien format: str / list
+    if _nonempty_str(nom):
+        return True
+    if isinstance(nom, list):
+        return any(_nonempty_str(no) for no in nom)
+
+    # nouveau format: dict avec {records, canonicals, aliases_flat}
+    if isinstance(nom, dict):
+        can = nom.get("canonicals") or []
+        rec = nom.get("records") or []
+        ali = nom.get("aliases_flat") or []
+        has_can = any(_nonempty_str(c) for c in can)
+        has_rec = any(_nonempty_str(r.get("canonical", "")) for r in rec if isinstance(r, dict))
+        has_ali = any(_nonempty_str(a) for a in ali)
+        return has_can or has_rec or has_ali
+
+    return False
+
 
 def is_valid_num_nat(num_nat):
-    return isinstance(num_nat, str) and num_nat.strip()
+    if isinstance(num_nat, str):
+        return bool(num_nat.strip())
+    if isinstance(num_nat, list):
+        return any(isinstance(x, str) and x.strip() for x in num_nat)
+    return False
+
 
 # --- Fonction d'affichage des résultats ---
 def show_results(docs, label):
     st.subheader(f"📋 {label}")
-    for doc in docs[:600]:  # Afficher un maximum de 5 documents
-        st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:250]}...")
+    for doc in docs[:1300]:  # Afficher un maximum de 5 documents
+        st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:1000]}...")
 
 # --- Classification des documents ---
 docs_avec_adresse = []
@@ -202,37 +235,74 @@ for doc in all_docs:
 
 # --- Résumé des documents ---
 st.subheader("📊 Récapitulatif des documents")
-st.markdown(f"Documents avec adresse : {len(docs_avec_adresse)} <span style='color: green;'>S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans adresse : {len(docs_sans_adresse)} <span style='color: green;'>S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec extra_keyword : {len(docs_avec_extra_keyword)} <span style='color: green;'>  S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans extra_keyword : {len(docs_sans_extra_keyword)} <span style='color: green;'>  S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec administrateur : {len(docs_avec_admin)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans administrateur : {len(docs_sans_admin)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec nom : {len(docs_avec_nom)} <span style='color: green;'>S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans nom : {len(docs_sans_nom)} <span style='color: green;'>S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec numéro national : {len(docs_avec_num_nat)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans numéro national : {len(docs_sans_num_nat)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec date de naissance : {len(docs_avec_date_naissance)} <span style='color: green;'>  S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans date de naissance : {len(docs_sans_date_naissance)} <span style='color: green;'>  S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec date de jugement : {len(docs_avec_date_jugement)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans date de jugement : {len(docs_sans_date_jugement)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec nom tribunal entreprise : {len(docs_avec_nom_trib_entreprise)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans nom tribunal entreprise : {len(docs_sans_nom_trib_entreprise)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec date de décès : {len(docs_avec_date_deces)} <span style='color: green;'>  S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans date de décès : {len(docs_sans_date_deces)} <span style='color: green;'>  S</span>", unsafe_allow_html=True)
-st.markdown(f"Documents avec nom interdit : {len(docs_avec_nom_interdit)} <span style='color: green;'></span>", unsafe_allow_html=True)
-st.markdown(f"Documents sans nom interdit : {len(docs_sans_nom_interdit)} <span style='color: green;'></span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec adresse : {len(docs_avec_adresse)} <span style='color: green;'>S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans adresse : {len(docs_sans_adresse)} <span style='color: green;'>S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec extra_keyword : {len(docs_avec_extra_keyword)} <span style='color: green;'>  S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans extra_keyword : {len(docs_sans_extra_keyword)} <span style='color: green;'>  S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec administrateur : {len(docs_avec_admin)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans administrateur : {len(docs_sans_admin)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec nom : {len(docs_avec_nom)} <span style='color: green;'>S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans nom : {len(docs_sans_nom)} <span style='color: green;'>S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec numéro national : {len(docs_avec_num_nat)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans numéro national : {len(docs_sans_num_nat)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec date de naissance : {len(docs_avec_date_naissance)} <span style='color: green;'>  S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans date de naissance : {len(docs_sans_date_naissance)} <span style='color: green;'>  S JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec date de jugement : {len(docs_avec_date_jugement)} <span style='color: green;'>  -  JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans date de jugement : {len(docs_sans_date_jugement)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec nom tribunal entreprise : {len(docs_avec_nom_trib_entreprise)} <span style='color: green;'>  -  -</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans nom tribunal entreprise : {len(docs_sans_nom_trib_entreprise)} <span style='color: green;'>  -  -</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec date de décès : {len(docs_avec_date_deces)} <span style='color: green;'>  S  -</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans date de décès : {len(docs_sans_date_deces)} <span style='color: green;'>  S  -</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec nom interdit : {len(docs_avec_nom_interdit)} <span style='color: green;'>  -  ?</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans nom interdit : {len(docs_sans_nom_interdit)} <span style='color: green;'>  -  ?</span>", unsafe_allow_html=True)
+
+# --- Documents sans adresse MAIS contenant "domicilié" ---
+docs_sans_adresse_avec_domicilie = [
+    doc for doc in docs_sans_adresse
+    if re.search(r"domicili", doc.get("text", ""), flags=re.IGNORECASE)
+]
+# --- Documents sans adresse MAIS contenant "résidence" ---
+docs_sans_adresse_avec_residence = [
+    doc for doc in docs_sans_adresse
+    if re.search(r"residence", doc.get("text", ""), flags=re.IGNORECASE)
+]
+
+docs_sans_adresse_avec_radie = [
+    doc for doc in docs_sans_adresse
+    if re.search(r"radié", doc.get("text", ""), flags=re.IGNORECASE)
+]
+
+
+
+st.subheader("📋 Documents SANS adresse mais contenant 'domicilié'")
+for doc in docs_sans_adresse_avec_domicilie[:500]:  # limiter l'affichage
+    st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:800]}...")
+
+st.subheader("📋 Documents SANS adresse mais contenant 'residence'")
+for doc in docs_sans_adresse_avec_residence[:500]:  # limiter l'affichage
+    st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:800]}...")
+
+st.subheader("📋 Documents SANS adresse mais contenant 'radié")
+for doc in docs_sans_adresse_avec_radie[:500]:  # limiter l'affichage
+    st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:800]}...")
 
 
 # --- Exemples ---
 show_results(docs_sans_date_naissance, "Documents SANS date de naissance")
 show_results(docs_sans_date_deces, "Documents SANS date de décès")
 show_results(docs_sans_adresse, "Documents SANS adresse")
+show_results(docs_avec_num_nat, "Documents AVEC num_nat")
+show_results(docs_sans_num_nat, "Documents SANS num_nat")
 show_results(docs_sans_nom, "Documents SANS nom")
+show_results(docs_avec_nom, "Documents AVEC nom")
+show_results(docs_sans_admin, "Documents SANS admin")
+show_results(docs_avec_nom_trib_entreprise, "Documents AVEC nom trib entreprise")
+
 
 # --- Recherche spécifique pour "liquidateur" ---
 motifs = re.compile(r"\bliquidateur(s|\(s\))?\b", re.IGNORECASE)
 docs_sans_admin_avec_mention_liquidateur = [doc for doc in docs_sans_admin if motifs.search(doc.get("text", ""))]
+
 
 #st.subheader("🔍 Recherche pour 'liquidateur' dans les documents sans administrateur")
 #for doc in docs_sans_admin_avec_mention_liquidateur[:100]:  # Afficher jusqu'à 100 résultats
@@ -240,15 +310,77 @@ docs_sans_admin_avec_mention_liquidateur = [doc for doc in docs_sans_admin if mo
 
 # --- Liste des documents avec administrateur et nom ---
 def print_docs_avec_administrateur_et_nom(docs):
-    st.subheader("📋 Liste des documents AVEC administrateur et nom :")
+    st.subheader("📋 Liste des documents AVEC administrateur:")
     for doc in docs:
-        st.write(f"- ID: {doc.get('id')} | administrateur: {doc.get('administrateur')} | nom: {doc.get('nom')}")
+        st.write(f"- ID: {doc.get('id')} | administrateur: {doc.get('administrateur')}")
 
+def print_docs_sans_administrateur_et_nom(docs):
+    st.subheader("📋 Liste des documents SANS administrateur:")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:1200]}...")
+
+def print_docs_avec_adresse(docs):
+    st.subheader("📋 Liste des documents AVEC adresse:")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | adresse: {doc.get('adresse')}")
+
+def print_docs_avec_nom(docs):
+    st.subheader("📋 Liste des documents AVEC nom:")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | nom: {doc.get('nom')}")
+
+def print_docs_sans_nom(docs):
+    st.subheader("📋 Liste des documents SANS nom:")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:1200]}...")
+
+
+def print_docs_avec_nom_trib_entreprise(docs):
+    st.subheader("📋 Liste des documents AVEC nom_trib_entreprise :")
+    for doc in docs:
+        nom_tri = doc.get("nom_trib_entreprise")
+        doc_id = doc.get("id")
+        texte = doc.get("text", "")
+
+        # Si c’est une liste → joindre les noms
+        if isinstance(nom_tri, list):
+            nom_tri_str = ", ".join(n.strip() for n in nom_tri if isinstance(n, str) and n.strip())
+        else:
+            nom_tri_str = str(nom_tri).strip() if nom_tri else ""
+
+        st.write(f"- ID: {doc_id} | nom_trib_entreprise: {nom_tri_str}")
+
+
+def print_docs_sans_num_nat(docs):
+    st.subheader("📋 Liste des documents SANS num_nat :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
+
+def print_docs_avec_num_nat(docs):
+    st.subheader("📋 Liste des documents AVEC num_nat :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
 # --- Liste des documents SANS date de décès ---
 def print_docs_sans_date_deces(docs):
     st.subheader("📋 Liste des documents SANS date de décès :")
     for doc in docs:
         st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
+
+def print_docs_avec_date_naissance(docs):
+    st.subheader("📋 Liste des documents AVEC date de naissance :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...|date de naissance: {doc.get('date_naissance')}")
+
+def print_docs_sans_extra_keyword(docs):
+    st.subheader("📋 Liste des documents SANS extra_keyword :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
+
+
+def print_docs_avec_extra_keyword(docs):
+    st.subheader("📋 Liste des documents AVEC extra_keyword :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:1200]}...Extra_Keyword: {doc.get('extra_keyword')}")
 
 def print_docs_sans_adresse(docs):
     st.subheader("📋 Liste des documents SANS adresse :")
@@ -258,7 +390,21 @@ def print_docs_sans_adresse(docs):
 # Affichage des exemples des documents SANS date de naissance et SANS date de décès
 print_docs_sans_date_deces(docs_sans_date_deces)
 print_docs_avec_administrateur_et_nom(docs_avec_admin)
+print_docs_sans_administrateur_et_nom(docs_sans_admin)
+print_docs_sans_num_nat(docs_sans_num_nat)
+print_docs_avec_num_nat(docs_avec_num_nat)
+print_docs_sans_administrateur_et_nom(docs_sans_admin)
 print_docs_sans_adresse(docs_sans_adresse)
+print_docs_avec_adresse(docs_avec_adresse)
+print_docs_sans_extra_keyword(docs_sans_extra_keyword)
+print_docs_avec_extra_keyword(docs_avec_extra_keyword)
+print_docs_avec_nom(docs_avec_nom)
+print_docs_sans_nom(docs_sans_nom)
+print_docs_avec_date_naissance(docs_avec_date_naissance)
+print_docs_avec_nom_trib_entreprise(docs_avec_nom_trib_entreprise)
+
+
+
 
 # --- Instructions supplémentaires ---
 st.subheader("📝 Instructions supplémentaires")

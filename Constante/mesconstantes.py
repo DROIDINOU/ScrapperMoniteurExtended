@@ -1,5 +1,9 @@
 import re
 
+BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
+
+# faire une verif pour succession egalité date naissance et deces
+# INDEX_NAME=mon_document_pft_11082025 contient succession et successions
 # CONSTANTE VILLES UTILISEE DANS FONCTION extract_date_after_rendu_par
 VILLE_TRIBUNAUX = [
     "Bruxelles", "Charleroi", "Mons", "Namur", "Liège", "Huy",
@@ -137,3 +141,63 @@ SOCIETESFORMELLES = [
         "société anonyme", "société à responsabilité limitée", "société coopérative",
         "société européenne", "société en commandite", "société civile"
     ]
+
+# 1) MOISMAP élargi (formes correctes, abréviations, fautes/OCR)
+MOISMAPTEST = {
+    # janvier
+    "janvier": "01", "janv": "01", "jan": "01", "janiver": "01",
+    # février
+    "février": "02", "fevrier": "02", "fév": "02", "fev": "02", "fevr": "02",
+    "fevrer": "02", "fevrie": "02", "feurier": "02", "feverier": "02", "fevier": "02",
+    # mars
+    "mars": "03", "mar": "03", "marsr": "03",
+    # avril
+    "avril": "04", "avr": "04", "avri": "04",
+    # mai
+    "mai": "05",
+    # juin
+    "juin": "06", "juiin": "06",
+    # juillet
+    "juillet": "07", "juil": "07", "juill": "07", "juiller": "07",
+    # août / aout (et OCR)
+    "août": "08", "aout": "08", "aoüt": "08", "aoút": "08", "a0ut": "08", "aou": "08", "aouts": "08",
+    # septembre
+    "septembre": "09", "sept": "09", "setpembre": "09", "septemre": "09", "septemb": "09",
+    # octobre
+    "octobre": "10", "oct": "10", "ocotbre": "10", "octobr": "10", "octber": "10",
+    # novembre
+    "novembre": "11", "nov": "11", "novemre": "11", "novenbre": "11",
+    # décembre
+    "décembre": "12", "decembre": "12", "dec": "12", "decebre": "12",
+    "decemre": "12", "decrmbre": "12"
+}
+
+MOIS_PATTERN = "|".join(map(re.escape, sorted(MOISMAP.keys(), key=len, reverse=True)))
+
+_MOISMAP_NORM = {
+    # janvier
+    "janvier": "01", "janv": "01", "jan": "01", "janiver": "01",
+    # fevrier
+    "fevrier": "02", "fevr": "02", "fev": "02", "fevrer": "02", "fevrie": "02",
+    "feurier": "02", "feverier": "02", "fevier": "02",
+    # mars
+    "mars": "03", "mar": "03", "marsr": "03",
+    # avril
+    "avril": "04", "avr": "04", "avri": "04",
+    # mai
+    "mai": "05",
+    # juin
+    "juin": "06", "juiin": "06",
+    # juillet
+    "juillet": "07", "juil": "07", "juill": "07", "juiller": "07",
+    # aout (toutes variantes)
+    "aout": "08", "aou": "08", "aouts": "08",
+    # septembre
+    "septembre": "09", "sept": "09", "setpembre": "09", "septemre": "09", "septemb": "09",
+    # octobre
+    "octobre": "10", "oct": "10", "ocotbre": "10", "octobr": "10", "octber": "10",
+    # novembre
+    "novembre": "11", "nov": "11", "novenbre": "11", "novemre": "11",
+    # decembre
+    "decembre": "12", "dec": "12", "decebre": "12", "decemre": "12", "decrmbre": "12",
+}
