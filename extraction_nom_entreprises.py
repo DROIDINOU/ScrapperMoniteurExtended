@@ -1,6 +1,7 @@
 import logging
 from bs4 import BeautifulSoup
 import re
+import unicodedata
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTES
@@ -11,6 +12,45 @@ logger = logging.getLogger("extraction")  # 👈 on réutilise le même nom
 ADRESSE_REGEX = r"(RUE|R\.|AVENUE|AV\.|CHEE|CHAUSS[ÉE]E|ROUTE|RTE|PLACE|PL\.?|BOULEVARD|BD|CHEMIN|CH\.?|GALERIE|IMPASSE|SQUARE|ALL[ÉE]E|CLOS|VOIE|RY|PASSAGE|QUAI|PARC|Z\.I\.?|ZONE|SITE|PROMENADE|FAUBOURG|FBG|QUARTIER|CITE|HAMEAU|LOTISSEMENT|ENTRE LES GHETES(Z.-L.)|BELLEVAUX|LES PATURAGES)"
 FLAMAND_ADRESSE_REGEX = r"(STRAAT|STRAATJE|LAAN|DREEF|STEENWEG|WEG|PLEIN|LEI|BAAN|HOF|KAAI|DRIES|MARKT|KANAAL|BERG|ZUID|NOORD|OOST|WEST|DOORN|VELD|NIEUWBUITENSTRAAT|VOORSTAD|BUITENWIJK|DORP|GEDEELTE|WIJK)"
 GERMAN_ADRESSE_REGEX = r"(STRASSE|STR\.?|PLATZ|ALLEE|WEG|RING|GASSE|DORF|BERG|TOR|WALD|STEIG|MARKT|HOF|GARTENVORSTADT|STADTTEIL|STADTRAND|ORTSTEIL|DORF|AUSSENBEREICH)"
+
+def _build_dirigeant_espece_rx(forms: list[str]) -> re.Pattern:
+    """
+    Ex.: « dirigeant, de droit ou de fait, d'une société commerciale,
+          en l'espèce de l'ASBL ARBI ATSC dont ... » → capte « ASBL ARBI ATSC »
+          (ou « NOM ... SRL » si la forme est en suffixe).
+    """
+    forms_re = r"(?:%s)" % "|".join(re.escape(f) for f in forms)
+    token = r"[A-ZÀ-ÖØ-Þ0-9][A-ZÀ-ÖØ-Þ0-9&'’.\-]*"
+    name_multi = rf"{token}(?:\s+{token}){{1,6}}"  # 2 à 7 tokens
+
+    pattern = rf"""
+        dirigeant(?:e)?                              # dirigeant / dirigeante
+        (?:\s*,?\s*de\s+(?:droit|fait)
+           (?:\s+ou\s+de\s+(?:droit|fait))?
+        )?                                           # « de droit ou de fait » (optionnel mais toléré)
+        (?:\s*,?\s*d['’]une\s+soci[ée]t[ée]\s+commerciale)?  # optionnel
+        \s*,?\s*en\s+l['’]esp[eè]ce\s+de\s+           # « en l'espèce de »
+        (?:l['’]|la|le|du|de\s+la)\s*                 # article: l'/la/le/du/de la
+        (?P<societe>
+            (?:
+                (?:{forms_re})\s+{name_multi}        # forme en préfixe → « ASBL ARBI ATSC »
+              | {name_multi}\s+(?:{forms_re})        # forme en suffixe → « ARBI ATSC ASBL »
+            )
+        )
+        (?=\s*(?:,|\s+dont\b|\s+ayant\b|\s+qui\b|;|\.))  # on s'arrête net avant le contexte
+    """
+    return re.compile(pattern, re.IGNORECASE | re.VERBOSE | re.DOTALL)
+
+
+def _canon(s: str) -> str:
+    # normalise compatibilité (compose et homogénéise), puis nettoie
+    s = unicodedata.normalize("NFKC", s)
+    s = s.replace("\u200b", "").replace("\ufeff", "")        # zero-width + BOM
+    s = s.replace("\xa0", " ").replace("\u202f", " ").replace("\u2009", " ")
+    s = s.replace("’", "'")                                   # apostrophe
+    s = re.sub(r"\s+", " ", s)                                # compaction espaces
+    return s.strip()
+
 
 DECLENCHEURS = [
     r"homologation\s+du\s+plan\s+de",
@@ -44,6 +84,41 @@ FORMS = [
     "KG", "GMBH & CO KG"
 ]
 
+NAME_TOKEN = r"(?:[A-ZÉÈÀÂÎÔÙÜÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÎÔÙÜÇ]{2,})"
+
+# 🔹 Pattern spécial pour interdiction visant une personne physique
+PAT_INTERDICTION_PERSONNE = re.compile(r"""
+    il\s+est\s+fait\s+interdiction\s+à\s+
+    (?:Monsieur|Madame)\s+
+    (?P<prenom>[A-ZÉÈÀÂÎÔÙÜÇ][a-zà-öø-ÿ'\-]+)   # Prénom
+    \s+
+    (?P<nom>[A-ZÉÈÀÂÎÔÙÜÇ][A-ZÉÈÀÂÎÔÙÜÇ'\-]+)   # NOM en majuscules
+""", re.IGNORECASE | re.VERBOSE)
+
+# ➕ à côté de tes autres patterns (avant le nettoyage/dédoublonnage)
+PAT_FAILLITE_NOM_PRENOM = re.compile(
+    rf"""
+    faillite\s+de\s*:?\s*
+    (?:M\.|Monsieur|Madame|Mme)?\s*
+    (?P<nom>[A-ZÉÈÀÂÎÔÙÜÇ][A-ZÉÈÀÂÎÔÙÜÇ'’\-]+)   # NOM en ALLCAPS
+    \s*,\s*
+    (?P<prenom>{NAME_TOKEN})                     # Prénom (Maj+minuscules ou ALLCAPS)
+    (?=                                         # Lookahead: on s'arrête avant l'adresse
+        \s*,?\s*(?:domicili[ée]?\s+à|{ADRESSE_REGEX}\b|\d{{4}}\s+[A-Z])
+        | \s*,                                  # ou simplement la prochaine virgule si tu veux être large
+    )
+    """,
+    flags=re.IGNORECASE | re.VERBOSE
+)
+
+
+PAT_DANS_L_AFFAIRE = re.compile(
+        r"(?is)"  # i = ignorecase, s = DOTALL
+        r"dans\W*l\W*affaire\W*:?\W*"  # "Dans l'affaire" tolérant
+        r"(?P<nom>[^,\n\r;]+)"  # tout jusqu'à la 1re virgule/fin de ligne
+    )
+
+
 
 def _build_en_cause_de_societe_rx(forms:list[str]) -> re.Pattern:
     """
@@ -70,6 +145,7 @@ def _build_en_cause_de_societe_rx(forms:list[str]) -> re.Pattern:
     return re.compile(pattern, re.IGNORECASE | re.VERBOSE)
 
 RX_EN_CAUSE_DE_SOCIETE = _build_en_cause_de_societe_rx(FORMS)
+RX_DIRIGEANT_ESPECE = _build_dirigeant_espece_rx(FORMS)
 # ─────────────────────────────────────────────────────────────
 # FONCTIONS FALLBACK AVEC LOG
 # ─────────────────────────────────────────────────────────────
@@ -173,15 +249,34 @@ def extract_by_patterns(text, patterns, nom_list, flags=re.IGNORECASE | re.DOTAL
 # ─────────────────────────────────────────────────────────────
 
 def extract_noms_entreprises(texte_html, doc_id=None):
+    nom_list = []
+
+    # --- DEBUG IMMEDIAT : type + longueur + décodage bytes ---
+    print(f"[CALL] extract_noms_entreprises doc_id={doc_id} type={type(texte_html)}", flush=True)
+    if isinstance(texte_html, bytes):
+        try:
+            texte_html = texte_html.decode("utf-8", errors="ignore")
+            print("[DEBUG] decoded bytes as utf-8", flush=True)
+        except Exception:
+            texte_html = texte_html.decode("latin-1", errors="ignore")
+            print("[DEBUG] decoded bytes as latin-1", flush=True)
+    print(f"[DEBUG] raw html len={len(texte_html) if isinstance(texte_html, str) else -1}", flush=True)
+
     soup = BeautifulSoup(texte_html, 'html.parser')
-    full_text = soup.get_text(separator=" ").strip()
+    full_text = _canon(soup.get_text(separator=" "))
+    # regex "Dans l'affaire" robuste
+    m = PAT_DANS_L_AFFAIRE.search(full_text)
+    if m:
+        nom = m.group("nom").strip(" .;-")
+        nom_list.append(nom)
     # Nettoyage : remplacer les SRL- / SA- etc. par "SRL "
     for form in FORMS:
         full_text = re.sub(rf"({re.escape(form)})[\s\-:]+", r"\1 ", full_text)
     form_regex = '|'.join(re.escape(f) for f in FORMS)
     form_regex = rf"(?:{form_regex})[-:]?"  # 👈 accepte un tiret à la fin (optionnel)
-    nom_list = []
     flags = re.IGNORECASE | re.DOTALL
+
+
     # 🆕 1) Détection dédiée : « En cause de : … »
     for m in RX_EN_CAUSE_DE_SOCIETE.finditer(full_text):
         nom_list.append(m.group("societe").strip())
@@ -278,6 +373,16 @@ def extract_noms_entreprises(texte_html, doc_id=None):
     adresse_patterns.append(
         rf"a\s+accordé\s+à\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,6}})\s+{form_regex}"
     )
+    for m in RX_DIRIGEANT_ESPECE.finditer(full_text):
+        nom_list.append(m.group("societe").strip())
+
+    # 🔹 Cas spécial : "il est fait interdiction à Monsieur/Madame ..."
+    for m in PAT_INTERDICTION_PERSONNE.finditer(full_text):
+        personne = f"{m.group('prenom').strip()} {m.group('nom').strip()}"
+        nom_list.append(personne)
+    # … dans extract_noms_entreprises(), après avoir construit full_text :
+    for m in PAT_FAILLITE_NOM_PRENOM.finditer(full_text):
+        nom_list.append(f"{m.group('prenom').strip()} {m.group('nom').strip()}")
 
     # 🔹 Nettoyage doublons
     seen = set()
@@ -285,11 +390,12 @@ def extract_noms_entreprises(texte_html, doc_id=None):
     for nom in nom_list:
         nom_clean = re.sub(r"\s+", " ", nom.strip())
         nom_clean = re.sub(r"-\s*$", "", nom_clean)
+        if "qualité d'associé" in nom_clean.lower() or "liquidateur" in nom_clean.lower():
+            continue
         if nom_clean and nom_clean.lower() not in {"de", "et cl"} and nom_clean not in seen:
             noms_uniques.append(nom_clean)
             seen.add(nom_clean)
 
-    # Fallback avec log d'ID
     if not noms_uniques:
             print("le fall back a été activé..........................................................................")
             logger.warning(f"⚠️ Fallback activé pour le document ID={doc_id}")

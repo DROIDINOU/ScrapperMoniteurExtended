@@ -1,9 +1,14 @@
 import re
-from Utilitaire.outils.MesOutils import normalize_mois
+from Utilitaire.outils.MesOutils import normalize_mois, normalize_annees
 
 DATE_RX = r"(?:\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{2,4})"
 DATE_OPT  = rf"(?:\s+du\s+{DATE_RX})?"   # ← rend la date optionnelle
 RG_TOKEN  = r"\(RG"
+
+
+APOST = r"[’']"  # apostrophe droite ou typographique
+# --- Interdiction : "interdit à … pour une durée de X ans" (ou "pendant X ans")
+NB_MOTS = r"(?:\d{1,2}|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|quinze|vingt)"
 # Thèmes “contenu” (sans dates)
 RX_SUCC = re.compile(r"""
     \bsuccession[s]?
@@ -19,7 +24,39 @@ RX_SUCC = re.compile(r"""
     )?
 """, re.IGNORECASE | re.VERBOSE)
 
-APOST = r"[’']"  # apostrophe droite ou typographique
+# A) "interdit à <cible> ... pour une durée de X ans" (ou "pendant X ans")
+RX_INTERDIT_A_DUREE = re.compile(rf"""
+    \b(?:il\s+est\s+)?interdit\s+à\s+
+    (?P<cible>[^,;:\n]{{2,200}})              # cible jusqu'à la 1re virgule (ex: "Karl HOLTZHEIMER")
+    \s*,?\s*
+    .{{0,300}}?                               # autorise "né le..., domicilié..., ..." entre les deux
+    (?:
+        pour\s+une\s+durée\s+de\s+|pendant\s+
+    )
+    (?P<annees>{NB_MOTS})\s+ans?
+""", re.IGNORECASE | re.VERBOSE | re.DOTALL)
+
+# B) "prononce l'interdiction ... à l'égard de <cible> ... pour une durée de X ans"
+RX_INTERDICTION_DECISION = re.compile(rf"""
+    \b(?:prononce|confirme|maintient|r[ée]forme\s+et\s+prononce)\s+
+    l[’']?interdiction.*?                      # texte libre non-gourmand
+    (?:
+        (?:\bà\s+l[’']?égard\s+de\b|\bde\b|\bà\b)\s+
+    )?
+    (?P<cible>[^,;:\n]{{2,200}})
+    \s*,?\s*
+    .{{0,300}}?
+    (?:
+        pour\s+une\s+durée\s+de\s+|pendant\s+
+    )
+    (?P<annees>{NB_MOTS})\s+ans?
+""", re.IGNORECASE | re.VERBOSE | re.DOTALL)
+# C) Spécifique "diriger/engager personne morale" (tag complémentaire)
+PAT_INTERDICTION_DIRIGER = re.compile(
+    r"d[’']exercer\s+une\s+fonction\s+conf[ée]rant\s+le\s+pouvoir\s+d[’']engager\s+une\s+personne\s+morale",
+    re.IGNORECASE,
+)
+
 
 RX_ABSENCE = re.compile(rf"""
     (?:
@@ -60,6 +97,11 @@ RX_DISSOLUTION   = re.compile(r"\bdissolution\s+judiciaire\b", re.IGNORECASE)
 RX_REFORME_ORD   = re.compile(r"r[ée]forme\s+l[’']?ordonnance", re.IGNORECASE)
 RX_LEVEE_OBS     = re.compile(r"\bl[èe]ve\s+la\s+mesure\s+d[’']?observation\b", re.IGNORECASE)
 RX_CLOTURE_LIQ = re.compile(r"\bcl[ôo]ture\s+de\s+(?:la\s+)?liquidation(?:\s+judiciaire)?\b", re.IGNORECASE)
+RX_CLOTURE_REORGANISATION = re.compile(
+    r"(met\s+fin\s+à\s+la\s+procédure\s+de\s+r[ée]organisation\s+judiciaire"
+    r"|cl[ôo]ture\s+la\s+procédure\s+de\s+r[ée]organisation\s+judiciaire)",
+    re.IGNORECASE
+)
 RX_OPP_APPEL_NON_AVENUE_ET_PUB_MB = re.compile(
     r"^(?=.*\bdit\s+l[’']?(?:opposition|appel)\b[\s\S]{0,200}?\bnon[-\s]+avenue?\b)"
     r"(?=.*\bordonne\s+la\s+publication\b[\s\S]{0,200}?(?:aux?\s+annexes\s+du\s+)?moniteur\s+belge\b)",
@@ -79,6 +121,41 @@ RX_SURSIS_MOIS_ACCORDE_A = re.compile(
     """,
     flags=re.IGNORECASE | re.DOTALL | re.VERBOSE
 )
+
+RX_DISSOLUTION_RETRACTEE = re.compile(
+    r"la\s+dissolution(?:\s+judiciaire)?\s+de[\s\S]*?a\s+été\s+r[ée]tract[ée]e?\b",
+    re.IGNORECASE
+)
+
+RX_EFFACEMENT = re.compile(
+    r"\boctroie\b.*?\ble\s+b[ée]n[ée]fice\s+de\s+l[’']?effacement",
+    re.IGNORECASE | re.DOTALL
+)
+
+RX_MISE_A_NEANT = re.compile(
+    r"la\s+cour\s+d\s*[’']?\s*appel\s+(?:de\s+\w+)?\s+a\s+mis\s+à\s+n[ée]ant\s+le\s+jugement",
+    re.IGNORECASE
+)
+
+
+
+RX_INTERDIT_EXPLOITATION = re.compile(
+    r"interdisant\s+à\s+(.{1,300}?)\s+d[’']?exploiter\s+une\s+entreprise",
+    re.IGNORECASE | re.DOTALL
+)
+
+
+
+# Réforme/réformant le jugement/ordonnance/décision … puis homologue le plan de réorganisation (PRJ)
+RX_REFORME_JUGEMENT_HOMOLOGUE_PRJ = re.compile(r"""
+    \b
+    r[ée]form(?:ant|e)\s+le\s+(?:jugement|ordonnance|d[ée]cision)\b
+    .{0,400}?                              # tolère du texte entre les deux blocs
+    \b(?:et\s+)?homologu(?:e|ant|é|ée)\s+  # homologue / homologuant / homologué(e)
+    (?:l[’']?)?le\s+plan\s+de\s+r[ée]organisation
+    (?:\s+judiciaire)?                     # "judiciaire" optionnel
+    (?:\s*\(PRJ\))?                        # "(PRJ)" optionnel
+""", re.IGNORECASE | re.VERBOSE | re.DOTALL)
 # Motifs “acte + (quelque part une) date” → on NE récupère PAS la date,
 # on tag juste la présence du motif
 # Levée simple
@@ -99,7 +176,6 @@ PAT_ARTICLE_CC = re.compile(
     r"art(?:\.|icl[ée])?s?\s+\d{1,4}(?:/\d{1,3})?(?:-\d+)?\s*(?:d['’]?(?:u|la)?)?\s+(?:code\s+civil|c\.\s*civ(?:il)?)",
     re.IGNORECASE
 )
-
 
 
 
@@ -135,6 +211,8 @@ def detect_courappel_keywords(texte_brut, extra_keywords):
     if PAT_ARTICLE_CC.search(texte_brut): add("fin_mesure")
     if RX_LEVEE_OBS.search(texte_brut):   add("levee_mesure_observation")
     if RX_CLOTURE_LIQ.search(texte_brut):        add("cloture_liquidation")
+    if RX_EFFACEMENT.search(texte_brut): add("effacement_dette")
+    if RX_CLOTURE_REORGANISATION.search(texte_brut): add("cloture_reorganisation_judiciaire")
     if RX_OPP_APPEL_NON_AVENUE_ET_PUB_MB.search(texte_brut) : add("opposition_appel_non_avenue")
     if PAT_LEVEE.search(texte_brut):         add("levee_mesure")
     if RX_CAPABLE_BIENS_STMT.search(texte_brut): add ("est capable")
@@ -144,9 +222,26 @@ def detect_courappel_keywords(texte_brut, extra_keywords):
     if RX_DISSOLUTION.search(texte_brut): add("dissolution_judiciaire")
     if PAT_REGIME_REP.search(texte_brut):    add("regime_representation")
     if RX_ABSENCE_DE.search(texte_brut) : add ("absent")
+    if RX_DISSOLUTION_RETRACTEE.search(texte_brut) : add("rétractation dissolution")
+    if RX_REFORME_JUGEMENT_HOMOLOGUE_PRJ.search(texte_brut) : add ("homologation_plan_apres_reforme")
+    if RX_INTERDIT_EXPLOITATION.search(texte_brut) : add ("interdiction_exploiter")
+    if RX_MISE_A_NEANT.search(texte_brut) : add ("mise_neant_jugement")
+
     if RX_SURSIS_MOIS_ACCORDE_A.search(texte_brut) : add("sans_domicile_connu")
     match_sursis = RX_SURSIS_MOIS_ACCORDE_A.search(texte_brut)
     if match_sursis:
         mois = normalize_mois(match_sursis.group('duree'))
         add(f"sursis_accordé_{mois}_mois")
+    # --- Interdictions : "interdit à … pour une durée de X ans" ---
+    m_int = RX_INTERDIT_A_DUREE.search(texte_brut) or RX_INTERDICTION_DECISION.search(texte_brut)
+    if m_int:
+        add("interdiction")
+        yrs = normalize_annees(m_int.group("annees"))
+        if yrs:
+            add(f"interdiction_{yrs}_ans")
+
+        # Tag spécifique "diriger/engager une personne morale"
+        if PAT_INTERDICTION_DIRIGER.search(texte_brut):
+            add("interdiction_diriger_personne_morale")
+
 

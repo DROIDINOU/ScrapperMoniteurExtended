@@ -10,6 +10,10 @@ VILLE_TRIBUNAUX = [
     "Tournai", "Neufchâteau", "Marche-en-Famenne", "Arlon", "Dinant", "Eupen", "Nivelles", "Verviers"
 ]
 
+TVA_INSTITUTIONS = ["0308.357.159", "0206.731.645"]
+ADRESSES_INSTITUTIONS = ["1000 BRUXELLES place Poelart 1", "1000 BRUXELLES place Poelaert 1"]
+ADRESSES_INSTITUTIONS_SET = {a.strip() for a in ADRESSES_INSTITUTIONS}
+
 escaped_villes = [re.escape(v) for v in VILLE_TRIBUNAUX]
 VILLES = "|".join(escaped_villes)
 

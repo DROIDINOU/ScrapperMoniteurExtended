@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 # --- Modules internes au projet ---
 from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBIS, MOISMAPBIS, \
-    ANNEEMAPBIS, EXCLUDEDSOURCES, SOCIETESABRV, SOCIETESFORMELLES, BASE_URL
+    ANNEEMAPBIS, TVA_INSTITUTIONS
 
 
 def has_person_names(nom):
@@ -80,6 +80,18 @@ def clean_date_jugement(raw):
 # extract_clean_text
 # ************************************
 
+
+# Petit normaliseur des nombres en mots → int (pour le tag "…_X_ans")
+_WORD2INT = {
+    "un":1,"une":1,"deux":2,"trois":3,"quatre":4,"cinq":5,"six":6,"sept":7,"huit":8,"neuf":9,
+    "dix":10,"onze":11,"douze":12,"quinze":15,"vingt":20
+}
+
+def normalize_annees(val: str) -> int | None:
+    v = (val or "").strip().lower()
+    return int(v) if v.isdigit() else _WORD2INT.get(v)
+
+
 def chemin_csv(nom_fichier: str) -> str:
     return os.path.abspath(os.path.join("Datas", nom_fichier))
 
@@ -141,8 +153,15 @@ def extract_numero_tva(text: str, format_output: bool = False) -> list[str]:
 
     # 🔁 Supprime les doublons tout en conservant l’ordre
     seen = set()
-    return [x for x in tvas if not (x in seen or seen.add(x))]
+    tvas = [x for x in tvas if not (x in seen or seen.add(x))]
 
+    # 🔹 3. Exclure ceux qui sont dans la liste TVA_ETAT
+    if TVA_INSTITUTIONS:
+        # on normalise sans points pour comparer
+        tva_set = {x.replace(".", "") for x in TVA_INSTITUTIONS}
+        tvas = [x for x in tvas if x.replace(".", "") not in tva_set]
+
+    return tvas
 
 # ____________________________________________________________
     # Extrait un texte propre à partir d’un objet BeautifulSoup.
@@ -290,5 +309,30 @@ def liste_vide_ou_que_vides_lenient(lst):
         (s is None) or (isinstance(s, str) and not s.strip())
         for s in lst
     )
+
+def clean_nom_trib_entreprise(noms: list[str]) -> list[str]:
+    """
+    Supprime de la liste les noms qui correspondent exactement à 'en cause de' (espaces ignorés, insensible à la casse).
+
+    Args:
+        noms (list[str]): Liste de noms extraits à nettoyer.
+
+    Returns:
+        list[str]: Liste filtrée des noms.
+    """
+    print(f"voici la liste !!!!!!!!!!!!!!!!!!!!!!!!!!!!!{noms}")
+    return [
+        nom for nom in noms
+        if (nom.strip().lower() != "en cause de"
+         and nom.strip().lower() != "qualité de curatrice sa"
+         and nom.strip().lower() != "conformément e"
+         and nom.strip().lower() != "conformément à"
+         and nom.strip().lower() != "l'etat belge spf finances"
+         and nom.strip().lower() != "1. l'etat belge spf finances"
+         and nom.strip().lower() != "2. l etat belge spf finances"
+         and nom.strip().lower() != "3. l etat belge spf finances"
+        and nom.strip().lower() != "spf finances")
+
+    ]
 
 

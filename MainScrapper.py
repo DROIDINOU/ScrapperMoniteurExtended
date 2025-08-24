@@ -24,8 +24,9 @@ from tqdm import tqdm
 
 # --- Modules internes au projet ---
 from logger_config import setup_logger, setup_fallback3_logger
-from Constante.mesconstantes import BASE_URL
-from NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
+from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
+from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
+from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
 from extract_adresses_entreprises import extract_add_entreprises
 from extraction_adresses_moniteur import extract_address
 from extraction_nom_entreprises import extract_noms_entreprises
@@ -36,7 +37,7 @@ from Keyword.tribunal_premiere_instance_keyword import detect_tribunal_premiere_
 from Keyword.cour_appel_keyword import detect_courappel_keywords
 from Keyword.terrorisme_keyword import add_tag_personnes_a_supprimer
 from Keyword.succession_keyword import detect_succession_keywords
-from NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
+
 from MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte
 from Utilitaire.ConvertDateToMeili import convertir_date
 from Extraction.extractionDateNaissanceDeces import extract_date_after_birthday, \
@@ -44,7 +45,8 @@ from Extraction.extractionDateNaissanceDeces import extract_date_after_birthday,
 from Extraction.extraction_date_jugement import extract_jugement_date, extract_date_after_rendu_par
 from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_numero_tva, \
     extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric, \
-    chemin_csv, clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, liste_vide_ou_que_vides_lenient
+    chemin_csv, clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
+    liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise
 from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
     convert_pdf_pages_to_text_range
 from extractbis import extract_person_names
@@ -319,17 +321,14 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     # Cas normal
     nom = extract_name_from_text(str(main))
     raw_naissance = extract_date_after_birthday(str(main))  # liste ou str
-
-
-
     if isinstance(raw_naissance, list):
         raw_naissance = [norm_er(s) for s in raw_naissance]
     elif isinstance(raw_naissance, str):
         raw_naissance = norm_er(raw_naissance)
-
     date_naissance = convertir_date(raw_naissance)  # -> liste ISO ou None
 
-    adresse = extract_address(str(main))
+    adresse = extract_address(str(texte_brut))
+    print(f"voici les adresses {adresse}")
     if not date_jugement:
         date_jugement = extract_jugement_date(str(texte_brut))
 
@@ -405,12 +404,62 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
 
     if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
-        nom_interdit = extraire_personnes_interdites(texte_brut) # va falloir deplacer dans fonction ?
+        nom = None
+        nom_interdit = extraire_personnes_interdites(texte_brut)
         nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
         detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
         detect_courappel_keywords(texte_brut, extra_keywords)
         detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
-        administrateur = extract_administrateur(texte_brut)
+        nom = extract_name_from_text(texte_brut)
+
+        def clean(n):
+            return re.sub(r"\s+", " ", n.strip().lower())
+
+        # On nettoie tous les noms d'entreprise à exclure
+        noms_entreprise_exclues = {clean(n) for n in nom_trib_entreprise}
+
+        # 1. Nettoyer "records"
+        filtered_records = [
+            r for r in nom.get("records", [])
+            if clean(r.get("canonical", "")) not in noms_entreprise_exclues
+        ]
+
+        # 2. Nettoyer "canonicals"
+        filtered_canonicals = [
+            c for c in nom.get("canonicals", [])
+            if clean(c) not in noms_entreprise_exclues
+        ]
+
+        # 3. Nettoyer "aliases_flat"
+        filtered_aliases_flat = [
+            a for a in nom.get("aliases_flat", [])
+            if clean(a) not in noms_entreprise_exclues
+        ]
+
+        # 4. Mettre à jour l'objet `nom`
+        nom["records"] = filtered_records
+        nom["canonicals"] = filtered_canonicals
+        nom["aliases_flat"] = filtered_aliases_flat
+        # administrateur me semble inutile pour cour d appel
+        # administrateur = extract_administrateur(texte_brut)
+        # refactoriser et faire qu en cas de succession?
+        raw_deces = extract_dates_after_decede(str(main))  # liste ou str
+        nom_trib_entreprise = clean_nom_trib_entreprise(nom_trib_entreprise)
+
+        # Normalise les "er" dans la/les dates extraites
+        def _norm_er(x):
+            if isinstance(x, str):
+                x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
+                x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
+                return x
+            return x
+
+        if isinstance(raw_deces, list):
+            raw_deces = [_norm_er(s) for s in raw_deces]
+        elif isinstance(raw_deces, str):
+            raw_deces = _norm_er(raw_deces)
+
+        date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
 
     tvas = extract_numero_tva(texte_brut)
     # va certainement falloir changer cela
@@ -473,7 +522,7 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
@@ -576,7 +625,7 @@ for doc in documents:
             cleaned = tronque_texte_apres_adresse(cleaned)
 
             # ✅ Ajouter si unique
-            if cleaned and cleaned not in seen:
+            if cleaned and cleaned not in seen and cleaned not in ADRESSES_INSTITUTIONS_SET:
                 seen.add(cleaned)
                 adresse_cleaned.append(cleaned)
 

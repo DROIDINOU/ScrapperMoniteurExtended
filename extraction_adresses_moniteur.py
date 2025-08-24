@@ -1,5 +1,6 @@
 from bs4 import BeautifulSoup
 import re
+from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
 
 
 def extract_address(texte_html):
@@ -248,5 +249,6 @@ def extract_address(texte_html):
                     m = next((x for x in m if isinstance(x, str) and x.strip()), " ".join(m))
                 m = re.sub(r"\s+(et(\s+décédé[e]?)?)$", "", str(m).strip(), flags=re.IGNORECASE)
                 adresse_list.append(m)
-
+    # Après avoir rempli adresse_list
+    adresse_list = [a for a in adresse_list if len(a.split()) > 2]
     return list(set(adresse_list))

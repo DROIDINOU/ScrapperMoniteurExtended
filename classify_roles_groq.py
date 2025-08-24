@@ -3,10 +3,14 @@
 
 import json, re, sys
 from groq import Groq
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # ============================================================
 # 1) REMPLACE par ta vraie clé Groq (format "gsk_...")
-GROQ_API_KEY = "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"
 # 2) Mets TON TEXTE ici (copie-colle l’ordonnance/le jugement)
 TEXT = """ Tribunal de première instance du Luxembourg, division Marche-en-Famenne Par jugement du 17/02/2025, le tribunal de la Famille du Luxembourg, division Marche-en-Famenne, confirme l'ordonnance dont appel sous les émendations suivantes : - Eric MULLER, RN : 57.07.27-121.24, né à Usumbura, Burundi le 25/07/1957, domicilié à 1200 WOLUWE-SAINT-LAMBERT, rue Abbé de l'Epée 24, est désigné en qualité d'administrateur des biens et de la personne de Marie-Thérèse Kinet; - Myriam MULLER, RN : 59.08.25-122.35, née à Usumbura, Burundi le 25/08/1959, domiciliée à 6900 HOLLOGNE, rue des Tombes 4, est désignée en qualité de personne de confiance. Les données à caractère personnel reprises dans cette publication ne peuvent être utilisées à d'autres fins que celle de porter la décision à la connaissance des personnes tierces. Marche-en-Famenne, le 3 mars 2025. La greffière, (signé) M. GROYNE.
 """

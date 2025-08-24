@@ -264,7 +264,7 @@ docs_sans_adresse_avec_domicilie = [
 # --- Documents sans adresse MAIS contenant "résidence" ---
 docs_sans_adresse_avec_residence = [
     doc for doc in docs_sans_adresse
-    if re.search(r"residence", doc.get("text", ""), flags=re.IGNORECASE)
+    if re.search(r"résidence", doc.get("text", ""), flags=re.IGNORECASE)
 ]
 
 docs_sans_adresse_avec_radie = [
@@ -278,7 +278,7 @@ st.subheader("📋 Documents SANS adresse mais contenant 'domicilié'")
 for doc in docs_sans_adresse_avec_domicilie[:500]:  # limiter l'affichage
     st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:800]}...")
 
-st.subheader("📋 Documents SANS adresse mais contenant 'residence'")
+st.subheader("📋 Documents SANS adresse mais contenant 'résidence'")
 for doc in docs_sans_adresse_avec_residence[:500]:  # limiter l'affichage
     st.write(f"ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:800]}...")
 
@@ -293,7 +293,7 @@ show_results(docs_sans_date_deces, "Documents SANS date de décès")
 show_results(docs_sans_adresse, "Documents SANS adresse")
 show_results(docs_avec_num_nat, "Documents AVEC num_nat")
 show_results(docs_sans_num_nat, "Documents SANS num_nat")
-show_results(docs_sans_nom, "Documents SANS nom")
+show_results(docs_sans_nom, "Liste des documents SANS nom_trib_entreprise")
 show_results(docs_avec_nom, "Documents AVEC nom")
 show_results(docs_sans_admin, "Documents SANS admin")
 show_results(docs_avec_nom_trib_entreprise, "Documents AVEC nom trib entreprise")
@@ -350,6 +350,21 @@ def print_docs_avec_nom_trib_entreprise(docs):
 
         st.write(f"- ID: {doc_id} | nom_trib_entreprise: {nom_tri_str}")
 
+def print_docs_sans_nom_trib_entreprise(docs):
+    st.subheader("📋 Liste des documents SANS nom_trib_entreprise :")
+    for doc in docs:
+        nom_tri = doc.get("nom_trib_entreprise")
+        doc_id = doc.get("id")
+        texte = doc.get("text", "")
+
+        # Si c’est une liste → joindre les noms
+        if isinstance(nom_tri, list):
+            nom_tri_str = ", ".join(n.strip() for n in nom_tri if isinstance(n, str) and n.strip())
+        else:
+            nom_tri_str = str(nom_tri).strip() if nom_tri else ""
+
+        st.write(f"- ID: {doc_id} | Texte: {repr(doc.get('text'))[:600]}...| nom_trib_entreprise: {nom_tri_str}")
+
 
 def print_docs_sans_num_nat(docs):
     st.subheader("📋 Liste des documents SANS num_nat :")
@@ -402,6 +417,8 @@ print_docs_avec_nom(docs_avec_nom)
 print_docs_sans_nom(docs_sans_nom)
 print_docs_avec_date_naissance(docs_avec_date_naissance)
 print_docs_avec_nom_trib_entreprise(docs_avec_nom_trib_entreprise)
+print_docs_sans_nom_trib_entreprise(docs_sans_nom_trib_entreprise)
+
 
 
 

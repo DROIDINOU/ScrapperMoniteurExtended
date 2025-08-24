@@ -28,6 +28,39 @@ RN_TOKEN = r"(?:N?\s*R\.?\s*N\.?)"
 # Token RN élargi (RN / NRN / NN — avec ou sans points/espaces)
 RN_TOKEN_ANY = r"(?:R\.?\s*N\.?|N\.?\s*R\.?\s*N\.?|N\.?\s*N\.?)"
 
+# Après tes blocs de constantes (avec NOM_BLOCK et PRENOMS_BLK déjà définis)
+RX_INTERDIT_A = re.compile(rf"""
+    \b(?:il\s+est\s+)?interdit\s+à\s+                 # "interdit à" (avec "il est" optionnel)
+    (?:Monsieur|Madame|M(?:r|me)?\.?\s+)?             # civilité optionnelle
+    (?:
+        (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})      # Karl HOLTZHEIMER
+        |
+        (?P<nom2>{NOM_BLOCK})\s*,\s*(?P<prenoms2>{PRENOMS_BLK}) # HOLTZHEIMER, Karl
+    )
+    (?=                                               # on s'arrête proprement avant le contexte
+        \s*,?\s*(?:né|née|né\(e\)|domicili|pour\s+une\s+durée|de\s+\d+\s+ans|;|\.|,|$)
+    )
+""", re.IGNORECASE | re.VERBOSE)
+# 1) “le nommé : [Nr. … - ] NOM, Prénoms …”
+RX_LE_NOMME_NP = re.compile(rf"""
+    \ble\s+nomm[ée]\s*[:\-]?\s*
+    (?:Nr\.?\s*[\d./-]+\s*[-–]\s*)?         # ex: "Nr. 18.2025 - " (optionnel)
+    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+    (?=\s*,?\s*(?:né|née|né\(e\)|RR?N|NRN|\(|$))
+""", re.IGNORECASE | re.VERBOSE)
+
+# 2) “Nr. … - NOM, Prénoms …” (au cas où “le nommé :” est absent)
+RX_NR_NP = re.compile(rf"""
+    \bNr\.?\s*[\d./-]+\s*[-–]\s*
+    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+    (?=\s*,?\s*(?:né|née|né\(e\)|RR?N|NRN|\(|$))
+""", re.IGNORECASE | re.VERBOSE)
+
+# 3) générique “NOM, Prénoms, né …”
+RX_NP_NE = re.compile(rf"""
+    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+    \s*,\s*(?:né|née|né\(e\))\b
+""", re.IGNORECASE | re.VERBOSE)
 # (A) “Monsieur/Madame + Prénom(s) + NOM (RN …)”
 RX_CIVILITE_PN_RN = re.compile(rf"""
     (?:Monsieur|Madame|M(?:r|me)?\.?|Ma(?:ître|itre)|Me)\s+
@@ -187,6 +220,30 @@ RX_SV_MONSIEUR_PN = re.compile(
     re.IGNORECASE,
 )
 
+# Bloc "En cause de : … (jusqu'à Contre : / Intimés : / fin)"
+RX_EN_CAUSE_BLOCK = re.compile(
+    r"en\s*cause\s*de\s*:?\s*(?P<bloc>.+?)(?=\b(?:contre|intim[ée]s?|défendeur|defendeur|défenderesse|defenderesse)\b\s*:|$)",
+    re.IGNORECASE | re.DOTALL
+)
+
+# Items "NOM, Prénoms" avec numérotation et RN optionnel
+RX_EN_CAUSE_ITEM_NP = re.compile(rf"""
+    (?:^|\s*;\s*)                     # début d'item (début bloc ou après ;)
+    (?:\d+\s*[\.\)]\s*)?              # "1." / "2)" optionnel
+    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+    (?:\s*\(\s*{RN_TOKEN_ANY}\b[^)]*\))?   # (RN/NRN/NN …) optionnel
+""", re.IGNORECASE | re.VERBOSE)
+
+# Items "Prénoms NOM" (au cas où) avec civilité et RN optionnels
+RX_EN_CAUSE_ITEM_PN = re.compile(rf"""
+    (?:^|\s*;\s*)
+    (?:\d+\s*[\.\)]\s*)?
+    (?:Monsieur|Madame|M(?:r|me)?\.?)?\s*
+    (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
+    (?:\s*\(\s*{RN_TOKEN_ANY}\b[^)]*\))?
+""", re.IGNORECASE | re.VERBOSE)
+
+
 RX_EN_CAUSE_DE_NOM = re.compile(
     r"""
     en\s*cause\s*de\s*:?\s*                 # libellé 'EN CAUSE DE :'
@@ -320,7 +377,13 @@ def nettoyer_noms_avances(noms, longueur_max=80):
     titres_regex = r"\b(madame|monsieur|mme|mr)\b[\s\-]*"
 
     # Termes à ignorer
-    termes_ignores = ["la personne", "personne", "Par ordonnance", "de la", "dans les", "feu M", "feu", "feue", "désigné Maître", "présente publication"]
+    termes_ignores = ["la personne", "personne", "Par ordonnance", "de la", "dans les",
+        "feu M", "feu", "feue", "désigné Maître", "présente publication",
+        "de sexe masculin", "de sexe féminin", "de sexe feminin",  # <-- corrigé
+        "sexe masculin", "sexe féminin", "sexe feminin",
+        "masculin", "féminin", "feminin", "comptabilité", "intention frauduleuse", "avoir détourné",
+        "avoir detourne", "contrevenu", "dispositions", "partie appelante", "représentée", "appelante",
+        "l'etat belge spf finances","l etat belge spf finances", "L'ETAT BELGE SPF FINANCES", "etat belge", "spf finances"]
 
     def invert_if_comma(s: str) -> str:
         if "," in s:
@@ -351,7 +414,9 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
         # suppression titres
         nom = re.sub(titres_regex, '', nom, flags=re.IGNORECASE)
-
+        # 🔹 suppression de tous les chiffres et signes associés
+        nom = re.sub(r"\d+", "", nom)  # chiffres simples
+        nom = re.sub(r"\s*[\/\-]\s*\d+\w*", "", nom)  # ex: 12/3, 45-A, 123B
         # coupe le contexte après le nom
         nom = re.split(CONTEXT_CUT, nom, 1, flags=re.IGNORECASE)[0]
 
@@ -377,8 +442,10 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
     noms_nettoyes = []
     noms_normalises = []
-
     for nom in noms:
+
+        # ignorer si ça commence par "ne pas avoir ..."
+
         if any(terme in nom.lower() for terme in termes_ignores):
             continue
         if len(nom) > longueur_max:
@@ -432,6 +499,19 @@ def extract_name_before_birth(texte_html):
     # -----------------
     #     SUCCESSIONS
     # -----------------
+    for m in RX_INTERDIT_A.finditer(full_text):
+        nom = (m.group('nom') or m.group('nom2')).strip()
+        prenoms = (m.group('prenoms') or m.group('prenoms2')).strip()
+        nom_list.append(f"{nom}, {prenoms}")
+
+    for m in RX_LE_NOMME_NP.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+
+    for m in RX_NR_NP.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+
+    for m in RX_NP_NE.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
 
     for m in RX_SV_ANY.finditer(full_text):
         nom_list.append(m.group(1).strip())
@@ -1050,6 +1130,14 @@ def extract_name_before_birth(texte_html):
     )
     for nom_complet, _ in match_noms_complets:
         nom_list.append(nom_complet.strip())
+
+    # --- En cause de : bloc + items (liste 1., 2., …) ---
+    for mb in RX_EN_CAUSE_BLOCK.finditer(full_text):
+        bloc = mb.group("bloc")
+        for m in RX_EN_CAUSE_ITEM_NP.finditer(bloc):
+            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        for m in RX_EN_CAUSE_ITEM_PN.finditer(bloc):
+            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
 
     noms_nettoyes = nettoyer_noms_avances(nom_list)
     return group_names_for_meili(noms_nettoyes)

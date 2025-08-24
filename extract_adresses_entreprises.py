@@ -4,6 +4,7 @@ import re
 import csv
 import unicodedata
 from Utilitaire.outils.MesOutils import chemin_csv
+from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
 
 # --- Bibliothèques tierces ---
 # --- Configuration du logger ---
@@ -128,6 +129,7 @@ def nettoyer_adresse(adresse):
 
     if len(adresse) < 5:
         return None, alerte
+
 
     return adresse, alerte
 
