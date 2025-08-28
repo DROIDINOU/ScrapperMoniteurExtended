@@ -98,6 +98,28 @@ ADDRESS_FALLBACK_NO_PREFIX = rf"""
     ,?\s*\d{{4,5}}?
     (?=\s|,|\.|$)
 """
+# ➕ après ADDRESS_FALLBACK_NO_PREFIX
+TRIGGERS_A = r"(?:DONT\s+LE\s+SI[EÈ]GE(?:\s+SOCIAL)?\s+(?:EST\s+)?(?:ETABL[IÉ]|SIS)\s+À|AVOCAT\s+À|DOMICILI[ÉE]?\s+À|ETABLI[ÉE]?\s+À)"
+RE_TRIGGERS_A = re.compile(TRIGGERS_A, re.IGNORECASE)
+
+RE_CP_FIRST_STRICT = re.compile(rf"""
+    (?P<cp>\d{{4,5}})\s+[A-ZÉÈÀÂ][A-ZÉÈÀÂ'’\-\s]+,\s*
+    (?P<voie>{ADRESSE_PREFIXES})\s+
+    (?P<rue>[A-Z0-9ÉÈÀÂ'’\-\s]+?)\s+
+    (?P<num>\d+[A-Z]?(?:/\d+)?(?:\s*[A-Z0-9]{{1,4}})?)         
+    (?:\s*,?\s*(?:BTE|BOX|BP|BOITE)\s*(?P<bte>[A-Z0-9/\.\-]+))?
+    (?=\s*[;.,)]|\s*$)
+""", re.IGNORECASE | re.VERBOSE)
+
+RE_CP_FIRST_LOOSE = re.compile(rf"""
+    (?P<cp>\d{{4,5}})\s+[A-ZÉÈÀÂ][A-ZÉÈÀÂ'’\-\s]+,\s*       # 1400 Nivelles,
+    (?P<voie>{ADRESSE_PREFIXES})\s+                         # rue
+    (?P<rue>[A-Z0-9ÉÈÀÂ'’\-\s]+?)                           # de l'Industrie
+    \s+(?P<num>\d+[A-Z]?(?:/\d+)?(?:\s*[A-Z0-9]{{1,4}})?)    # 22
+    (?:\s*,?\s*(?:BTE|BOX|BP|BOITE)\s*(?P<bte>[A-Z0-9/\.\-]+))?  # , bte C18
+    (?=\s*[;.,)]|\s*$)
+""", re.IGNORECASE | re.VERBOSE)
+
 
 # 📌 Regex précompilées
 RE_FORM_PATTERN = re.compile(rf"\b({FORM_PATTERN})\b")
@@ -137,8 +159,18 @@ def nettoyer_adresse(adresse):
 # 🔍 Extraction
 # =========================
 def extract_add_entreprises(texte, doc_id=None):
-    print("on rentre dans extraction")
     texte = re.sub(r'\s+', ' ', texte).strip().upper()
+    # 0) Capture dédiée après déclencheurs “… À <CP> <VILLE>, …”
+    for mt in RE_TRIGGERS_A.finditer(texte):
+        tail = texte[mt.end(): mt.end() + 280]  # petite fenêtre après le trigger
+        m = RE_CP_FIRST_STRICT.search(tail) or RE_CP_FIRST_LOOSE.search(tail)
+        if m:
+            raw = m.group(0).strip(" ,.;")
+            addr, alerte = nettoyer_adresse(raw)
+            if addr and addr not in ADRESSES_INSTITUTIONS_SET:
+                logger.debug(
+                    f"↪️ [Adresse après trigger]{f' ID={doc_id}' if doc_id else ''} : {addr} | alerte={alerte}")
+                return addr  # si tu préfères, tu peux accumuler puis dédupliquer au lieu de return
     lignes = texte.splitlines()
     lignes = [l.strip() for l in lignes if l.strip()][:8]
 

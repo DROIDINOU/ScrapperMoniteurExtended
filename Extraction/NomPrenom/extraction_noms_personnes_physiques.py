@@ -2,6 +2,10 @@ import re
 import unicodedata
 # tout en haut (près des helpers)
 ABS_PREF = r"(?:il\s+est\s+)?demand[ée]?\s+de\s+déclarer\s+l'absence\s+de"
+PROT_PREF = r"modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+# variantes où le texte ne contient plus "modifié..." et ne commence que sur la queue
+INT_PREF_FULL = r"à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+INT_PREF_TAIL = r"et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
 
 PREFIXES = (
     r"(?:"
@@ -10,8 +14,16 @@ PREFIXES = (
     r"|succession\s+(?:en\s+d[ée]sh[ée]rence|vacante)\s+de"
     r"|en qualité de curateur à la succession vacante de"
     r"|la succession vacante de"
+    r"le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+Visé\s+a\s+désigné\s+(?:à\s+)?"
     r"|"
     + ABS_PREF +
+    r"|"
+    + PROT_PREF +
+    r"|"
+    + INT_PREF_FULL
+    +
+    r"|"
+    + INT_PREF_TAIL +
     r")"
 )
 CONTEXT_CUT = (
@@ -23,11 +35,9 @@ UPWORD = r"[A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ][A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ
 NOM_BLOCK = rf"{UPWORD}(?:\s+{UPWORD}){{0,4}}"              # LUYTEN | VAN DER MEER | D’ALMEIDA
 PRENOM_WORD = r"[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{1,}"
 PRENOMS_BLK = rf"{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,5}}"    # Liliane Louise Victorine
-RN_TOKEN = r"(?:N?\s*R\.?\s*N\.?)"
-# Token RN élargi (RN / NRN / NN — avec ou sans points/espaces)
-# Token RN élargi (RN / NRN / NN — avec ou sans points/espaces)
-RN_TOKEN_ANY = r"(?:R\.?\s*N\.?|N\.?\s*R\.?\s*N\.?|N\.?\s*N\.?)"
-
+# Token RN élargi (RN / RRN / NRN / NN — avec ou sans points/espaces)
+RN_TOKEN = r"(?:(?:R\.?\s*){1,2}N\.?|N\.?\s*R\.?\s*N\.?|N\.?\s*N\.?)"
+RN_TOKEN_ANY = RN_TOKEN
 # Après tes blocs de constantes (avec NOM_BLOCK et PRENOMS_BLK déjà définis)
 RX_INTERDIT_A = re.compile(rf"""
     \b(?:il\s+est\s+)?interdit\s+à\s+                 # "interdit à" (avec "il est" optionnel)
@@ -41,6 +51,37 @@ RX_INTERDIT_A = re.compile(rf"""
         \s*,?\s*(?:né|née|né\(e\)|domicili|pour\s+une\s+durée|de\s+\d+\s+ans|;|\.|,|$)
     )
 """, re.IGNORECASE | re.VERBOSE)
+
+RX_MODIF_PROTECTION_INTERESSE = re.compile(rf"""
+    modifi[ée]?\s+les\s+mesures\s+de\s+protection
+    \s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?\s+
+    (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
+    (?=\s*(?:,|;|\.|$))
+""", re.IGNORECASE | re.VERBOSE)
+
+
+RX_PROTECTION_INTERESSE_NOM_SEUL = re.compile(rf"""
+    modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?\s+
+    (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
+""", re.IGNORECASE | re.VERBOSE)
+
+RX_PROTECTION_INTERESSE_NE = re.compile(rf"""
+    mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]\s+
+    (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})   # prénoms puis NOM
+    ,\s+(?:né|née|né\(e\))\s+à                           # suivi du "né à"
+""", re.IGNORECASE | re.VERBOSE)
+
+
+RX_NOM_ET_PRENOM_LABEL = re.compile(rf"""
+    \bNom\s+et\s+prénom[s]?\s*:\s*          # "Nom et prénom :" ou "Nom et prénoms :"
+    (?P<nom>{NOM_BLOCK})\s*,?\s*            # NOM, virgule optionnelle
+    (?P<prenoms>                            # bloc prénoms autorisant espaces/virgules
+        {PRENOM_WORD}
+        (?:\s*,?\s*{PRENOM_WORD}){{0,5}}
+    )
+    (?=\s*(?:$|[\n\r]|,|;|\.|Lieu|Date|Domicile|Nationalité|N°|No|Nº))  # stop propre
+""", re.IGNORECASE | re.VERBOSE)
+
 # 1) “le nommé : [Nr. … - ] NOM, Prénoms …”
 RX_LE_NOMME_NP = re.compile(rf"""
     \ble\s+nomm[ée]\s*[:\-]?\s*
@@ -407,6 +448,10 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
     def nettoyer_et_normaliser(nom):
         # extraction initiale
+        if nom.lower().startswith("le juge de paix du canton de visé a désigné à".lower()):
+            nom = re.sub(r"le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+Visé\s+a\s+désigné\s+à\s+", "", nom,
+                         flags=re.IGNORECASE)
+
         nom = extraire_nom_depuis_phrase(nom)
 
         # suppression préfixes "né ...", "pour la succession ..."
@@ -446,12 +491,14 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
         # ignorer si ça commence par "ne pas avoir ..."
 
-        if any(terme in nom.lower() for terme in termes_ignores):
+        nom_nettoye, norm = nettoyer_et_normaliser(nom)
+        print(nom_nettoye, norm)
+        if any(terme.strip() in nom_nettoye.lower().strip() for terme in termes_ignores):
             continue
-        if len(nom) > longueur_max:
+        if len(nom_nettoye) > longueur_max:
             continue
 
-        nom_nettoye, norm = nettoyer_et_normaliser(nom)
+
         # Accepte un token unique s'il ressemble à un NOM en majuscules (UPWORD)
         if len(nom_nettoye.split()) < 2 and not re.fullmatch(UPWORD, nom_nettoye):
             continue
@@ -473,8 +520,16 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
         noms_nettoyes.append(nom_nettoye)
         noms_normalises.append(norm)
+    # ⚠️ avant le return, applique le filtre
+    filtrés_nettoyes = []
+    filtrés_normalises = []
 
-    return noms_nettoyes
+    for nom_nettoye, norm in zip(noms_nettoyes, noms_normalises):
+        if "greffier" not in nom_nettoye.lower() and "greffier" not in norm.lower():
+            filtrés_nettoyes.append(nom_nettoye)
+            filtrés_normalises.append(norm)
+
+    return filtrés_nettoyes
 
 
 def extract_name_before_birth(texte_html):
@@ -483,8 +538,10 @@ def extract_name_before_birth(texte_html):
 
     soup = BeautifulSoup(texte_html, 'html.parser')
     full_text = soup.get_text(separator=" ").strip()
-    nom_list = []
 
+    nom_list = []
+    if "Toussaint" in full_text:
+        print(f"→ OKDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD: Nom trouvé dans le texte brut: {full_text}")
 
     # ______________________________________________________________________________________________________
 
@@ -545,6 +602,10 @@ def extract_name_before_birth(texte_html):
     for m in RX_SV_FEU_PAIRE.finditer(full_text):
         nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}")
 
+    # 🔹 Ajout spécifique pour : "mesures de protection à l’égard de la personne et des biens de l’intéressé Prénom Nom, né à ..."
+    for m in RX_PROTECTION_INTERESSE_NE.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+
     for m in RX_SV_FEU_VARIANTES.finditer(full_text):
         nom_list.append(m.group(1).strip())
 
@@ -577,6 +638,9 @@ def extract_name_before_birth(texte_html):
 
     for m in RX_SRV_NOMPRENOM.finditer(full_text):
         nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
+
+    for m in RX_PROTECTION_INTERESSE_NOM_SEUL.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
 
     for m in RX_SV_MONSIEUR_PN.finditer(full_text):
         nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
@@ -622,11 +686,18 @@ def extract_name_before_birth(texte_html):
     # -----------------
     #    DECLARE
     # -----------------
+    RX_DECL_NP_RRN = re.compile(rf"""
+        \bdéclare\b\s+
+        (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+        \s*\(\s*{RN_TOKEN_ANY}.*?\)
+    """, re.IGNORECASE | re.VERBOSE)
 
-
-
-
-
+    RX_DECL_CIVILITE_NP_RRN = re.compile(rf"""
+        \bdéclare\b\s+
+        (?:Monsieur|Madame|M(?:r|me)?\.?)\s+
+        (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+        \s*\(\s*{RN_TOKEN_ANY}.*?\)
+    """, re.IGNORECASE | re.VERBOSE)
 
     # 🔹 0.ter : Cas "Madame/Monsieur NOM, Prénom, né(e) à ..."
     match_mp = re.findall(
@@ -793,8 +864,6 @@ def extract_name_before_birth(texte_html):
         re.IGNORECASE
     )
     for nom, prenom, _ in match_special_semicolon:
-        if (match_special_semicolon):
-            print("2222222222222222222222222222222222222222222222222222222222222222222222222222")
         nom_complet = f"{nom.strip()}, {prenom.strip()}"
         nom_list.append(nom_complet)
 
@@ -1121,6 +1190,14 @@ def extract_name_before_birth(texte_html):
     for nom in match_observation_protectrice:
         nom_list.append(nom.strip())
 
+    for m in RX_DECL_NP_RRN.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+
+    for m in RX_DECL_CIVILITE_NP_RRN.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+
+    for m in RX_NOM_ET_PRENOM_LABEL.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip().replace(',', ' ')}")
 
     # Expression régulière pour capturer le nom complet avant "né à"
     match_noms_complets = re.findall(
@@ -1130,6 +1207,8 @@ def extract_name_before_birth(texte_html):
     )
     for nom_complet, _ in match_noms_complets:
         nom_list.append(nom_complet.strip())
+
+
 
     # --- En cause de : bloc + items (liste 1., 2., …) ---
     for mb in RX_EN_CAUSE_BLOCK.finditer(full_text):

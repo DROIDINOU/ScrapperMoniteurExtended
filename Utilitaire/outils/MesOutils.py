@@ -1,7 +1,10 @@
 # --- Imports standards ---
 import re
 import os
+import pickle
 import hashlib
+import csv
+
 
 # --- Bibliothèques tierces ---
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -11,6 +14,97 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBIS, MOISMAPBIS, \
     ANNEEMAPBIS, TVA_INSTITUTIONS
 
+
+# Filtre public (rapide, tu as déjà viré les 0200 du fichier mais on garde la sécurité)
+def is_entite_publique(entite_bce: str) -> bool:
+    s = re.sub(r"\D", "", entite_bce or "")
+    if len(s) == 9:
+        s = "0" + s
+    return s.startswith("0200")
+
+def format_bce(n: str | None) -> str | None:
+    if not n:
+        return None
+    d = re.sub(r"\D", "", str(n))
+    if len(d) == 9:
+        d = "0" + d
+    if len(d) != 10:
+        return None
+    return f"{d[:4]}.{d[4:7]}.{d[7:]}"
+
+def _csv_mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+def _cache_path_for(csv_path: str) -> str:
+    base = os.path.splitext(os.path.basename(csv_path))[0]
+    os.makedirs(".cache", exist_ok=True)
+    return os.path.join(".cache", f"{base}.denoms.pkl")
+
+def build_denom_index(
+    csv_path: str,
+    *,
+    allowed_types: set[str] | None = None,   # ex: {"001","002"} si tu veux restreindre
+    allowed_langs: set[str] | None = None,   # ex: {"1","2"} (FR=2, NL=1, DE=0 selon ton fichier)
+    skip_public: bool = True,
+) -> dict[str, set[str]]:
+    """
+    Lit le CSV une seule fois et renvoie un dict:
+      { "xxxx.xxx.xxx": {"Denom1","Denom2", ...}, ... }
+    """
+    index: dict[str, set[str]] = {}
+
+    # petit cache disque pour gros CSV
+    pkl = _cache_path_for(csv_path)
+    csv_mtime = _csv_mtime(csv_path)
+    if os.path.exists(pkl):
+        try:
+            with open(pkl, "rb") as f:
+                payload = pickle.load(f)
+            if payload.get("mtime") == csv_mtime:
+                return payload["index"]
+        except Exception:
+            pass  # on reconstruit
+
+    # lecture streaming (utf-8-sig puis latin-1)
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    ent = (row.get("EntityNumber") or "").strip()
+                    if not ent:
+                        continue
+                    if skip_public and is_entite_publique(ent):
+                        continue
+
+                    typ = (row.get("TypeOfDenomination") or "").strip()
+                    if allowed_types and typ not in allowed_types:
+                        continue
+
+                    lang = (row.get("Language") or "").strip()
+                    if allowed_langs and lang not in allowed_langs:
+                        continue
+
+                    denom = (row.get("Denomination") or "").strip()
+                    if not denom:
+                        continue
+
+                    index.setdefault(ent, set()).add(denom)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    # sauve en cache disque avec mtime du CSV
+    try:
+        with open(pkl, "wb") as f:
+            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
+
+    return index
 
 def has_person_names(nom):
     if nom is None:
@@ -335,4 +429,12 @@ def clean_nom_trib_entreprise(noms: list[str]) -> list[str]:
 
     ]
 
+def nettoyer_adresse(adresse):
+    # Supprime "à" ou "a" (avec ou sans accent) juste avant CP + Ville
+    return re.sub(r"\b[àa]\s+(?=\d{4}\s+[A-ZÀ-Ÿ])", "", adresse, flags=re.IGNORECASE)
+
+def couper_fin_adresse(adresse):
+    # Coupe si des mots comme "Signifié", "N°", "Casier", "Nationalité", etc. apparaissent
+    adresse = re.split(r"\b(Signifi[eé]|N°|Casier|Nationalit[eé]|Né[e]?\b|Date|le\s+\d{1,2}\s+\w+)", adresse)[0]
+    return adresse.strip()
 

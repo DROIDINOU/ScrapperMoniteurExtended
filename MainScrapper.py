@@ -24,29 +24,28 @@ from tqdm import tqdm
 
 # --- Modules internes au projet ---
 from logger_config import setup_logger, setup_fallback3_logger
-from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
+from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
-from extract_adresses_entreprises import extract_add_entreprises
-from extraction_adresses_moniteur import extract_address
-from extraction_nom_entreprises import extract_noms_entreprises
-from Gerant.extraction_administrateurs import extract_administrateur
-from Keyword.tribunal_entreprise_keyword import detect_tribunal_entreprise_keywords
-from Keyword.justice_paix_keyword import detect_justice_paix_keywords
-from Keyword.tribunal_premiere_instance_keyword import detect_tribunal_premiere_instance_keywords
-from Keyword.cour_appel_keyword import detect_courappel_keywords
-from Keyword.terrorisme_keyword import add_tag_personnes_a_supprimer
-from Keyword.succession_keyword import detect_succession_keywords
-
-from MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte
-from Utilitaire.ConvertDateToMeili import convertir_date
-from Extraction.extractionDateNaissanceDeces import extract_date_after_birthday, \
+from Extraction.Adresses.extract_adresses_entreprises import extract_add_entreprises
+from Extraction.Adresses.extraction_adresses_moniteur import extract_address
+from Extraction.Denomination.extraction_nom_entreprises import extract_noms_entreprises
+from Extraction.Gerant.extraction_administrateurs import extract_administrateur
+from Extraction.Keyword.tribunal_entreprise_keyword import detect_tribunal_entreprise_keywords
+from Extraction.Keyword.justice_paix_keyword import detect_justice_paix_keywords
+from Extraction.Keyword.tribunal_premiere_instance_keyword import detect_tribunal_premiere_instance_keywords
+from Extraction.Keyword.cour_appel_keyword import detect_courappel_keywords
+from Extraction.Keyword.terrorisme_keyword import add_tag_personnes_a_supprimer
+from Extraction.Keyword.succession_keyword import detect_succession_keywords
+from Extraction.MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte
+from Extraction.Dates.extractionDateNaissanceDeces import extract_date_after_birthday, \
     extract_dates_after_decede
-from Extraction.extraction_date_jugement import extract_jugement_date, extract_date_after_rendu_par
+from Extraction.Dates.extraction_date_jugement import extract_jugement_date, extract_date_after_rendu_par
+from Utilitaire.ConvertDateToMeili import convertir_date
 from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_numero_tva, \
-    extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric, \
-    chemin_csv, clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
-    liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise
+    extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric\
+    , clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
+    liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv
 from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
     convert_pdf_pages_to_text_range
 from extractbis import extract_person_names
@@ -69,9 +68,15 @@ INDEX_NAME = os.getenv("INDEX_NAME")
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
 keyword = sys.argv[1]
 
+DENOM_INDEX = build_denom_index(
+    chemin_csv("denomination.csv"),
+    allowed_types=None,   # {"001","002"} si tu veux filtrer
+    allowed_langs=None,   # {"2"} si tu veux uniquement FR
+    skip_public=True
+)
 # a JOUR 1/8/2025
-from_date = date.fromisoformat("2024-04-01")
-to_date = "2025-8-08"  # date.today()
+from_date = date.fromisoformat("2024-07-01")
+to_date = "2024-07-04"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -257,7 +262,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     if not main:
         return (
             numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
-            None, None, None, None, None, None)
+            None, None, None, None, None, None, None)
     if keyword != "terrorisme":
         texte_brut = extract_clean_text(main)
     else:
@@ -265,6 +270,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     date_jugement = None
     administrateur = None
+    nom = None
     nom_trib_entreprise = None
     date_deces = None
     nom_interdit = None
@@ -287,7 +293,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             return (
                 numac, date_doc, langue, texte_brut, url, keyword,
                 None, title, subtitle, None, extra_keywords, None, None, None, None, None, None,
-                None, None, None, None, noms_paires
+                None, None, None, None, noms_paires, None
             )
 
         # Sinon, OCR fallback
@@ -309,7 +315,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 return (
                     numac, date_doc, langue, texte_brut, url, keyword,
                     None, title, subtitle, None, extra_keywords, None, None, None, None, nom_trib_entreprise, None, None,
-                    None, None, None, noms_ocr
+                    None, None, None, noms_ocr, None
                 )
             else:
                 print("⚠️ Texte OCR vide.")
@@ -319,6 +325,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             return None
 
     # Cas normal
+    # on va devoir deplacer nom
     nom = extract_name_from_text(str(main))
     raw_naissance = extract_date_after_birthday(str(main))  # liste ou str
     if isinstance(raw_naissance, list):
@@ -395,7 +402,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
 
-        nom = None  # à vérifier si nécessaire
         # verifier a quoi sert id ici
         nom_interdit = extraire_personnes_interdites(texte_brut) # va falloir deplacer dans fonction ?
         nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
@@ -404,7 +410,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
 
     if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
-        nom = None
+
         nom_interdit = extraire_personnes_interdites(texte_brut)
         nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
         detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
@@ -462,14 +468,16 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
 
     tvas = extract_numero_tva(texte_brut)
-    # va certainement falloir changer cela
+    tvas = extract_numero_tva(texte_brut)
+    tvas_valides = [t for t in tvas if format_bce(t)]
+    denoms_by_bce = tvas_valides  # temporaire, juste le formaté
     match_nn_all = extract_nrn_variants(texte_brut)
     nns = match_nn_all
     doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
     return (
         numac, date_doc, langue, texte_brut, url, keyword,
         tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement, nom_trib_entreprise,
-        date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme
+        date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce
     )
 
 
@@ -522,12 +530,12 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
-    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme"
+    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce"
 ])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
@@ -566,13 +574,19 @@ with requests.Session() as session:
             "extra_links": record[17],
             "administrateur": record[18],
             "nom_interdit": record[20],
-            "identifiant_terrorisme": record[21]
+            "identifiant_terrorisme": record[21],
+            "denoms_by_bce": record[22]
 
         }
         # rien a faire dans meili mettre dans postgre
         # if record[6]:
         # doc["publications_pdfs"] = get_publication_pdfs_for_tva(session, record[6][0])
         documents.append(doc)
+
+        # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
+        print("🔍 Indexation des dénominations par TVA (1 seule lecture du CSV)…")
+
+
 
         if keyword == "terrorisme":
             if isinstance(record[21], list):
@@ -586,6 +600,15 @@ with requests.Session() as session:
                     doc["administrateur"] = None
         elif not isinstance(doc["administrateur"], list):
                     doc["administrateur"] = [str(doc["administrateur"])]
+
+# ✅ Enrichissement des dénominations – une seule passe
+for doc in documents:
+    denoms = set()
+    for t in (doc.get("TVA") or []):
+        bce = format_bce(t)
+        if bce and bce in DENOM_INDEX:
+            denoms.update(DENOM_INDEX[bce])
+    doc["denoms_by_bce"] = sorted(denoms) if denoms else None
 
 
 # 🔪 Fonction pour tronquer tout texte après le début du récit
@@ -614,18 +637,27 @@ for doc in documents:
         adresse_cleaned = []
 
         for a in adresse:
-            if not a:
-                continue
-
             # 🔄 Remplacer les virgules par des espaces et normaliser
             cleaned = a.replace(",", " ").strip()
             cleaned = re.sub(r'\s+', ' ', cleaned)
-
+            cleaned = re.sub(r'^[A-Za-z]\s+(?=\d{4}\b|[A-ZÀ-ÿ])', '', cleaned)
+            # 🧹 Supprime "CP Ville" seuls, avec ou sans quartier entre parenthèses
+            if re.fullmatch(r"\d{4}\s+[A-ZÀ-ÿ][\w\-’'() ]{2,}", cleaned) and len(cleaned.split()) <= 4:
+                continue
             # ✂️ Tronquer le texte si du récit est présent
             cleaned = tronque_texte_apres_adresse(cleaned)
+            # 🚫 Supprimer un artefact au début (ex: "e 4141 ..." → "4141 ...")
+            if not cleaned or len(cleaned.split()) < 2:
+                continue
+            if any(token in cleaned.lower() for token in NETTOIE_ADRESSE_SET):
+                continue
+
+                # 🚫 Exclure si adresse institutionnelle
+            if cleaned.upper() in ADRESSES_INSTITUTIONS_SET:
+                continue
 
             # ✅ Ajouter si unique
-            if cleaned and cleaned not in seen and cleaned not in ADRESSES_INSTITUTIONS_SET:
+            if cleaned and cleaned not in seen:
                 seen.add(cleaned)
                 adresse_cleaned.append(cleaned)
 
@@ -705,6 +737,14 @@ try:
 except meilisearch.errors.MeilisearchApiError:
     print("❌ Document non trouvé par ID dans Meilisearch.")
 
+# 📝 Sauvegarde en JSON local
+os.makedirs("exports", exist_ok=True)
+json_path = os.path.join("exports", f"documents_{keyword}.json")
+with open(json_path, "w", encoding="utf-8") as f:
+    json.dump(documents, f, indent=2, ensure_ascii=False)
+print(f"[💾] Fichier JSON sauvegardé : {json_path}")
+
+
 print("[📥] Connexion à PostgreSQL…")
 
 conn = psycopg2.connect(
@@ -750,7 +790,8 @@ cur.execute("""
     extra_links TEXT,
     administrateur TEXT,
     nom_interdit TEXT,
-    identifiant_terrorisme TEXT[]
+    identifiant_terrorisme TEXT[],
+    denoms_by_bce TEXT[]
 
 );
 """)
@@ -781,9 +822,9 @@ for doc in tqdm(documents, desc="PostgreSQL Insert"):
     cur.execute("""
     INSERT INTO moniteur_documents_postgre (
     date_doc, lang, text, url, doc_hash, keyword, tva, titre, num_nat, extra_keyword,nom, 
-    date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, nom_interdit, identifiant_terrorisme
+    date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, nom_interdit, identifiant_terrorisme, denoms_by_bce
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s, %s)
 ON CONFLICT (doc_hash) DO NOTHING
 """, (
         doc["date_doc"],
@@ -805,7 +846,9 @@ ON CONFLICT (doc_hash) DO NOTHING
         doc.get("extra_links"),
         doc["administrateur"],
         doc["nom_interdit"],
-        doc["identifiant_terrorisme"]
+        doc["identifiant_terrorisme"],
+        doc["denoms_by_bce"]
+
     ))
 
 conn.commit()

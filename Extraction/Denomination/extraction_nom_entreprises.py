@@ -95,6 +95,15 @@ PAT_INTERDICTION_PERSONNE = re.compile(r"""
     (?P<nom>[A-ZÉÈÀÂÎÔÙÜÇ][A-ZÉÈÀÂÎÔÙÜÇ'\-]+)   # NOM en majuscules
 """, re.IGNORECASE | re.VERBOSE)
 
+# "faillite de ... inscrite sous" → capture uniquement le bloc nom
+PAT_FAILLITE_INSCRITE_SOUS = re.compile(
+    r"""faillite\s+de\s*:?\s*
+        (?:l['’]|la|le|du|de\s+la)?\s*   # article optionnel, hors capture
+        (?P<nom>.+?)                     # ← ce qu'on veut (nom + forme, dans n'importe quel ordre)
+        \s*,?\s*inscrit(?:e)?\s+sous\b   # stop net avant "inscrit(e) sous"
+    """,
+    re.IGNORECASE | re.VERBOSE | re.DOTALL
+)
 # ➕ à côté de tes autres patterns (avant le nettoyage/dédoublonnage)
 PAT_FAILLITE_NOM_PRENOM = re.compile(
     rf"""
@@ -252,18 +261,21 @@ def extract_noms_entreprises(texte_html, doc_id=None):
     nom_list = []
 
     # --- DEBUG IMMEDIAT : type + longueur + décodage bytes ---
-    print(f"[CALL] extract_noms_entreprises doc_id={doc_id} type={type(texte_html)}", flush=True)
     if isinstance(texte_html, bytes):
         try:
             texte_html = texte_html.decode("utf-8", errors="ignore")
-            print("[DEBUG] decoded bytes as utf-8", flush=True)
         except Exception:
             texte_html = texte_html.decode("latin-1", errors="ignore")
             print("[DEBUG] decoded bytes as latin-1", flush=True)
-    print(f"[DEBUG] raw html len={len(texte_html) if isinstance(texte_html, str) else -1}", flush=True)
 
     soup = BeautifulSoup(texte_html, 'html.parser')
     full_text = _canon(soup.get_text(separator=" "))
+
+    for m in PAT_FAILLITE_INSCRITE_SOUS.finditer(full_text):
+        nom = _canon(m.group("nom")).strip(" .;,-")
+        if nom:
+            nom_list.append(nom)
+
     # regex "Dans l'affaire" robuste
     m = PAT_DANS_L_AFFAIRE.search(full_text)
     if m:
@@ -287,7 +299,9 @@ def extract_noms_entreprises(texte_html, doc_id=None):
         r"a\s+accordé\s+à\s*((?:[A-Z0-9&@\".\-']+\s*){1,8})",
         r"clôture\s+de(?:\s+la\s+liquidation)?\s*:?\s*((?:[A-Z0-9&@\".\-']+\s*){1,8})",
         r"dissolution(?:\s+judiciaire)?\s*:?\s*((?:[A-Z0-9&@\".\-']+\s*){1,8})",
-        r"faillite\s+de\s*:?\s*((?:[A-Z0-9&@\".\-']+\s*){1,8})",
+        r"faillite\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){1,3})(?=\s*(?:domicile|né|rue|avenue|BCE|\d{4}\s+[A-Z]))",
+        r"faillite\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){1,4})(?=\s*(?:domicile|né|rue|avenue|BCE|\d{4}\s+[A-Z]))",
+
     ]
     extract_by_patterns(full_text, simple_patterns, nom_list)
 

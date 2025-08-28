@@ -147,13 +147,9 @@ def _parse_date_fragment(fragment: str) -> str | None:
 def _extract_after_anchor(text: str, anchor_regex: str, window: int = 120) -> list[str]:
     out, seen = [], set()
     for m in re.finditer(anchor_regex, text, flags=re.IGNORECASE):
-        print(f"[DEBUG] Anchor '{anchor_regex}' trouvé à pos {m.start()}-{m.end()}")
         following = text[m.end(): m.end()+window]
-        print(f"[DEBUG] Texte après ancre: {following[:100]!r}")
         for frag in RECALL_DATE_PAT.findall(following):
-            print(f"[DEBUG]  Fragment trouvé: {frag!r}")
             iso = _parse_date_fragment(frag)
-            print(f"[DEBUG]   → ISO: {iso}")
             if iso and iso not in seen:
                 seen.add(iso); out.append(iso)
     return out
@@ -176,7 +172,6 @@ def extract_date_after_birthday(html: str) -> list[str]:
     # 1) même logique "ancre + fenêtre"
     birthday_anchor = r"(lieu\s+et\s+date\s+de\s+naissance\s*:?)|(n[ée](?:\(?e\)?)?\s+le)|(né[e]?\s+à)"
     dates = _extract_after_anchor(full_text, birthday_anchor, window=140)
-    print(f"voici les dateeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee{date}")
     # 2) (optionnel) motifs supplémentaires spécifiques aux RN/NN, etc.
     extra_patterns = [
         r"\(NN\s*(\d{2})[.\-/](\d{2})[.\-/](\d{2})",

@@ -11,8 +11,37 @@ VILLE_TRIBUNAUX = [
 ]
 
 TVA_INSTITUTIONS = ["0308.357.159", "0206.731.645"]
+
 ADRESSES_INSTITUTIONS = ["1000 BRUXELLES place Poelart 1", "1000 BRUXELLES place Poelaert 1"]
 ADRESSES_INSTITUTIONS_SET = {a.strip() for a in ADRESSES_INSTITUTIONS}
+
+NETTOIE_ADRESSE = [
+    # Connecteurs logiques
+    "et notamment", "en conséquence", "par conséquent", "à cet égard",
+    "à savoir", "en l'espèce", "de sorte que", "en vertu de",
+
+    # Procédures & jugements
+    "jugement", "arrêt", "tribunal", "cour", "procès", "décision",
+    "condamnation", "appelante", "intimée", "partie appelante",
+    "partie intimée", "partie défenderesse", "partie demanderesse", "signifié", "Signifié",
+
+    # Avocats & représentation
+    "avocat", "maître", "cabinet", "représenté", "représentée", "représentés",
+    "domicilié en qualité", "ayant élu domicile",
+
+    # Administration & lois
+    "registre national", "numéro d'entreprise", "tva", "bce", "statut social",
+    "en application de", "alinéa", "article", "loi du", "code civil",
+    "code judiciaire", "code des sociétés", "code de droit économique",
+
+    # Expressions de contexte
+    "prévenue", "prévenu", "accusé", "prévenue étant", "inculpé",
+    "personne morale", "gérante de droit", "gérant de droit", "mandataire",
+    "personnellement ou par interposition", "pour une durée de",
+    "condamné à", "interdit d'exercer", "inscrit",
+]
+
+NETTOIE_ADRESSE_SET = {t.lower() for t in NETTOIE_ADRESSE}
 
 escaped_villes = [re.escape(v) for v in VILLE_TRIBUNAUX]
 VILLES = "|".join(escaped_villes)
