@@ -12,6 +12,9 @@ logger = logging.getLogger("extraction")
 loggerfallback3 = logging.getLogger("fallback3")
 
 
+loggerDynamique = logging.getLogger()
+
+
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
                    if unicodedata.category(c) != 'Mn')

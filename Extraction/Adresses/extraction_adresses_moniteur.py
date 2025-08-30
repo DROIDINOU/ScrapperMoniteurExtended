@@ -2,8 +2,12 @@ from bs4 import BeautifulSoup
 import re
 from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
 from Utilitaire.outils.MesOutils import nettoyer_adresse, couper_fin_adresse
+import logging
 
-def extract_address(texte_html):
+loggerSuccession = logging.getLogger("succession_logger")
+
+
+def extract_address(texte_html, doc_id):
     adresse_list = []
 
     soup = BeautifulSoup(texte_html, 'html.parser')
@@ -472,4 +476,27 @@ def extract_address(texte_html):
                 adresse_list.append(m)
     # Après avoir rempli adresse_list
     adresse_list = [a for a in adresse_list if 2 < len(a.split()) < 16]
+
+    def adresse_valide(adresse: str) -> bool:
+        # Cherche le code postal (4 chiffres consécutifs)
+        cp_match = re.search(r"\b(\d{4})\b", adresse)
+        if not cp_match:
+            return False  # pas de code postal
+
+        code_postal = cp_match.group(1)
+
+        # Cherche tous les nombres dans l'adresse
+        nombres = re.findall(r"\b\d{1,4}\b", adresse)
+
+        # On vérifie s’il y a un autre nombre ≠ code postal
+        for n in nombres:
+            if n != code_postal:
+                return True  # adresse valide : code postal + autre nombre
+    for adresse in adresse_list:
+        if not adresse_valide(adresse):
+            loggerSuccession.warning(
+                f"DOC ID: '{doc_id}'\n"
+                f"Adresse incomplète ou suspecte : '{adresse}'\n"
+                f"Texte : {texte}")
+
     return list(set(adresse_list))

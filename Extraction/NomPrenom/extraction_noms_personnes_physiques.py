@@ -330,6 +330,26 @@ RX_CONDAMNE_LE_NOMME_PN = re.compile(rf"""
 """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
 
 
+def clean_doublons_debut_fin(s: str) -> str:
+    """
+    Supprime un doublon exact au tout début ou à la toute fin de la chaîne.
+    Ex: 'Jean Jean Dupont' -> 'Jean Dupont' ; 'Dupont Marc Marc' -> 'Dupont Marc'
+    Ne touche pas aux prénoms composés type 'Jean-Baptiste'.
+    """
+    s = _norm_spaces(s)
+    if not s:
+        return s
+    parts = s.split()
+
+    # doublon en tête
+    if len(parts) >= 2 and parts[0].lower() == parts[1].lower():
+        parts = parts[1:]
+
+    # doublon en fin
+    if len(parts) >= 2 and parts[-1].lower() == parts[-2].lower():
+        parts = parts[:-1]
+
+    return " ".join(parts)
 
 
 
@@ -345,6 +365,8 @@ def invert_if_comma(s: str) -> str:
     return s
 
 # === AJOUTS UTILES EN HAUT DU FICHIER ===
+# ⬇️ AJOUT ICI : supprime les doublons en début/fin
+
 
 
 def _strip_accents(s: str) -> str:
@@ -385,6 +407,7 @@ def group_names_for_meili(noms_nettoyes: list[str]):
         n = re.split(CONTEXT_CUT, n, 1, flags=re.IGNORECASE)[0]
         n = n.replace("|", " ").replace(";", " ").replace(":", " ")
         n = invert_if_comma(n)
+        n = clean_doublons_debut_fin(n)
         n = re.sub(r"\b([A-Za-zÀ-ÿ'-]+)\s+\1\b$", r"\1", n, flags=re.IGNORECASE)
         n = _norm_spaces(n)
 

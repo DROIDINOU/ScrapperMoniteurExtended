@@ -4,8 +4,29 @@ from datetime import date, datetime
 from bs4 import BeautifulSoup, NavigableString, Tag
 from Constante.mesconstantes import _MOISMAP_NORM
 
-
+DECEDE_ANCHOR = r"\b(d[ée]c[èe]s|d[ée]c[ée]d[ée]e?s?|decede|dcd|mort[e]?|d[ée]funts?)\b"
+DEATH_STOP_REGEX = r"\b(naiss[ance]?|acceptation|n[ée]e?\b|domicili[ée]?|registre\s+national|RN\b|NRN\b|adresse|demeurant|résid(?:ant|ence)|jugement|ordonnance|arr[ée]t)\b"
+UPWORD = r"[A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ][A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ'’\-]{1,}"
+NOM_BLOCK = rf"{UPWORD}(?:\s+{UPWORD}){{0,4}}"
+PRENOM_WORD = r"[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{1,}"
 # ========= Helpers uniques (pas de doublons) =========
+def _extract_after_anchor(text: str, anchor_regex: str, window: int = 120,
+                          stop_regex: str | None = None) -> list[str]:
+    out, seen = [], set()
+    for m in re.finditer(anchor_regex, text, flags=re.IGNORECASE):
+        following = text[m.end(): m.end()+window]
+
+        # 🔹 Coupe si un mot-clé stop apparaît (ex: "décédé", "décès")
+        if stop_regex:
+            stop_m = re.search(stop_regex, following, flags=re.IGNORECASE)
+            if stop_m:
+                following = following[:stop_m.start()]
+
+        for frag in RECALL_DATE_PAT.findall(following):
+            iso = _parse_date_fragment(frag)
+            if iso and iso not in seen:
+                seen.add(iso); out.append(iso)
+    return out
 
 def _norm_spaces(s: str) -> str:
     s = unicodedata.normalize("NFC", unicodedata.normalize("NFKC", s))
@@ -142,27 +163,22 @@ def _parse_date_fragment(fragment: str) -> str | None:
 
     return None
 
-# ========= Moteur commun : "ancre + fenêtre + parse" =========
 
-def _extract_after_anchor(text: str, anchor_regex: str, window: int = 120) -> list[str]:
-    out, seen = [], set()
-    for m in re.finditer(anchor_regex, text, flags=re.IGNORECASE):
-        following = text[m.end(): m.end()+window]
-        for frag in RECALL_DATE_PAT.findall(following):
-            iso = _parse_date_fragment(frag)
-            if iso and iso not in seen:
-                seen.add(iso); out.append(iso)
-    return out
-# ========= Wrappers spécifiques =========
-
-def extract_dates_after_decede(html: str) -> list[str]:
+def extract_dates_after_decede(html: str, first_only: bool = True) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     text = _norm_spaces(soup.get_text(separator=" "))
-    full_text = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", text)  # "1er er" -> "1er"
-    full_text = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", full_text)  # "1er" -> "1"
-    # ancre très permissive
-    decede_anchor = r"\b(d[ée]c[ée]d[ée](?:e|ee|es|e[es])?|decede|dcd)\b"
-    return _extract_after_anchor(text, decede_anchor, window=120)
+
+    # On coupe la fenêtre aux mots-clés parasites (naissance, domicilé, RN, etc.)
+    dates = _extract_after_anchor(
+        text,
+        DECEDE_ANCHOR,          # ← utilise la constante globale déjà définie
+        window=140,             # tu peux mettre 110–160 selon tes textes
+        stop_regex=DEATH_STOP_REGEX
+    )
+
+    # Si tu veux strictement la 1re date de décès (recommandé) :
+    return dates[:1] if first_only else dates
+
 
 def extract_date_after_birthday(html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
@@ -171,7 +187,9 @@ def extract_date_after_birthday(html: str) -> list[str]:
     full_text = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", full_text)  # "1er" -> "1"
     # 1) même logique "ancre + fenêtre"
     birthday_anchor = r"(lieu\s+et\s+date\s+de\s+naissance\s*:?)|(n[ée](?:\(?e\)?)?\s+le)|(né[e]?\s+à)"
-    dates = _extract_after_anchor(full_text, birthday_anchor, window=140)
+    dates = _extract_after_anchor(full_text, birthday_anchor,
+                                  window=140,
+                                  stop_regex=DECEDE_ANCHOR)
     # 2) (optionnel) motifs supplémentaires spécifiques aux RN/NN, etc.
     extra_patterns = [
         r"\(NN\s*(\d{2})[.\-/](\d{2})[.\-/](\d{2})",

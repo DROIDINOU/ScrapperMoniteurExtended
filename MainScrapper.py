@@ -23,7 +23,7 @@ from PIL import Image
 from tqdm import tqdm
 
 # --- Modules internes au projet ---
-from logger_config import setup_logger, setup_fallback3_logger
+from logger_config import setup_logger, setup_fallback3_logger, setup_dynamic_logger
 from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
@@ -57,6 +57,9 @@ logger.debug("✅ Logger initialisé dans le script principal.")
 loggerfallback3 = setup_fallback3_logger("fallback3", level=logging.DEBUG)
 loggerfallback3.debug("✅ Logger initialisé dans le script principal.")
 
+# Par exemple pour la catégorie "succession"
+logger_succession = setup_dynamic_logger(name="succession_logger", keyword="succession", level=logging.DEBUG)
+logger_succession.debug("🔍 Logger 'succession_logger' initialisé pour les successions.")
 print(">>> CODE À JOUR")
 
 # --- Chargement des variables d'environnement ---
@@ -76,7 +79,7 @@ DENOM_INDEX = build_denom_index(
 )
 # a JOUR 1/8/2025
 from_date = date.fromisoformat("2024-07-01")
-to_date = "2024-07-04"  # date.today()
+to_date = "2025-07-04"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -136,7 +139,6 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
                 find_linklist_in_items(item, keyword, link_list)
             elif keyword == "terrorisme":
                 cleaned_title = title.strip().lower()
-                print("voici le titre:", cleaned_title)
                 if "entités visée aux articles 3 et 5 de l'arrêté royal du 28 décembre 2006" in cleaned_title:
                     print(f"[🪦] Document succession détecté: {title}")
                     find_linklist_in_items(item, keyword, link_list)
@@ -334,13 +336,12 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         raw_naissance = norm_er(raw_naissance)
     date_naissance = convertir_date(raw_naissance)  # -> liste ISO ou None
 
-    adresse = extract_address(str(texte_brut))
-    print(f"voici les adresses {adresse}")
+    adresse = extract_address(str(texte_brut), doc_id=doc_id)
     if not date_jugement:
         date_jugement = extract_jugement_date(str(texte_brut))
 
     if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
-        raw_deces = extract_dates_after_decede(str(main))  # liste ou str
+        raw_deces = extract_dates_after_decede(str(texte_brut), first_only=False)  # liste ou str
 
         # Normalise les "er" dans la/les dates extraites
         def _norm_er(x):
@@ -356,7 +357,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
             raw_deces = _norm_er(raw_deces)
 
         date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
-        adresse = extract_address(str(main))
+        adresse = extract_address(str(texte_brut), doc_id=doc_id)
         detect_succession_keywords(texte_brut, extra_keywords)
 
     if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
@@ -380,10 +381,8 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                      ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur"])
         if not administrateur:
-            print("c est vide")
             administrateur = extract_administrateur(texte_brut)
             nom_trib_entreprise = extract_noms_entreprises(texte_brut)
-            print (f"voici le nom entreprise : {nom_trib_entreprise}")
         detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
         if all("delai de contact" not in element for element in extra_keywords):
                detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)

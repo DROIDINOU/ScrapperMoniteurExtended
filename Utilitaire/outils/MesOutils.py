@@ -185,9 +185,18 @@ def normalize_annees(val: str) -> int | None:
     v = (val or "").strip().lower()
     return int(v) if v.isdigit() else _WORD2INT.get(v)
 
-
+# faire comme celui en dessous pour plus de securite
 def chemin_csv(nom_fichier: str) -> str:
     return os.path.abspath(os.path.join("Datas", nom_fichier))
+
+def chemin_log(nom_fichier: str = "succession.log") -> str:
+    """
+    Retourne le chemin absolu du fichier de log, situé dans le dossier 'logs',
+    depuis la racine du projet (où est situé le dossier Utilitaire).
+    """
+    # Dossier du projet = 2 niveaux au-dessus de ce fichier
+    projet_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(projet_dir, "logs", nom_fichier)
 
 # ____________________________________________________________
     # Transforme numero de 1 à 12 en un mois de la liste mois.
