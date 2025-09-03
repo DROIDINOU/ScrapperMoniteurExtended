@@ -13,5 +13,5 @@ def add_tag_personnes_a_supprimer(texte_brut: str, extra_keywords):
     if re.search(PATTERN_PERSONNES_A_SUPPR, texte_brut, flags=re.IGNORECASE):
         extra_keywords.append("personnes à supprimer")
     else:
-        extra_keywords.append("personnes pas à supprimer")
+        extra_keywords.append("personnes a ajouter")
 

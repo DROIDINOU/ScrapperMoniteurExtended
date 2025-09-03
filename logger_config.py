@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 def setup_logger(name="extraction", log_file="logs/extraction.log", level=logging.INFO):
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -41,7 +42,8 @@ def setup_fallback3_logger(name="fallback3", log_file="logs/fallback3.log", leve
     return logger
 
 def setup_dynamic_logger(name="dynamic_logger", keyword="default", level=logging.DEBUG):
-    log_file_path = f"logs/{keyword}.log"
+    safe_keyword = re.sub(r'[^\w\-_.]', '_', keyword)  # Nettoyage basique
+    log_file_path = f"logs/{name}_{safe_keyword}.log"
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
     formatter = logging.Formatter(

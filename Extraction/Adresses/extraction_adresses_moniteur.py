@@ -4,7 +4,8 @@ from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS
 from Utilitaire.outils.MesOutils import nettoyer_adresse, couper_fin_adresse
 import logging
 
-loggerSuccession = logging.getLogger("succession_logger")
+loggerAdresses = logging.getLogger("adresses_logger")
+logged_adresses = set()  # Pour éviter les doublons de log (doc_id + adresse)
 
 
 def extract_address(texte_html, doc_id):
@@ -35,10 +36,6 @@ def extract_address(texte_html, doc_id):
     for m in RX_LOCALITE_CP_VILLE_VOIE.finditer(texte):
         adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
         adresse_list.append(adr)
-    # 🧠 DEBUG ciblé : n'affiche que si "résidence" est présent
-    if "résidence" in texte.lower():
-        print("\n[DEBUG 1111111111111111111111111111111111111111111111111111111111111111111111111111111111] Texte contenant 'résidence' détecté :")
-        print(texte)
 
     # Match : "domicilié à 3078 Kortenberg, Kiewistraat 30"
     m_cp_first = re.search(
@@ -492,11 +489,18 @@ def extract_address(texte_html, doc_id):
         for n in nombres:
             if n != code_postal:
                 return True  # adresse valide : code postal + autre nombre
+
     for adresse in adresse_list:
         if not adresse_valide(adresse):
-            loggerSuccession.warning(
+            key = (doc_id, adresse.strip().lower())
+            if key in logged_adresses:
+                continue  # déjà loggé => skip
+            logged_adresses.add(key)
+
+            loggerAdresses.warning(
                 f"DOC ID: '{doc_id}'\n"
                 f"Adresse incomplète ou suspecte : '{adresse}'\n"
-                f"Texte : {texte}")
+                f"Texte : {texte}"
+            )
 
     return list(set(adresse_list))

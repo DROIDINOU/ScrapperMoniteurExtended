@@ -1,12 +1,25 @@
 import re
 import unicodedata
-# tout en haut (près des helpers)
-ABS_PREF = r"(?:il\s+est\s+)?demand[ée]?\s+de\s+déclarer\s+l'absence\s+de"
-PROT_PREF = r"modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
-# variantes où le texte ne contient plus "modifié..." et ne commence que sur la queue
-INT_PREF_FULL = r"à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
-INT_PREF_TAIL = r"et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+import logging
 
+# ______________________________________________________________________________________________
+#                                          VARIABLES GLOBALES
+# -----------------------------------------------------------------------------------------------
+# logger + set pour eviter les doublons de log (doc_id +adresses)
+loggernomspersonnes = logging.getLogger("nomspersonnes_logger")
+logged_nomspersonnes = set()
+# ++++++++++++++++++++++++++++++++++++++
+#     VARIABLES / REGEX DE NETTOYAGE
+# ++++++++++++++++++++++++++++++++++++++
+# ⟶ Détecte la formule “il est demandé(e) de déclarer l’absence de ”
+ABS_PREF = r"(?:il\s+est\s+)?demand[ée]?\s+de\s+déclarer\s+l'absence\s+de"
+# ⟶ “modifié(e) les mesures de protection à l’égard de la personne et des biens de l’intéressé…”
+PROT_PREF = r"modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+# ⟶ Variante : queue seule “à l’égard de la personne et des biens de l’intéressé…”
+INT_PREF_FULL = r"à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+# ⟶ Variante plus courte : “et des biens de l’intéressé ”
+INT_PREF_TAIL = r"et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+# ⟶ Liste de préfixes textuels à retirer/ignorer avant un nom (ex: “né(e)”, “succession de …”, etc.)
 PREFIXES = (
     r"(?:"
     r"né(?:e)?"
@@ -26,52 +39,102 @@ PREFIXES = (
     + INT_PREF_TAIL +
     r")"
 )
+
+# groupe non-capturant (?: … ) qui matche l’un des “déclencheurs” suivants (séparés par |).
 CONTEXT_CUT = (
     r"(?:\bné(?:e)?\b|\bRN\b|\bNRN\b|\(RN|\(RRN|\bRRN\b|,?\s+inscrit[e]?\b|,?\s+domicili[é]e?\b|,?\s+décédé[e]?\b)"
 )
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#   VARIABLES / REGEX PRENOMS ET NOMS ET RN
+# Objectif : pouvoir reconnaître des noms/prénoms écrits en capitales, avec accents,
+# apostrophes droites (') ou typographiques (’), et noms composés (espaces, traits d’union).
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-# Blocs prénoms / nom (robustes aux accents et aux noms composés)
+# Mot en MAJUSCULES (nom de famille typique) :
+# - Première lettre : majuscule avec accents possibles (ÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ)
+# - Suite : au moins 1 caractère parmi MAJUSCULES, apostrophes (’ ou '), tirets
+#   → couvre : LUYTEN, VAN, D’ALMEIDA, O’CONNOR, VAN-DER, etc.
 UPWORD = r"[A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ][A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ'’\-]{1,}"
-NOM_BLOCK = rf"{UPWORD}(?:\s+{UPWORD}){{0,4}}"              # LUYTEN | VAN DER MEER | D’ALMEIDA
+
+# Bloc NOM (un ou plusieurs "UPWORD" séparés par espaces) :
+# - 1 mot majuscule minimum, jusqu'à 5 mots (0..4 supplémentaires)
+#   → LUYTEN | VAN DER MEER | D’ALMEIDA | VAN DEN BROECK
+NOM_BLOCK = rf"{UPWORD}(?: \s+{UPWORD}){{0, 4}}"
+
+# Mot prénom en "Casse Nom-Propre" :
+# - 1ère lettre majuscule (accents inclus), puis minuscules/accents/apostrophes/tirets
+#   → Jean, Liliane, André-Marie, D’Artagnan (le D’ est géré côté NOM_BLOCK, mais un prénom
+#     composé avec tiret reste couvert, ex. Jean-Marc)
 PRENOM_WORD = r"[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{1,}"
-PRENOMS_BLK = rf"{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,5}}"    # Liliane Louise Victorine
+
+# Bloc PRÉNOMS (1 à 6 prénoms séparés par espaces)
+#   → Liliane Louise Victorine, Jean Pierre Michel, etc.
+PRENOMS_BLK = rf"{PRENOM_WORD}(?: \s+{PRENOM_WORD}){{0, 5}}"
+
 # Token RN élargi (RN / RRN / NRN / NN — avec ou sans points/espaces)
 RN_TOKEN = r"(?:(?:R\.?\s*){1,2}N\.?|N\.?\s*R\.?\s*N\.?|N\.?\s*N\.?)"
-RN_TOKEN_ANY = RN_TOKEN
-# Après tes blocs de constantes (avec NOM_BLOCK et PRENOMS_BLK déjà définis)
+RN_TOKEN_ANY = RN_TOKEN # on utilisera RN_TOKEN_STRICT PAR APRES SI NECESSAIRE
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#                                    REGEX NETTOYAGE CHAMP
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Bruit légal à retirer des candidats de noms (avant tout filtrage)
+STRIP_PHRASES_REGEX = [
+    re.compile(r"\bde\s+l[’']?ancien\s+code\s+civil\b", re.IGNORECASE),
+    # variantes utiles (optionnelles) :
+    re.compile(r"\b(?:conform[ée]ment\s+à\s+)?(?:l[’']?)?article\s+\d+/\d+\s+de\s+l[’']?ancien\s+code\s+civil\b",
+               re.IGNORECASE),
+]
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#                                   LES REGEX DE RECHERCHES
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# ==============================
+# INTERDIT
+# ==============================
+# Détecte les personnes à qui il est "interdit de" faire quelque chose
+# Gère les civilités (Monsieur, Madame, Mr, etc.)
+# Capture nom + prénoms, que ce soit dans l'ordre "Jean Dupont" ou "Dupont, Jean"
+# S'arrête dès qu'on rencontre un mot du contexte (né, domicilié, etc.)
 RX_INTERDIT_A = re.compile(rf"""
-    \b(?:il\s+est\s+)?interdit\s+à\s+                 # "interdit à" (avec "il est" optionnel)
-    (?:Monsieur|Madame|M(?:r|me)?\.?\s+)?             # civilité optionnelle
+    \b(?:il\s+est\s+)?interdit\s+à\s+                 
+    (?:Monsieur|Madame|M(?:r|me)?\.?\s+)?             
     (?:
-        (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})      # Karl HOLTZHEIMER
-        |
-        (?P<nom2>{NOM_BLOCK})\s*,\s*(?P<prenoms2>{PRENOMS_BLK}) # HOLTZHEIMER, Karl
+        (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})      
+        | (?P<nom2>{NOM_BLOCK})\s*, \s*(?P<prenoms2>{PRENOMS_BLK}) 
     )
-    (?=                                               # on s'arrête proprement avant le contexte
+    (?=                                               
         \s*,?\s*(?:né|née|né\(e\)|domicili|pour\s+une\s+durée|de\s+\d+\s+ans|;|\.|,|$)
     )
 """, re.IGNORECASE | re.VERBOSE)
-
+# ==============================
+# MESURES DE PROTECTION
+# ==============================
+# Détecte les phrases signalant une modification des mesures de protection
+# Cherche la personne concernée (intéressée), avec ses prénoms et nom
+# Ne match que si la fin est propre (virgule, point, etc.)
 RX_MODIF_PROTECTION_INTERESSE = re.compile(rf"""
     modifi[ée]?\s+les\s+mesures\s+de\s+protection
     \s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?\s+
     (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
     (?=\s*(?:,|;|\.|$))
 """, re.IGNORECASE | re.VERBOSE)
-
-
+# Même chose que le précédent, mais sans contrainte de ponctuation à la fin
+# Utile si tu veux détecter la personne même dans des phrases mal formées
 RX_PROTECTION_INTERESSE_NOM_SEUL = re.compile(rf"""
     modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?\s+
     (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
 """, re.IGNORECASE | re.VERBOSE)
-
+# Détecte les phrases qui précisent la personne protégée, avec contexte "né à"
+# Très utile pour lier prénoms/nom + date ou lieu de naissance
 RX_PROTECTION_INTERESSE_NE = re.compile(rf"""
     mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]\s+
     (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})   # prénoms puis NOM
     ,\s+(?:né|née|né\(e\))\s+à                           # suivi du "né à"
 """, re.IGNORECASE | re.VERBOSE)
-
-
+# ==============================
+# NOMS PRENOMS GENERAL
+# ==============================
+# 1) Cherche : "Nom et prénom(s) : NOM, Prénom(s)" (souvent dans les formulaires ou décisions)
 RX_NOM_ET_PRENOM_LABEL = re.compile(rf"""
     \bNom\s+et\s+prénom[s]?\s*:\s*          # "Nom et prénom :" ou "Nom et prénoms :"
     (?P<nom>{NOM_BLOCK})\s*,?\s*            # NOM, virgule optionnelle
@@ -81,7 +144,6 @@ RX_NOM_ET_PRENOM_LABEL = re.compile(rf"""
     )
     (?=\s*(?:$|[\n\r]|,|;|\.|Lieu|Date|Domicile|Nationalité|N°|No|Nº))  # stop propre
 """, re.IGNORECASE | re.VERBOSE)
-
 # 1) “le nommé : [Nr. … - ] NOM, Prénoms …”
 RX_LE_NOMME_NP = re.compile(rf"""
     \ble\s+nomm[ée]\s*[:\-]?\s*
@@ -89,14 +151,12 @@ RX_LE_NOMME_NP = re.compile(rf"""
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
     (?=\s*,?\s*(?:né|née|né\(e\)|RR?N|NRN|\(|$))
 """, re.IGNORECASE | re.VERBOSE)
-
 # 2) “Nr. … - NOM, Prénoms …” (au cas où “le nommé :” est absent)
 RX_NR_NP = re.compile(rf"""
     \bNr\.?\s*[\d./-]+\s*[-–]\s*
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
     (?=\s*,?\s*(?:né|née|né\(e\)|RR?N|NRN|\(|$))
 """, re.IGNORECASE | re.VERBOSE)
-
 # 3) générique “NOM, Prénoms, né …”
 RX_NP_NE = re.compile(rf"""
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
@@ -122,11 +182,13 @@ RX_APPEL_PAR_CIVILITE = re.compile(rf"""
 RX_REL_PERSONNE_DE = re.compile(rf"""
     relativement\s+à\s+la\s+personne\s+de\s+
     (?:Monsieur|Madame|M(?:r|me)?\.?)\s+
-    (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
-    (?:\s*\(\s*{RN_TOKEN_ANY}\b[^)]*\))?
+    (?P<prenoms>{PRENOMS_BLK})\s+
+    (?P<nom>{NOM_BLOCK})
+    (?:\s*\(\s*{RN_TOKEN_ANY}\b[^)]*\))? 
 """, re.IGNORECASE | re.VERBOSE)
-
-
+# ==============================
+#      NOMS PRENOMS GENERAL
+# ==============================
 RX_CURATEUR_SV_NP = re.compile(rf"""
     curateur
     \s+à\s+la?\s+succession
@@ -140,6 +202,22 @@ RX_CURATEUR_SV_NP = re.compile(rf"""
     (?=\s*(?:\(|,|;|\.|$))
 """, re.IGNORECASE | re.VERBOSE)
 
+# ==============================
+#      CAPABLE
+# ==============================
+RX_CAPABLE_BIENS = re.compile(rf"""
+    (?:Dit\s+pour\s+droit\s+que\s+)?(?:le\s+tribunal\s+)?   # optionnels
+    (?:Monsieur|Madame)\s+
+    (?:
+        (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})   # Prénom(s) + NOM
+      | (?P<nom_only>{NOM_BLOCK})                           # ou NOM seul
+    )
+    \s*,?\s*(?:est|soit)\s+capable\b
+""", re.IGNORECASE | re.VERBOSE)
+
+# =======================
+#         SUCCESSIONS
+# =======================
 # — Personne visée par "succession vacante / en déshérence de ..."
 RX_SV_PN = re.compile(rf"""
     succession\s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)\s+de\s+
@@ -168,19 +246,6 @@ RX_CURATEUR_SV_PN = re.compile(rf"""
         (?=\s*(?:\(|,|;|\.|$))                         # s'arrêter avant (RN..., , née..., ;, fin)
     """, re.IGNORECASE | re.VERBOSE)
 
-RX_CAPABLE_BIENS = re.compile(rf"""
-    (?:Dit\s+pour\s+droit\s+que\s+)?(?:le\s+tribunal\s+)?   # optionnels
-    (?:Monsieur|Madame)\s+
-    (?:
-        (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})   # Prénom(s) + NOM
-      | (?P<nom_only>{NOM_BLOCK})                           # ou NOM seul
-    )
-    \s*,?\s*(?:est|soit)\s+capable\b
-""", re.IGNORECASE | re.VERBOSE)
-
-# =======================
-# Regex PRECOMPILÉES — SUCCESSIONS
-# =======================
 RX_SV_ANY = re.compile(
     r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)\s+de\s+((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+){1,4}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
     re.IGNORECASE,
@@ -261,6 +326,9 @@ RX_SV_MONSIEUR_PN = re.compile(
     re.IGNORECASE,
 )
 
+# =======================
+#      EN CAUSE DE
+# =======================
 # Bloc "En cause de : … (jusqu'à Contre : / Intimés : / fin)"
 RX_EN_CAUSE_BLOCK = re.compile(
     r"en\s*cause\s*de\s*:?\s*(?P<bloc>.+?)(?=\b(?:contre|intim[ée]s?|défendeur|defendeur|défenderesse|defenderesse)\b\s*:|$)",
@@ -312,6 +380,9 @@ RX_EN_CAUSE_NP = re.compile(rf"""
     (?=\s*(?:,|;|\.|\(|\)|\bdomicili|\bné|\bdec|$))
 """, re.IGNORECASE | re.VERBOSE)
 
+# =======================
+#      CONDAMNE
+# =======================
 # 1) Forme NP avec virgule : "le nommé : NOM, Prénoms"
 RX_CONDAMNE_LE_NOMME_NP = re.compile(rf"""
     condamn[éée]\s+                # a condamné / a été condamné(e) (souple)
@@ -330,12 +401,11 @@ RX_CONDAMNE_LE_NOMME_PN = re.compile(rf"""
 """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
 
 
+# Supprime un doublon exact au tout début ou à la toute fin de la chaîne.
+# Exemple 'Jean Jean Dupont' -> 'Jean Dupont' ; 'Dupont Marc Marc' -> 'Dupont Marc'
+# Ne touche pas aux prénoms composés type 'Jean-Baptiste'
 def clean_doublons_debut_fin(s: str) -> str:
-    """
-    Supprime un doublon exact au tout début ou à la toute fin de la chaîne.
-    Ex: 'Jean Jean Dupont' -> 'Jean Dupont' ; 'Dupont Marc Marc' -> 'Dupont Marc'
-    Ne touche pas aux prénoms composés type 'Jean-Baptiste'.
-    """
+
     s = _norm_spaces(s)
     if not s:
         return s
@@ -353,8 +423,8 @@ def clean_doublons_debut_fin(s: str) -> str:
 
 
 
-def extract_name_from_text(text):
-    return extract_name_before_birth(text)
+def extract_name_from_text(text, keyword, doc_id):
+    return extract_name_before_birth(text, keyword, doc_id)
 
 
 def invert_if_comma(s: str) -> str:
@@ -364,11 +434,10 @@ def invert_if_comma(s: str) -> str:
             return f"{right} {left}"
     return s
 
-# === AJOUTS UTILES EN HAUT DU FICHIER ===
-# ⬇️ AJOUT ICI : supprime les doublons en début/fin
-
-
-
+# Supprime les accents des caractères en décomposant les lettres accentuées
+# (ex. "é" → "e", "ç" → "c", "Éléonore" → "Eleonore").
+# Utilise la normalisation Unicode (NFD) pour séparer lettre + diacritique,
+# puis filtre les marques diacritiques (catégorie 'Mn' = Mark, Nonspacing).
 def _strip_accents(s: str) -> str:
     import unicodedata
     return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
@@ -429,25 +498,62 @@ def group_names_for_meili(noms_nettoyes: list[str]):
 
 
 
+
 def nettoyer_noms_avances(noms, longueur_max=80):
     """
-    Nettoie une liste de noms :
-    - Supprime les préfixes 'né', 'née', 'pour la succession de', etc.
-    - Coupe le contexte inutile (née à..., RN..., domicilié...)
-    - Supprime les titres et doublons
-    - Normalise pour éviter les répétitions ou versions tronquées
-    """
+        Fonction avancée de nettoyage et de normalisation de noms extraits de texte libre.
+
+        Étapes effectuées :
+        ---------------------------------------------------------------------
+        1. Suppression des préfixes contextuels :
+            - Ex. : "né le...", "pour la succession de...", etc.
+            - Détection spéciale pour certaines phrases juridiques longues.
+
+        2. Extraction du nom à partir de formulations types :
+            - Ex. : "succession de Jean Dupont" → "Jean Dupont"
+
+        3. Nettoyage syntaxique :
+            - Suppression des titres (Monsieur, Madame, etc.)
+            - Suppression des chiffres, formats numériques (ex. "12/3", "45-A")
+            - Nettoyage des ponctuations parasites (| ; :)
+
+        4. Reformatage du nom :
+            - Inversion automatique si au format "NOM, Prénom"
+            - Suppression des doublons ("Dupont Dupont" → "Dupont")
+            - Uniformisation des espaces
+
+        5. Génération d'une clé normalisée :
+            - Minuscules
+            - Sans accents
+            - Espaces uniformisés
+            - Objectif : comparer les noms même s'ils sont formulés différemment
+
+        6. Filtres d’exclusion :
+            - Supprime les noms contenant certains termes juridiques ou administratifs non pertinents
+            - Ignore les noms trop longs (> longueur_max)
+            - Ignore les noms trop courts sauf s’ils ressemblent à un NOM majuscule valide (UPWORD)
+
+        7. Détection et élimination des doublons :
+            - Évite d'ajouter plusieurs fois des noms très similaires ou inclus les uns dans les autres
+
+        8. Filtrage final :
+            - Exclut les noms contenant "greffier" (pas une personne cible)
+
+        Retour :
+            - Une liste de noms nettoyés et pertinents pour traitement ultérieur
+        """
 
     titres_regex = r"\b(madame|monsieur|mme|mr)\b[\s\-]*"
 
     # Termes à ignorer
     termes_ignores = ["la personne", "personne", "Par ordonnance", "de la", "dans les",
-        "feu M", "feu", "feue", "désigné Maître", "présente publication",
-        "de sexe masculin", "de sexe féminin", "de sexe feminin",  # <-- corrigé
-        "sexe masculin", "sexe féminin", "sexe feminin",
-        "masculin", "féminin", "feminin", "comptabilité", "intention frauduleuse", "avoir détourné",
-        "avoir detourne", "contrevenu", "dispositions", "partie appelante", "représentée", "appelante",
-        "l'etat belge spf finances","l etat belge spf finances", "L'ETAT BELGE SPF FINANCES", "etat belge", "spf finances"]
+                      "feu M", "feu", "feue", "désigné Maître", "présente publication",
+                      "de sexe masculin", "de sexe féminin", "de sexe feminin",  # <-- corrigé
+                      "sexe masculin", "sexe féminin", "sexe feminin",
+                      "masculin", "féminin", "feminin", "comptabilité", "intention frauduleuse", "avoir détourné",
+                      "avoir detourne", "contrevenu", "dispositions", "partie appelante", "représentée", "appelante",
+                      "l'etat belge spf finances", "l etat belge spf finances", "L'ETAT BELGE SPF FINANCES",
+                      "etat belge", "spf finances"]
 
     def invert_if_comma(s: str) -> str:
         if "," in s:
@@ -460,7 +566,11 @@ def nettoyer_noms_avances(noms, longueur_max=80):
         patterns = [
             r"pour la succession de\s+(.*)",
             r"en possession de la succession de\s+(.*)",
-            r"succession de\s+(.*)",
+            r"succession\s+(?:en\s+d[ée]sh[ée]rence|vacante)?\s+de\s+(.*)",
+            r"en qualité de curateur à la succession vacante de\s+(.*)",
+            r"la succession vacante de\s+(.*)",
+            r"le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+visé\s+a\s+désigné\s+(?:à\s+)?(.*)",
+
 
         ]
         for pattern in patterns:
@@ -476,6 +586,9 @@ def nettoyer_noms_avances(noms, longueur_max=80):
                          flags=re.IGNORECASE)
 
         nom = extraire_nom_depuis_phrase(nom)
+        # --- NOUVEAU : retirer le bruit légal neutre avant filtrage ---
+        for rx in STRIP_PHRASES_REGEX:
+            nom = rx.sub(" ", nom)
 
         # suppression préfixes "né ...", "pour la succession ..."
         nom = re.sub(rf"^\s*{PREFIXES}\s+", "", nom, flags=re.IGNORECASE)
@@ -512,15 +625,12 @@ def nettoyer_noms_avances(noms, longueur_max=80):
     noms_normalises = []
     for nom in noms:
 
-        # ignorer si ça commence par "ne pas avoir ..."
-
         nom_nettoye, norm = nettoyer_et_normaliser(nom)
         print(nom_nettoye, norm)
         if any(terme.strip() in nom_nettoye.lower().strip() for terme in termes_ignores):
             continue
         if len(nom_nettoye) > longueur_max:
             continue
-
 
         # Accepte un token unique s'il ressemble à un NOM en majuscules (UPWORD)
         if len(nom_nettoye.split()) < 2 and not re.fullmatch(UPWORD, nom_nettoye):
@@ -555,7 +665,7 @@ def nettoyer_noms_avances(noms, longueur_max=80):
     return filtrés_nettoyes
 
 
-def extract_name_before_birth(texte_html):
+def extract_name_before_birth(texte_html, keyword, doc_id):
     from bs4 import BeautifulSoup
     import re
 
@@ -563,22 +673,7 @@ def extract_name_before_birth(texte_html):
     full_text = soup.get_text(separator=" ").strip()
 
     nom_list = []
-    if "Toussaint" in full_text:
-        print(f"→ OKDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD: Nom trouvé dans le texte brut: {full_text}")
 
-    # ______________________________________________________________________________________________________
-
-    #                       *******************  PERSONNES PHYSIQUES *****************************
-
-    # _____________________________________________________________________________________________________
-
-    # -----------------
-    #     SUCCESSIONS
-    # -----------------
-
-    # -----------------
-    #     SUCCESSIONS
-    # -----------------
     for m in RX_INTERDIT_A.finditer(full_text):
         nom = (m.group('nom') or m.group('nom2')).strip()
         prenoms = (m.group('prenoms') or m.group('prenoms2')).strip()
@@ -694,27 +789,25 @@ def extract_name_before_birth(texte_html):
     for m in RX_REL_PERSONNE_DE.finditer(full_text):
         nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
 
-    # -----------------
-    #  MONSIEUR/MADAME
-    # -----------------
-
-    # -----------------
-    #   NOM
-    # -----------------
-
-    # -----------------
-    #   ADMINISTRATEUR
-    # -----------------
-
-    # -----------------
-    #    DECLARE
-    # -----------------
+    # ==============================
+    #      NOMS AVEC RN
+    # ==============================
+    # Détecte les déclarations du type :
+    # "déclare NOM, Prénom(s) (RN ...)"
+    # Extrait le nom et les prénoms de la personne déclarée, suivis d’un identifiant RN (RN, RRN, NRN, etc.)
+    # Exemple :
+    #     "déclare DUPONT, Jean Pierre (RRN 12.12.2000-123.45)"
     RX_DECL_NP_RRN = re.compile(rf"""
         \bdéclare\b\s+
         (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
         \s*\(\s*{RN_TOKEN_ANY}.*?\)
     """, re.IGNORECASE | re.VERBOSE)
-
+    # 📌 Variante de déclaration incluant une civilité :
+    # "déclare Monsieur/Madame NOM, Prénom(s) (RN ...)"
+    # ➤ Extrait le nom et les prénoms de la personne, précédés d'une civilité,
+    #     et suivis d’un identifiant RN (RN, RRN, NRN, etc.)
+    # Exemple :
+    #     "déclare Madame DUPONT, Jeanne Louise (RRN 01.01.1980-123.45)"
     RX_DECL_CIVILITE_NP_RRN = re.compile(rf"""
         \bdéclare\b\s+
         (?:Monsieur|Madame|M(?:r|me)?\.?)\s+
@@ -1242,4 +1335,29 @@ def extract_name_before_birth(texte_html):
             nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
 
     noms_nettoyes = nettoyer_noms_avances(nom_list)
+    # 1) Calcule la liste locale des nouveaux noms (pas besoin d’être global)
+    nouveaux_noms = []
+    for nom in noms_nettoyes:
+        key = (doc_id, nom.strip().lower())
+        if key not in logged_nomspersonnes:
+            nouveaux_noms.append(nom)
+
+    # 2) Si rien de nouveau, on sort vite
+    if not nouveaux_noms:
+        return group_names_for_meili(noms_nettoyes)
+
+    # 3) Un seul log pour tous les nouveaux noms
+    loggernomspersonnes.warning(
+        "DOC ID: '%s'\nNoms : %s\nKeyword : %s\nTexte : %s",
+        doc_id,
+        ", ".join(f"'{n}'" for n in nouveaux_noms),
+        keyword,
+        full_text
+    )
+
+    # 4) Mise à jour de l’état externe (persistant en mémoire)
+    logged_nomspersonnes.update(
+        (doc_id, n.strip().lower()) for n in nouveaux_noms
+    )
+
     return group_names_for_meili(noms_nettoyes)

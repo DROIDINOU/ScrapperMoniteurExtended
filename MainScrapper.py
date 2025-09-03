@@ -8,6 +8,8 @@ import re
 import sys
 from collections import defaultdict
 from datetime import date, datetime
+from typing import List, Tuple
+
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 # --- Bibliothèques tierces ---
@@ -27,6 +29,7 @@ from logger_config import setup_logger, setup_fallback3_logger, setup_dynamic_lo
 from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
+from Extraction.NomPrenom.extraction_nom_terrorisme_bis import extraire_personnes_terrorisme
 from Extraction.Adresses.extract_adresses_entreprises import extract_add_entreprises
 from Extraction.Adresses.extraction_adresses_moniteur import extract_address
 from Extraction.Denomination.extraction_nom_entreprises import extract_noms_entreprises
@@ -45,11 +48,14 @@ from Utilitaire.ConvertDateToMeili import convertir_date
 from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_numero_tva, \
     extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric\
     , clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
-    liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv
+    liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
+    build_address_index
 from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
     convert_pdf_pages_to_text_range
 from extractbis import extract_person_names
 
+assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
+keyword = sys.argv[1]
 # --- Configuration du logger ---
 logger = setup_logger("extraction", level=logging.DEBUG)
 logger.debug("✅ Logger initialisé dans le script principal.")
@@ -58,8 +64,15 @@ loggerfallback3 = setup_fallback3_logger("fallback3", level=logging.DEBUG)
 loggerfallback3.debug("✅ Logger initialisé dans le script principal.")
 
 # Par exemple pour la catégorie "succession"
-logger_succession = setup_dynamic_logger(name="succession_logger", keyword="succession", level=logging.DEBUG)
-logger_succession.debug("🔍 Logger 'succession_logger' initialisé pour les successions.")
+logger_adresses = setup_dynamic_logger(name="adresses_logger", keyword=keyword, level=logging.DEBUG)
+logger_adresses.debug("🔍 Logger 'adresses_logger' initialisé pour les adresses.")
+
+# Par exemple pour la catégorie "succession"
+logger_nomspersonnes = setup_dynamic_logger(name="nomspersonnes_logger", keyword=keyword, level=logging.DEBUG)
+logger_nomspersonnes.debug("🔍 Logger 'nomspersonnes_logger' initialisé pour les noms.")
+
+logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
+logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
 print(">>> CODE À JOUR")
 
 # --- Chargement des variables d'environnement ---
@@ -68,8 +81,7 @@ MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
-assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
-keyword = sys.argv[1]
+
 
 DENOM_INDEX = build_denom_index(
     chemin_csv("denomination.csv"),
@@ -77,8 +89,16 @@ DENOM_INDEX = build_denom_index(
     allowed_langs=None,   # {"2"} si tu veux uniquement FR
     skip_public=True
 )
+
+ADDRESS_INDEX = build_address_index(
+    chemin_csv("address.csv"),
+    lang="FR",           # "FR" ou "NL" (fallback auto si champ vide)
+    allowed_types=None,  # ex: {"REGO","SEAT"} pour filtrer certains types d’adresse
+    skip_public=True
+)
+
 # a JOUR 1/8/2025
-from_date = date.fromisoformat("2024-07-01")
+from_date = date.fromisoformat("2025-07-01")
 to_date = "2025-07-04"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
@@ -264,7 +284,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     if not main:
         return (
             numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None)
+            None, None, None, None, None, None, None, None)
     if keyword != "terrorisme":
         texte_brut = extract_clean_text(main)
     else:
@@ -284,18 +304,23 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
     # Cas spécial : TERRORISME
     if re.search(r"terrorisme", keyword, flags=re.IGNORECASE):
         add_tag_personnes_a_supprimer(texte_brut, extra_keywords)
-        # print("🔍 Détection d’un document lié au terrorisme.")
-        # 🔎 Extraction directe depuis le texte HTML (dans certains cas ça suffit)
-        pattern = r"(\d+)[,\.]\s*([A-Za-z\s]+)\s*\(NRN:\s*(\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2})\)"
-        matches = re.findall(pattern, texte_brut)
-        noms_paires = [(name.strip(), nn.strip()) for _, name, nn in matches]
+        matches = extraire_personnes_terrorisme(texte_brut, doc_id=doc_id)  # [(num, nom, nrn), ...]
+        seen = set()
+        noms_paires: List[List[str]] = []
+
+        for _, name, nn in matches:
+            key = (name.upper(), nn)  # même logique de dédup que dans la fonction
+            if key in seen:
+                continue
+            seen.add(key)
+            noms_paires.append([name, nn])
 
         # Si trouvé dans le HTML → pas besoin d'OCR
         if noms_paires:
             return (
                 numac, date_doc, langue, texte_brut, url, keyword,
                 None, title, subtitle, None, extra_keywords, None, None, None, None, None, None,
-                None, None, None, None, noms_paires, None
+                None, None, None, None, noms_paires, None, None
             )
 
         # Sinon, OCR fallback
@@ -310,14 +335,14 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
                 page_index = 0
 
             ocr_text = convert_pdf_pages_to_text_range(full_pdf_url, page_index, page_count=6)
-
+            pattern = r"(\d+)[,\.]\s*([A-Za-z\s]+)\s*\(NRN:\s*(\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2})\)"
             if ocr_text:
                 ocr_matches = re.findall(pattern, ocr_text)
                 noms_ocr = [(name.strip(), nn.strip()) for _, name, nn in ocr_matches]
                 return (
                     numac, date_doc, langue, texte_brut, url, keyword,
                     None, title, subtitle, None, extra_keywords, None, None, None, None, nom_trib_entreprise, None, None,
-                    None, None, None, noms_ocr, None
+                    None, None, None, noms_ocr, None, None
                 )
             else:
                 print("⚠️ Texte OCR vide.")
@@ -328,7 +353,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     # Cas normal
     # on va devoir deplacer nom
-    nom = extract_name_from_text(str(main))
+    nom = extract_name_from_text(str(main), keyword, doc_id=doc_id)
     raw_naissance = extract_date_after_birthday(str(main))  # liste ou str
     if isinstance(raw_naissance, list):
         raw_naissance = [norm_er(s) for s in raw_naissance]
@@ -467,16 +492,16 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
 
     tvas = extract_numero_tva(texte_brut)
-    tvas = extract_numero_tva(texte_brut)
     tvas_valides = [t for t in tvas if format_bce(t)]
     denoms_by_bce = tvas_valides  # temporaire, juste le formaté
+    adresses_by_bce = tvas_valides
     match_nn_all = extract_nrn_variants(texte_brut)
     nns = match_nn_all
     doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
     return (
         numac, date_doc, langue, texte_brut, url, keyword,
         tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement, nom_trib_entreprise,
-        date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce
+        date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce, adresses_by_bce
     )
 
 
@@ -529,12 +554,12 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce", "adresses_by_bce"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
-    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce"
+    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce", "adresses_by_bce"
 ])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
@@ -574,7 +599,8 @@ with requests.Session() as session:
             "administrateur": record[18],
             "nom_interdit": record[20],
             "identifiant_terrorisme": record[21],
-            "denoms_by_bce": record[22]
+            "denoms_by_bce": record[22],
+            "adresses_by_bce": record[23]
 
         }
         # rien a faire dans meili mettre dans postgre
@@ -608,6 +634,15 @@ for doc in documents:
         if bce and bce in DENOM_INDEX:
             denoms.update(DENOM_INDEX[bce])
     doc["denoms_by_bce"] = sorted(denoms) if denoms else None
+
+# ✅ Enrichissement des adresses – une seule passe
+for doc in documents:
+    addrs = set()
+    for t in (doc.get("TVA") or []):
+        bce = format_bce(t)
+        if bce and bce in ADDRESS_INDEX:
+            addrs.update(ADDRESS_INDEX[bce])
+    doc["adresses_by_bce"] = sorted(addrs) if addrs else None
 
 
 # 🔪 Fonction pour tronquer tout texte après le début du récit
@@ -790,7 +825,9 @@ cur.execute("""
     administrateur TEXT,
     nom_interdit TEXT,
     identifiant_terrorisme TEXT[],
-    denoms_by_bce TEXT[]
+    denoms_by_bce TEXT[],
+    adresses_by_bce TEXT[]
+
 
 );
 """)
@@ -821,9 +858,10 @@ for doc in tqdm(documents, desc="PostgreSQL Insert"):
     cur.execute("""
     INSERT INTO moniteur_documents_postgre (
     date_doc, lang, text, url, doc_hash, keyword, tva, titre, num_nat, extra_keyword,nom, 
-    date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, nom_interdit, identifiant_terrorisme, denoms_by_bce
+    date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, nom_interdit, identifiant_terrorisme, denoms_by_bce,     adresses_by_bce TEXT[]
+
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s, %s, %s)
 ON CONFLICT (doc_hash) DO NOTHING
 """, (
         doc["date_doc"],
@@ -846,7 +884,8 @@ ON CONFLICT (doc_hash) DO NOTHING
         doc["administrateur"],
         doc["nom_interdit"],
         doc["identifiant_terrorisme"],
-        doc["denoms_by_bce"]
+        doc["denoms_by_bce"],
+        doc["adresses_by_bce"]
 
     ))
 

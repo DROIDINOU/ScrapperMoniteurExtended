@@ -15,6 +15,115 @@ from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBI
     ANNEEMAPBIS, TVA_INSTITUTIONS
 
 
+def _pick(*vals: str) -> str:
+    """Retourne le premier non-vide (après strip)."""
+    for v in vals:
+        v = (v or "").strip()
+        if v:
+            return v
+    return ""
+
+def _format_address(row: dict, lang: str) -> str:
+    """
+    Construit une adresse lisible. Préférence pour la langue demandée,
+    mais bascule sur l'autre si le champ est vide.
+    """
+    lang = (lang or "FR").upper()
+    if lang not in {"FR", "NL"}:
+        lang = "FR"
+
+    # Suffixe principal et de repli
+    suf_main = "FR" if lang == "FR" else "NL"
+    suf_alt  = "NL" if lang == "FR" else "FR"
+
+    street = _pick(row.get(f"Street{suf_main}"), row.get(f"Street{suf_alt}"))
+    muni   = _pick(row.get(f"Municipality{suf_main}"), row.get(f"Municipality{suf_alt}"))
+    country= _pick(row.get(f"Country{suf_main}"), row.get(f"Country{suf_alt}"))
+
+    zipcode = (row.get("Zipcode") or "").strip()
+    number  = (row.get("HouseNumber") or "").strip()
+    box     = (row.get("Box") or "").strip()
+    extra   = (row.get("ExtraAddressInfo") or "").strip()
+
+    # Libellé boîte selon langue (usage BE)
+    box_lbl = "bte" if lang == "FR" else "bus"
+
+    line1 = " ".join([s for s in [street, number] if s])
+    if box:
+        line1 = f"{line1} {box_lbl} {box}"
+
+    line2 = " ".join([s for s in [zipcode, muni] if s])
+
+    parts = [p for p in [line1, line2, country] if p]
+    addr = ", ".join(parts)
+
+    if extra:
+        addr = f"{addr}, {extra}"
+
+    return addr
+
+def build_address_index(
+    csv_path: str,
+    *,
+    lang: str = "FR",                       # "FR" ou "NL" (fallback auto si champ vide)
+    allowed_types: set[str] | None = None,  # ex: {"REGO", "SEAT"} si tu veux filtrer
+    skip_public: bool = True,               # idem à ta fonction précédente
+) -> dict[str, set[str]]:
+    """
+    Lit address.csv en streaming et renvoie :
+      { "xxxx.xxx.xxx": {"Adresse complète 1", "Adresse complète 2", ...}, ... }
+    """
+
+    index: dict[str, set[str]] = {}
+
+    # petit cache disque pour gros CSV (même logique : mtime uniquement)
+    pkl = _cache_path_for(csv_path)
+    csv_mtime = _csv_mtime(csv_path)
+    if os.path.exists(pkl):
+        try:
+            with open(pkl, "rb") as f:
+                payload = pickle.load(f)
+            if payload.get("mtime") == csv_mtime:
+                return payload["index"]
+        except Exception:
+            pass  # on reconstruit si échec / cache obsolète
+
+    # lecture streaming (utf-8-sig puis latin-1)
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    ent = (row.get("EntityNumber") or "").strip()
+                    if not ent:
+                        continue
+                    if skip_public and is_entite_publique(ent):
+                        continue
+
+                    typ = (row.get("TypeOfAddress") or "").strip()
+                    if allowed_types and typ not in allowed_types:
+                        continue
+
+                    # Adresse éventuellement "radiée" : on garde la même philosophie que ton code,
+                    # on ne filtre PAS sur DateStrikingOff (mais tu peux le faire ici si besoin).
+                    addr = _format_address(row, lang)
+                    if not addr:
+                        continue
+
+                    index.setdefault(ent, set()).add(addr)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    # sauve en cache disque avec mtime du CSV
+    try:
+        with open(pkl, "wb") as f:
+            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
+
+    return index
+
 # Filtre public (rapide, tu as déjà viré les 0200 du fichier mais on garde la sécurité)
 def is_entite_publique(entite_bce: str) -> bool:
     s = re.sub(r"\D", "", entite_bce or "")
@@ -188,6 +297,11 @@ def normalize_annees(val: str) -> int | None:
 # faire comme celui en dessous pour plus de securite
 def chemin_csv(nom_fichier: str) -> str:
     return os.path.abspath(os.path.join("Datas", nom_fichier))
+
+def chemin_csv_abs(nom_fichier: str) -> str:
+    """Retourne le chemin absolu vers un fichier CSV situé dans le dossier 'Datas' (au même niveau que 'Scripts')."""
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # <- remonte 2 niveaux
+    return os.path.join(base_dir, 'Datas', nom_fichier)
 
 def chemin_log(nom_fichier: str = "succession.log") -> str:
     """

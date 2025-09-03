@@ -9,9 +9,11 @@ import re
 import json
 from typing import Optional, List
 from dotenv import load_dotenv
+from Utilitaire.outils.MesOutils import chemin_csv_abs
 
 from groq import Groq
 import meilisearch
+import csv
 
 from Utilitaire.outils.MesOutils import chemin_log
 
@@ -34,22 +36,79 @@ index = meili_client.get_index(INDEX_NAME)
 # ------------------------------------------------------------------------------
 # Prompt IA
 # ------------------------------------------------------------------------------
-MODEL = "llama3-70b-8192"
+MODEL = "llama-3.1-8b-instant"
 PROMPT_TEMPLATE = """
 Tu es un assistant qui lit un texte juridique. On t'indique un extrait d'adresse partiel (code postal + commune), et tu dois retrouver l'adresse complète correspondante dans le texte ci-dessous.
 
 DOC_ID = "{doc_id}"
-EXTRAIT_ADRESSE = "{adresse}"
+EXTRAIT_ADRESSE = "{adresses}"
 TEXTE = \"\"\"{texte}\"\"\"
 
 Réponds uniquement avec l'adresse complète trouvée, ou "inconnue" si rien de clair.
 """
 
-def construire_prompt(doc_id: str, adresse: str, texte: str) -> str:
-    return PROMPT_TEMPLATE.format(doc_id=doc_id, adresse=adresse, texte=texte)
+HOUSE_NO_RX = re.compile(
+    r"\b(?:n[°o]\.?|no\.?|nr\.?)?\s*\d{1,4}[A-Za-z]?(?:\s*(?:bte|bus|b\.|bo[iî]te)\s*\d{1,4})?\b",
+    re.IGNORECASE
+)
 
-def find_address_completion(doc_id: str, adresse: str, texte: str) -> Optional[str]:
-    prompt = construire_prompt(doc_id, adresse, texte)
+# --------------------------------------------------------------------
+# Chargement des codes postaux valides (depuis un fichier texte/CSV)
+# --------------------------------------------------------------------
+
+def load_postal_codes(path: str) -> set:
+    postal_codes = set()
+    try:
+        with open(path, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f, delimiter=';')
+            for row in reader:
+                code = row.get("Postal Code")
+                if code and code.strip().isdigit():
+                    postal_codes.add(code.strip())
+    except FileNotFoundError:
+        print(f"❌ Fichier de codes postaux introuvable : {path}")
+    return postal_codes
+
+
+CODES_POSTAUX_BELGES = load_postal_codes(chemin_csv_abs("postal-codes-belgium.csv"))
+print(CODES_POSTAUX_BELGES)
+def _has_house_number(s: str) -> bool:
+    s_norm = _norm_addr(s)
+    for match in HOUSE_NO_RX.finditer(s_norm):
+        number = re.search(r"\d{1,4}", match.group())
+        if number:
+            num_str = number.group()
+            # On ignore si c’est un code postal ET s’il apparaît très tôt dans la chaîne
+            if (
+                num_str in CODES_POSTAUX_BELGES
+                # and s_norm.startswith(num_str)  # facultatif : on tolère code postal ailleurs
+            ):
+                continue
+            print(f"🔎 [_has_house_number] Match trouvé : {match.group()} / Nombre = {num_str}")
+            return True
+    return False
+
+def nettoyer_sortie_adresse(texte: str) -> str:
+    """
+    Supprime les préfixes IA inutiles et garde seulement l'adresse brute.
+    """
+    texte = texte.strip()
+
+    # Enlève les préfixes classiques que l’IA pourrait rajouter
+    texte = re.sub(
+        r"^(l['’]adresse\s+complète\s+correspondante\s+est\s*:|adresse\s*:|il\s+semble\s+que\s+l['’]adresse\s+soit\s*:|je\s+pense\s+que\s+l['’]adresse\s+est\s*:)\s*",
+        "", texte, flags=re.IGNORECASE)
+
+    # Supprime guillemets parasites autour
+    texte = texte.strip("“”\"'")
+    return texte.strip()
+
+
+def construire_prompt(doc_id: str, adresses: str, texte: str) -> str:
+    return PROMPT_TEMPLATE.format(doc_id=doc_id, adresses=adresses, texte=texte)
+
+def find_address_completion(doc_id: str, adresses: str, texte: str) -> Optional[str]:
+    prompt = construire_prompt(doc_id, adresses, texte)
     try:
         resp = groq_client.chat.completions.create(
             model=MODEL,
@@ -57,6 +116,7 @@ def find_address_completion(doc_id: str, adresse: str, texte: str) -> Optional[s
             temperature=0.2,
         )
         out = (resp.choices[0].message.content or "").strip()
+        out = nettoyer_sortie_adresse(out)
         return out
     except Exception as e:
         print(f"❌ Erreur Groq (doc_id={doc_id}): {e}")
@@ -76,6 +136,7 @@ def _as_list(v) -> List[str]:
 
 def _norm_addr(s: str) -> str:
     s = (s or "").strip()
+    s = s.replace(",", " ")     # 👈 enlève les virgules
     s = re.sub(r"\s+", " ", s)
     return s
 
@@ -150,7 +211,7 @@ def save_cache(cache_path: str, cache: dict) -> None:
 def make_key(doc_id: str, partial: str) -> str:
     return f"{doc_id}||{_norm_addr(partial).lower()}"
 
-def process_log_file(log_file_name: str = "succession.log"):
+def process_log_file(log_file_name: str = "adresses.log"):
     full_path = chemin_log(log_file_name)
     print(f"📂 Fichier log : {full_path}")
 
@@ -194,11 +255,11 @@ def process_log_file(log_file_name: str = "succession.log"):
             seen_pairs.add(key)
             continue
 
-        # 3) Skip si Meili contient déjà une adresse couvrant le fragment partiel
-        if doc_has_address_covering_partial(doc_id, adresse_partielle):
-            print("⏭️ Doc contient déjà une adresse couvrant le fragment → skip IA.")
+        # 3) Skip UNIQUEMENT si la partielle contient déjà un numéro ET que Meili couvre
+        if _has_house_number(adresse_partielle) and doc_has_address_covering_partial(doc_id, adresse_partielle):
+            print("⏭️ Doc contient déjà une adresse couvrant le fragment (numéro présent) → skip IA.")
             seen_pairs.add(key)
-            cache[key] = ""  # on note comme traité sans appel IA
+            cache[key] = ""  # marqué traité sans IA
             continue
 
         print("🧠 IA (Groq) en cours...")
@@ -228,5 +289,12 @@ def process_log_file(log_file_name: str = "succession.log"):
 # CLI
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
-    log_name = sys.argv[1] if len(sys.argv) > 1 else "succession.log"
-    process_log_file(log_name)
+    if len(sys.argv) != 2:
+        print("❌ Usage : python script.py <keyword>")
+        sys.exit(1)
+
+    keyword = sys.argv[1]
+    keyword_clean = keyword.replace("+", "_")  # si les keywords viennent de URLs
+
+    log_filename = f"adresses_logger_{keyword_clean}.log"
+    process_log_file(log_filename)
