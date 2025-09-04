@@ -49,7 +49,7 @@ from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_
     extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric\
     , clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
     liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
-    build_address_index
+    build_address_index, _norm_spaces, digits_only
 from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
     convert_pdf_pages_to_text_range
 from extractbis import extract_person_names
@@ -75,14 +75,21 @@ logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keywo
 logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
 print(">>> CODE À JOUR")
 
-# --- Chargement des variables d'environnement ---
+# ---------------------------------------------------------------------------------------------------------------------
+#                                          VARIABLES D ENVIRONNEMENT
+# ----------------------------------------------------------------------------------------------------------------------
 load_dotenv()
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
-
-
+# ---------------------------------------------------------------------------------------------------------------------
+#                                            CONSTANTES MAINSCRAPPER
+# ----------------------------------------------------------------------------------------------------------------------
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+# DEMOM_INDEX : pour fichier csv bce denominations
+# ADRESSES_INDEX : pour fichier csv bce adresses
+# +++++++++++++++++++++++++++++++++++++++++++++++++
 DENOM_INDEX = build_denom_index(
     chemin_csv("denomination.csv"),
     allowed_types=None,   # {"001","002"} si tu veux filtrer
@@ -97,6 +104,76 @@ ADDRESS_INDEX = build_address_index(
     skip_public=True
 )
 
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+#
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+POSTAL_RE = re.compile(r"\b[1-9]\d{3}\s+[A-Za-zÀ-ÿ'’\- ]{2,}\b")
+BCE_RE = re.compile(r"\b\d{3}\.\d{3}\.\d{3}\b")
+
+
+
+def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> list[str]:
+    """
+    Vue ARTICLE uniquement (page=1). Renvoie les lignes contenant un code postal.
+    - essaie btw_search = TVA sans 1er chiffre, puis TVA complète
+    - remplace <br> et <hr> par des retours à la ligne
+    - ignore "IMAGE", BCE, dates, RUBRIQUE
+    """
+    num = digits_only(tva)
+    if not num:
+        return []
+
+    searches = ([num[1:]] if len(num) > 1 else []) + [num]
+    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+
+    for search in searches:
+        url = f"{base}?{urlencode({'language': language,'btw_search': search,'page': 1,'la_search': 'f','caller': 'list','view_numac': '','btw': num})}"
+        try:
+            resp = requests.get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning(f"[article.pl] échec ({search}): {e}")
+            continue
+
+        html = resp.text
+        soup = BeautifulSoup(html, "html.parser")
+
+        main = soup.select_one("main.page__inner.page__inner--content.article-text") or soup.find("main")
+        if not main:
+            continue
+
+        node = main.find("p") or main
+
+        # 1) convertir <br> ET <hr> en sauts de ligne
+        for tag in node.find_all(["br", "hr"]):
+            tag.replace_with("\n")
+
+        # 2) supprimer le texte "IMAGE" (liens PDF)
+        for a in node.find_all("a"):
+            if "image" in a.get_text(strip=True).lower():
+                a.decompose()
+
+        # 3) récupérer lignes + normaliser espaces/guillemets
+        text = node.get_text("\n", strip=True).replace('"', " ").replace("’", "'")
+        lines = [_norm_spaces(ln) for ln in text.split("\n") if ln.strip()]
+
+        # 4) filtrer le bruit puis garder les lignes avec CP
+        out = []
+        for ln in lines:
+            if not ln or "rubrique" in ln.lower():
+                continue
+            if BCE_RE.search(ln):
+                continue
+            if re.search(r"\b(19|20)\d{2}-\d{2}-\d{2}\b", ln):
+                continue
+            if POSTAL_RE.search(ln):
+                if ln not in out:
+                    out.append(ln)
+
+        if out:
+            return out[:5]
+
+    return []
 # a JOUR 1/8/2025
 from_date = date.fromisoformat("2025-07-01")
 to_date = "2025-07-04"  # date.today()
@@ -643,7 +720,21 @@ for doc in documents:
         if bce and bce in ADDRESS_INDEX:
             addrs.update(ADDRESS_INDEX[bce])
     doc["adresses_by_bce"] = sorted(addrs) if addrs else None
+    # Fallback : si AUCUNE adresse dans le CSV, on va chercher la ligne d'adresse de l'article
+    if not addrs:
+        found = []
+        for t in (doc.get("TVA") or []):
+            found.extend(fetch_ejustice_article_addresses_by_tva(t) or [])
 
+        if found:
+            cur = doc.get("adresses_by_bce")
+            cur_list = [] if cur is None else ([cur] if isinstance(cur, str) else list(cur))
+            seen_local = set(cur_list)
+            for addr in found:
+                if addr not in seen_local:
+                    cur_list.append(addr)
+                    seen_local.add(addr)
+            doc["adresses_by_bce"] = cur_list or None
 
 # 🔪 Fonction pour tronquer tout texte après le début du récit
 def tronque_texte_apres_adresse(chaine):

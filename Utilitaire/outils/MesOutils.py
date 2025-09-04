@@ -5,7 +5,6 @@ import pickle
 import hashlib
 import csv
 
-
 # --- Bibliothèques tierces ---
 from bs4 import BeautifulSoup, NavigableString, Tag
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
@@ -14,6 +13,19 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBIS, MOISMAPBIS, \
     ANNEEMAPBIS, TVA_INSTITUTIONS
 
+# --------------------------------------------------------------------------------------
+# UNICODE_SPACES_MAP : Créer un dictionnaire de correspondance Unicode
+# pour remplacer certains espaces spéciaux invisibles par un espace standard (" ").
+# _norm_spaces :
+# --------------------------------------------------------------------------------------
+UNICODE_SPACES_MAP = dict.fromkeys(map(ord, "\u00A0\u202F\u2007\u2009\u200A\u200B"), " ")
+
+def _norm_spaces(s: str) -> str:
+    s = (s or "").translate(UNICODE_SPACES_MAP).replace("\xa0", " ").replace("\u202f", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+def digits_only(s: str) -> str:
+    return re.sub(r"\D+", "", s or "")
 
 def _pick(*vals: str) -> str:
     """Retourne le premier non-vide (après strip)."""
