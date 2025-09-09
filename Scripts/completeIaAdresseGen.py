@@ -9,122 +9,251 @@ import re
 import json
 from typing import Optional, List
 from dotenv import load_dotenv
-from Utilitaire.outils.MesOutils import chemin_csv_abs
 
 from groq import Groq
 import meilisearch
-import csv
 
 from Utilitaire.outils.MesOutils import chemin_log
 
-# ------------------------------------------------------------------------------
-# ENV
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# ENV & clients
+# ──────────────────────────────────────────────────────────────────────────────
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
+MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
-# ------------------------------------------------------------------------------
-# Clients
-# ------------------------------------------------------------------------------
 groq_client = Groq(api_key=GROQ_API_KEY)
 meili_client = meilisearch.Client(MEILI_URL, MEILI_KEY)
 index = meili_client.get_index(INDEX_NAME)
 
-# ------------------------------------------------------------------------------
-# Prompt IA
-# ------------------------------------------------------------------------------
-MODEL = "llama-3.1-8b-instant"
-PROMPT_TEMPLATE = """
-Tu es un assistant qui lit un texte juridique. On t'indique un extrait d'adresse partiel (code postal + commune), et tu dois retrouver l'adresse complète correspondante dans le texte ci-dessous.
-
-DOC_ID = "{doc_id}"
-EXTRAIT_ADRESSE = "{adresses}"
-TEXTE = \"\"\"{texte}\"\"\"
-
-Réponds uniquement avec l'adresse complète trouvée, ou "inconnue" si rien de clair.
+# ──────────────────────────────────────────────────────────────────────────────
+# Prompts IA
+# ──────────────────────────────────────────────────────────────────────────────
+SYSTEM_MSG = """Tu es un extracteur d’adresses. RÈGLES:
+- Lis UNIQUEMENT le texte fourni. N’invente jamais.
+- Cible EXCLUSIVEMENT la première occurrence de « domicilié(e) à … » située à DROITE du NOM donné.
+- Ignore les adresses des tiers (avocat(e)s, cabinets, sièges, administrateurs).
+- Renvoie UNE seule adresse complète, sur UNE seule ligne, au format :
+  «<Voie ou toponyme> <numéro>[, boîte X], à <CP> <Ville>»
+- Normalise les abréviations (ex: «Av.» → «avenue»).
+- Autorise les toponymes sans voie (ex: «Gueule-du-Loup(SAU) 161»).
+- Si rien n’est clairement identifiable : renvoie exactement `inconnue`.
 """
 
-HOUSE_NO_RX = re.compile(
-    r"\b(?:n[°o]\.?|no\.?|nr\.?)?\s*\d{1,4}[A-Za-z]?(?:\s*(?:bte|bus|b\.|bo[iî]te)\s*\d{1,4})?\b",
-    re.IGNORECASE
+FEWSHOTS = """
+Exemples (entrée → sortie) :
+1) NOM: Huberte JADOT
+   FENÊTRE: «domiciliée à 1140 Evere, Av. L. Grosjean 79, résidant ...»
+   → avenue L. Grosjean 79, à 1140 Evere
+
+2) NOM: Joachim Croes
+   FENÊTRE: «domicilié à 5600 Philippeville, Gueule-du-Loup(SAU) 161, a été ...»
+   → Gueule-du-Loup(SAU) 161, à 5600 Philippeville
+
+3) NOM: Jenny JOARIS
+   FENÊTRE: «domiciliée à 5101 Namur, Home "La Closière", avenue du Bois Williame 11 ...»
+   → avenue du Bois Williame 11, à 5101 Namur
+
+4) NOM: (quelconque)
+   FENÊTRE: «... l’avocate, dont le cabinet est établi à 1000 Bruxelles, rue X 12, ...»
+   → inconnue
+"""
+
+STOP_SEQS = ["\n\n", "\n—", "\n•", "\n>"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Regex utilitaires
+# ──────────────────────────────────────────────────────────────────────────────
+POSTAL_RX = re.compile(r"\b([1-9]\d{3})\b")
+
+# numéro maison « étendu » : 7, 7A, 7/001, 183 0005, 5.3, 32 b3, 293 b025, 21 boîte 4, 21 bte 4, 21 bus 4
+NUM_TOKEN_RX = re.compile(
+    r"""
+    \b
+    (?P<num>\d{1,4})
+    (?:/[0-9A-Za-z]+|[A-Za-z])?           # /001, A, b
+    (?:\s+\d{1,4}(?:\.\d+)?)?             # 0005, 5.3
+    (?:\s+(?:bo[iî]te|bte|bt|bus|b)\s*\w{1,6}|\s+[A-Za-z]\d{1,5})?
+    \b
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 
-# --------------------------------------------------------------------
-# Chargement des codes postaux valides (depuis un fichier texte/CSV)
-# --------------------------------------------------------------------
+# Fenêtre « domicilié(e) à … » à droite du nom
+CLAUSE_DOM_RX = re.compile(
+    r"""
+    domicili[ée](?:\(e\))?\s+à\s+
+    (?P<clause>[^.;\n]*?)
+    (?=\s*(?:,?\s*(?:r[ée]sid(?:ant|ente?)|r[ée]sident(?:e)?))|\s*[.;]|$)
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
-def load_postal_codes(path: str) -> set:
-    postal_codes = set()
-    try:
-        with open(path, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f, delimiter=';')
-            for row in reader:
-                code = row.get("Postal Code")
-                if code and code.strip().isdigit():
-                    postal_codes.add(code.strip())
-    except FileNotFoundError:
-        print(f"❌ Fichier de codes postaux introuvable : {path}")
-    return postal_codes
+# Extraction du bloc de log
+LOG_BLOCK_RX = re.compile(
+    r"DOC ID:\s*'(?P<doc_id>[a-f0-9]{64})'\s*"
+    r"\nNOM:\s*'(?P<nom>[^']*)'\s*"
+    r"\nAdresse incomplète ou suspecte\s*:\s*'(?P<adresse>[^']*)'\s*"
+    r"\n(?:Texte|texte)\s*:\s*(?P<texte>.+?)(?=\n\[\d{4}-\d{2}-\d{2}\s|\nDOC ID:|$)",
+    re.DOTALL | re.IGNORECASE
+)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Nettoyages & helpers tokens
+# ──────────────────────────────────────────────────────────────────────────────
+def _norm_spaces(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip()
 
-CODES_POSTAUX_BELGES = load_postal_codes(chemin_csv_abs("postal-codes-belgium.csv"))
-print(CODES_POSTAUX_BELGES)
-def _has_house_number(s: str) -> bool:
-    s_norm = _norm_addr(s)
-    for match in HOUSE_NO_RX.finditer(s_norm):
-        number = re.search(r"\d{1,4}", match.group())
-        if number:
-            num_str = number.group()
-            # On ignore si c’est un code postal ET s’il apparaît très tôt dans la chaîne
-            if (
-                num_str in CODES_POSTAUX_BELGES
-                # and s_norm.startswith(num_str)  # facultatif : on tolère code postal ailleurs
-            ):
-                continue
-            print(f"🔎 [_has_house_number] Match trouvé : {match.group()} / Nombre = {num_str}")
-            return True
-    return False
+def _cp_in(s: str) -> Optional[str]:
+    m = POSTAL_RX.search(s or "")
+    return m.group(1) if m else None
 
-def nettoyer_sortie_adresse(texte: str) -> str:
-    """
-    Supprime les préfixes IA inutiles et garde seulement l'adresse brute.
-    """
-    texte = texte.strip()
+def _first_house_num_root(s: str, known_cp: Optional[str] = None) -> Optional[str]:
+    if not s:
+        return None
+    tmp = s
+    if known_cp:
+        tmp = re.sub(rf"\b{re.escape(known_cp)}\b", " ", tmp)
+    for m in NUM_TOKEN_RX.finditer(tmp):
+        val = m.group("num")
+        if known_cp and val == known_cp:
+            continue
+        return str(int(val))
+    return None
 
-    # Enlève les préfixes classiques que l’IA pourrait rajouter
-    texte = re.sub(
-        r"^(l['’]adresse\s+complète\s+correspondante\s+est\s*:|adresse\s*:|il\s+semble\s+que\s+l['’]adresse\s+soit\s*:|je\s+pense\s+que\s+l['’]adresse\s+est\s*:)\s*",
-        "", texte, flags=re.IGNORECASE)
+def _name_end(texte: str, nom: str) -> int:
+    T = _norm_spaces(texte or "")
+    n = _norm_spaces(nom or "")
+    m = re.search(re.escape(n), T, flags=re.IGNORECASE)
+    return m.end() if m else -1
 
-    # Supprime guillemets parasites autour
-    texte = texte.strip("“”\"'")
-    return texte.strip()
+def _clause_domicilie_a_droite(texte: str, nom: str, right_ctx: int = 1200) -> str:
+    """Retourne la clause 'domicilié(e) à …' à DROITE du nom (fenêtre limitée)."""
+    if not texte or not nom:
+        return ""
+    T = _norm_spaces(texte)
+    end = _name_end(T, nom)
+    if end < 0:
+        return ""
+    window = T[end:end + right_ctx]
+    m = CLAUSE_DOM_RX.search(window)
+    return (m.group("clause").strip() if m else "")
 
+def _tokens_from_address(addr: str) -> tuple[Optional[str], Optional[str]]:
+    addr_n = _norm_spaces(addr)
+    cp = _cp_in(addr_n)
+    num = _first_house_num_root(addr_n, known_cp=cp)
+    return cp, num
 
-def construire_prompt(doc_id: str, adresses: str, texte: str) -> str:
-    return PROMPT_TEMPLATE.format(doc_id=doc_id, adresses=adresses, texte=texte)
+def _has_cp_and_num(addr: str) -> bool:
+    """True ssi l'adresse contient CP ET numéro (peu importe l'ordre)."""
+    cp, num = _tokens_from_address(addr)
+    return (cp is not None) and (num is not None)
 
-def find_address_completion(doc_id: str, adresses: str, texte: str) -> Optional[str]:
-    prompt = construire_prompt(doc_id, adresses, texte)
+# ──────────────────────────────────────────────────────────────────────────────
+# IA helpers
+# ──────────────────────────────────────────────────────────────────────────────
+VOIE_MAP = {"av": "avenue", "bd": "boulevard", "ch": "chaussée", "r": "rue"}
+
+ADDR_LINE_RX = re.compile(
+    r"""
+    ^\s*
+    ([^\n,]+?)                              # 1: libellé voie/toponyme
+    \s+
+    (                                       # 2: numéro principal + extensions
+      \d{1,4}
+      (?:/[0-9A-Za-z]+|[A-Za-z])?
+      (?:\s+\d{1,4}(?:\.\d+)?)?
+      (?:\s+(?:bo[iî]te|bte|bt|bus|b)\s*\w{1,6}|\s+[A-Za-z]\d{1,5})?
+    )
+    \s*,\s*à\s*
+    ([1-9]\d{3})                            # 3: CP
+    \s+
+    ([A-ZÀ-ÿ'’\- ]+?)                       # 4: Ville
+    \s*$
+    """,
+    flags=re.IGNORECASE | re.VERBOSE,
+)
+
+def _normalize_head(head: str) -> str:
+    head = re.sub(r"\s+", " ", (head or "").strip())
+    m = re.match(r"^(av\.?|bd\.?|ch\.?|r\.?)\b", head, flags=re.IGNORECASE)
+    if m:
+        abbr = m.group(1).lower().rstrip(".")
+        mapped = VOIE_MAP.get(abbr, abbr)
+        return mapped + head[m.end():]
+    return head
+
+def _clean_address_line(raw: str) -> Optional[str]:
+    """Valide/normalise la ligne IA -> «<Voie/toponyme> <num>, à <CP> <Ville>» ou None."""
+    if not raw:
+        return None
+    s = raw.strip().strip("“”\"' ")
+    print(f"🧪 DEBUG before clean: {s!r}")
+    if s.lower() == "inconnue":
+        return "inconnue"
+    m = ADDR_LINE_RX.match(s)
+    if not m:
+        print("🧪 DEBUG: ADDR_LINE_RX did not match.")
+        return None
+    head = _normalize_head(m.group(1))
+    num  = re.sub(r"\s+", " ", m.group(2).strip())
+    cp   = m.group(3).strip()
+    city = re.sub(r"\s+", " ", m.group(4).strip())
+    return f"{head} {num}, à {cp} {city}"
+
+def _build_prompt(nom: str, fenetre: str) -> list[dict]:
+    user = f"""NOM: {nom}
+
+FENÊTRE (texte après le NOM, à partir de «domicilié(e) à …»):
+\"\"\"{fenetre}\"\"\"
+
+Rappel: Choisis uniquement l’adresse de la personne “domicilié(e) à …”.
+Ignore les tiers. Rends une ligne au format requis, sinon “inconnue”.
+"""
+    return [
+        {"role": "system", "content": SYSTEM_MSG},
+        {"role": "user", "content": FEWSHOTS.strip()},
+        {"role": "user", "content": user},
+    ]
+
+def _chat_once(model: str, messages: list[dict]) -> Optional[str]:
     try:
         resp = groq_client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+            model=model,
+            messages=messages,
+            temperature=0.0,
+            top_p=0.1,
+            max_tokens=64,
+            stop=STOP_SEQS,
         )
-        out = (resp.choices[0].message.content or "").strip()
-        out = nettoyer_sortie_adresse(out)
-        return out
+        raw = (resp.choices[0].message.content or "").strip()
+        print(f"🧪 IA raw ({model}): {raw!r}")
+        return raw
     except Exception as e:
-        print(f"❌ Erreur Groq (doc_id={doc_id}): {e}")
+        print(f"❌ Chat error ({model}): {e}")
         return None
 
-# ------------------------------------------------------------------------------
-# Utils Meili
-# ------------------------------------------------------------------------------
+def find_address_completion(doc_id: str, nom: str, fenetre: str) -> Optional[str]:
+    if not fenetre or not nom:
+        print("⚠️ IA skip: fenêtre vide ou nom vide → 'inconnue'")
+        return "inconnue"
+    messages = _build_prompt(nom, fenetre)
+    print("📤 Prompt preview:", {
+        "nom": nom,
+        "fenêtre": fenetre[:200] + ("…" if len(fenetre) > 200 else "")
+    })
+    raw = _chat_once(MODEL, messages)
+    cleaned = _clean_address_line(raw)
+    print(f"🧹 Cleaned ({MODEL}): {cleaned!r}")
+    return cleaned or "inconnue"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Meili helpers
+# ──────────────────────────────────────────────────────────────────────────────
 def _as_list(v) -> List[str]:
     if v is None:
         return []
@@ -134,63 +263,34 @@ def _as_list(v) -> List[str]:
         return [v.strip()]
     return []
 
-def _norm_addr(s: str) -> str:
-    s = (s or "").strip()
-    s = s.replace(",", " ")     # 👈 enlève les virgules
-    s = re.sub(r"\s+", " ", s)
-    return s
+def _norm_addr_pretty(s: str) -> str:
+    s = (s or "").replace(",", " ")
+    return re.sub(r"\s+", " ", s).strip()
 
-def doc_has_address_covering_partial(doc_id: str, partial: str) -> bool:
-    """Très tolérant: si une adresse du doc contient le fragment partiel (normalisé), on considère couvert."""
-    try:
-        doc = dict(index.get_document(doc_id))
-    except Exception:
-        return False
-    partial_n = _norm_addr(partial).lower()
-    for a in _as_list(doc.get("adresse")):
-        if partial_n and partial_n in _norm_addr(a).lower():
-            return True
-    return False
-
-def upsert_address_in_meili(doc_id: str, new_address: str) -> bool:
+def promote_address_in_meili(doc_id: str, candidate: str) -> bool:
     try:
         doc = dict(index.get_document(doc_id))
     except Exception as e:
         print(f"❌ Impossible de récupérer le document {doc_id} dans Meili: {e}")
         return False
 
-    current = _as_list(doc.get("adresse"))
-    current_norm = {_norm_addr(a) for a in current if a}
-
-    candidate = _norm_addr(new_address)
-    if not candidate or candidate.lower() == "inconnue":
-        print("↪️ IA a répondu 'inconnue' ou vide : pas d'update.")
-        return False
-
-    if candidate in current_norm:
-        print("↪️ Adresse déjà présente, pas d'update.")
-        return False
-
-    updated_list = current + [candidate]
-    payload = {"id": doc_id, "adresse": updated_list}
-
+    lst = _as_list(doc.get("adresse"))
+    cand_norm = _norm_addr_pretty(candidate).lower()
+    new = [a for a in lst if _norm_addr_pretty(a).lower() != cand_norm]
+    new.insert(0, candidate)
     try:
-        task = index.update_documents([payload])
-        print(f"✅ Meili mis à jour (taskUid={getattr(task, 'task_uid', None) or getattr(task, 'updateId', None)})")
+        task = index.update_documents([{"id": doc_id, "adresse": new}])
+        print(f"✅ Promote OK (taskUid={getattr(task, 'task_uid', None) or getattr(task, 'updateId', None)})")
         return True
     except Exception as e:
-        print(f"❌ Erreur update Meili (doc_id={doc_id}): {e}")
+        print(f"❌ Erreur promote Meili (doc_id={doc_id}): {e}")
         return False
 
-# ------------------------------------------------------------------------------
-# Parsing log
-# ------------------------------------------------------------------------------
-LOG_BLOCK_RX = re.compile(
-    r"DOC ID:\s*'(?P<doc_id>[a-f0-9]{64})'.*?"
-    r"Adresse incomplète ou suspecte\s*:\s*'(?P<adresse>[^']+)'.*?"
-    r"(?:Texte|texte)\s*[:=]\s*(?P<texte>.+?)(?=\n\S|\Z)",
-    re.DOTALL | re.IGNORECASE
-)
+# ──────────────────────────────────────────────────────────────────────────────
+# Cache IA
+# ──────────────────────────────────────────────────────────────────────────────
+def make_key(doc_id: str, label: str) -> str:
+    return f"{doc_id}||{label}"
 
 def load_cache(cache_path: str) -> dict:
     if os.path.exists(cache_path):
@@ -208,9 +308,9 @@ def save_cache(cache_path: str, cache: dict) -> None:
     except Exception as e:
         print(f"⚠️ Impossible d’écrire le cache: {e}")
 
-def make_key(doc_id: str, partial: str) -> str:
-    return f"{doc_id}||{_norm_addr(partial).lower()}"
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────────────
 def process_log_file(log_file_name: str = "adresses.log"):
     full_path = chemin_log(log_file_name)
     print(f"📂 Fichier log : {full_path}")
@@ -225,76 +325,72 @@ def process_log_file(log_file_name: str = "adresses.log"):
     blocks = LOG_BLOCK_RX.findall(content)
     print(f"🔍 {len(blocks)} bloc(s) détecté(s)")
 
-    # Cache persistant à côté du log
     cache_path = os.path.join(os.path.dirname(full_path), "ia_addr_cache.json")
     cache = load_cache(cache_path)
 
-    # Dédoublonnage in-memory pour cette exécution
-    seen_pairs = set()
+    seen_doc = set()
 
-    for doc_id, adresse_partielle, texte in blocks:
-        adresse_partielle = adresse_partielle.strip()
-        texte = texte.strip()
-        key = make_key(doc_id, adresse_partielle)
+    for doc_id, nom, adresses_logged, texte in blocks:
+        if doc_id in seen_doc:
+            print(f"⏭️ Doc {doc_id} déjà traité → skip.")
+            continue
+        seen_doc.add(doc_id)
+
+        nom = (nom or "").strip()
+        texte = (texte or "").strip()
+        candidates = [a.strip() for a in (adresses_logged or "").split("|") if a.strip()]
+        if not candidates:
+            print(f"⚠️ Aucune adresse dans le bloc pour {doc_id}")
+            continue
+
+        first_addr = candidates[0]
+        cp_first, num_first = _tokens_from_address(first_addr)
 
         print("\n" + "-"*80)
         print(f"📄 DOC ID : {doc_id}")
-        print(f"🔍 Adresse partielle : {adresse_partielle}")
+        print(f"👤 NOM    : {nom!r}")
+        print(f"🏷️ 1ʳᵉ adr : {first_addr!r}")
+        print(f"🧩 Tokens 1ʳᵉ adr : CP={cp_first!r} NUM={num_first!r}")
 
-        # 1) Skip si déjà traité dans cette exécution
-        if key in seen_pairs:
-            print("⏭️ Déjà vu dans ce run → skip IA.")
+        # ── RÈGLE DEMANDÉE : on n'appelle PAS l'IA seulement si la 1ʳᵉ adresse a CP ET numéro
+        if _has_cp_and_num(first_addr):
+            print("✅ 1ʳᵉ adresse complète (CP ET numéro) → pas d'IA.")
             continue
 
-        # 2) Skip si déjà dans le cache persistant
-        if key in cache:
+        print("🧠 1ʳᵉ adresse incomplète (CP ou numéro manquant) → IA requise.")
+
+        # Fenêtre la plus pertinente : clause « domicilié(e) à … » à droite du nom
+        clause = _clause_domicilie_a_droite(texte, nom)
+        if not clause:
+            print("⚠️ Aucune clause 'domicilié(e) à …' trouvée à droite du nom → IA quand même sur une petite fenêtre.")
+            end = _name_end(_norm_spaces(texte), nom)
+            clause = _norm_spaces(texte[end:end+800]) if end >= 0 else _norm_spaces(texte[:800])
+
+        key = make_key(doc_id, f"CLAUSE::{_norm_spaces(clause)}")
+        if key in cache and cache[key]:
             print(f"⏭️ Déjà en cache → {cache[key]!r}")
-            # on tente aussi l’upsert si nécessaire
-            if cache[key] and cache[key].lower() != "inconnue":
-                upsert_address_in_meili(doc_id, cache[key])
-            seen_pairs.add(key)
+            promote_address_in_meili(doc_id, cache[key])
             continue
 
-        # 3) Skip UNIQUEMENT si la partielle contient déjà un numéro ET que Meili couvre
-        if _has_house_number(adresse_partielle) and doc_has_address_covering_partial(doc_id, adresse_partielle):
-            print("⏭️ Doc contient déjà une adresse couvrant le fragment (numéro présent) → skip IA.")
-            seen_pairs.add(key)
-            cache[key] = ""  # marqué traité sans IA
-            continue
+        completion = find_address_completion(doc_id, nom, clause)
 
-        print("🧠 IA (Groq) en cours...")
-        completion = find_address_completion(doc_id, adresse_partielle, texte)
-        if completion is None:
-            print("⚠️ Erreur IA → on passe.")
-            seen_pairs.add(key)
-            cache[key] = None
-            continue
-
-        print(f"🤖 IA propose : {completion}")
-        cache[key] = completion  # on mémorise la proposition
-
-        updated = upsert_address_in_meili(doc_id, completion)
-        if updated:
-            print(f"💾 Ajouté à Meili pour {doc_id} : {completion}")
+        if completion and completion.lower() != "inconnue":
+            cache[key] = completion
+            promote_address_in_meili(doc_id, completion)
         else:
-            print("ℹ️ Pas de mise à jour.")
+            cache[key] = None
 
-        seen_pairs.add(key)
-        save_cache(cache_path, cache)  # flush régulier
+        save_cache(cache_path, cache)
 
-    # Sauvegarde finale
-    save_cache(cache_path, cache)
-
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 # CLI
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("❌ Usage : python script.py <keyword>")
         sys.exit(1)
 
     keyword = sys.argv[1]
-    keyword_clean = keyword.replace("+", "_")  # si les keywords viennent de URLs
-
+    keyword_clean = keyword.replace("+", "_")
     log_filename = f"adresses_logger_{keyword_clean}.log"
     process_log_file(log_filename)

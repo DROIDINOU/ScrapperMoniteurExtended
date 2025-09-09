@@ -49,14 +49,18 @@ from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_
     extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric\
     , clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
     liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
-    build_address_index, _norm_spaces, digits_only
+    build_address_index, _norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
+    strip_html_tags, extract_page_index_from_url
 from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
     convert_pdf_pages_to_text_range
 from extractbis import extract_person_names
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
 keyword = sys.argv[1]
-# --- Configuration du logger ---
+
+# ---------------------------------------------------------------------------------------------------------------------
+#                                    CONFIGURATION DES LOGGERS
+# ----------------------------------------------------------------------------------------------------------------------
 logger = setup_logger("extraction", level=logging.DEBUG)
 logger.debug("✅ Logger initialisé dans le script principal.")
 
@@ -74,6 +78,8 @@ logger_nomspersonnes.debug("🔍 Logger 'nomspersonnes_logger' initialisé pour 
 logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
 print(">>> CODE À JOUR")
+
+logged_adresses: set[tuple[str, str]] = set()
 
 # ---------------------------------------------------------------------------------------------------------------------
 #                                          VARIABLES D ENVIRONNEMENT
@@ -105,13 +111,15 @@ ADDRESS_INDEX = build_address_index(
 )
 
 # +++++++++++++++++++++++++++++++++++++++++++++++++
-#
+#  REGEX COMPILES: Code postal - Numéro BCE
 # +++++++++++++++++++++++++++++++++++++++++++++++++
 POSTAL_RE = re.compile(r"\b[1-9]\d{3}\s+[A-Za-zÀ-ÿ'’\- ]{2,}\b")
 BCE_RE = re.compile(r"\b\d{3}\.\d{3}\.\d{3}\b")
 
 
-
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+#  FONCTIONS PRINCIPALE D EXTRACTION
+# +++++++++++++++++++++++++++++++++++++++++++++++++
 def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> list[str]:
     """
     Vue ARTICLE uniquement (page=1). Renvoie les lignes contenant un code postal.
@@ -174,7 +182,8 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
             return out[:5]
 
     return []
-# a JOUR 1/8/2025
+
+
 from_date = date.fromisoformat("2025-07-01")
 to_date = "2025-07-04"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
@@ -291,54 +300,6 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
         list(tqdm(executor.map(process_page, range(1, page_amount + 1)), total=page_amount, desc="Pages"))
 
     return link_list
-
-
-def strip_html_tags(text):
-    return re.sub('<.*?>', '', text)
-
-
-def extract_page_index_from_url(pdf_url):
-    match = re.search(r'#page=(\d+)', pdf_url)
-    if match:
-        page_number = int(match.group(1))
-        return page_number - 1  # PyMuPDF indexe à partir de 0
-    return None
-
-
-def extract_names_and_nns(text):
-    results = []
-
-    # 🔹 Pattern classique NOM, Prénom, NRN
-    pattern = (
-        r"(?:le nommé\s*:|NOM(?:\s+et)?\s+PRÉNOM\s*:)?\s*"
-        r"(\d+\s*[A-Z]\s*\d{4})?\s*"  # ex: 1492 C 2025
-        r"([A-ZÉÈÀÛÎÇ\-']{2,}(?:\s+[A-ZÉÈÀÛÎÇ\-']{2,})*),?\s+"
-        r"([A-Z][a-zéèàêîç\-']{1,}(?:\s+[A-Z][a-zéèàêîç\-']{1,})*)\s*,?\s+"
-        r"(?:NRN|Registre national)\s*:?\s*(\d{2}[.\-/]\d{2}[.\-/]\d{2}[-\s.]\d{3}[.\-/]\d{2})"
-    )
-    matches = re.findall(pattern, text, re.IGNORECASE)
-    for _, _, _, nn in matches:
-        results.append(nn.strip())
-
-    # 🔹 Pattern spécial "le nommé : 1492 C 2025 NOM, Prénom, NRN ..."
-    pattern_alt = (
-        r"le nommé\s*:\s*(?:\d+\s*[A-Z]\s*\d{4})\s+"
-        r"([A-ZÉÈÀÛÎÇ\-']{2,}(?:\s+[A-ZÉÈÀÛÎÇ\-']{2,})*),\s+"
-        r"([A-Z][a-zéèàêîç\-']{1,}(?:\s+[A-Z][a-zéèàêîç\-']{1,})*),?\s+"
-        r"NRN\s+(\d{2}[.\-/]\d{2}[.\-/]\d{2}-\d{3}[.\-/]\d{2})"
-    )
-    matches_alt = re.findall(pattern_alt, text, re.IGNORECASE)
-    for _, _, nn in matches_alt:
-        results.append(nn.strip())
-
-    # 🔹 NRN isolé
-    pattern_nrn_alone = r'\b(\d{2})[.\-/ ](\d{2})[.\-/ ](\d{2})[.\-/ ](\d{3})[.\-/ ](\d{2})\b'
-    matches_nrn_only = re.findall(pattern_nrn_alone, text)
-    for yy, mm, dd, bloc, suffix in matches_nrn_only:
-        nn = f"{yy}.{mm}.{dd}-{bloc}.{suffix}"
-        results.append(nn)
-
-    return list(dict.fromkeys(results))
 
 
 def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, title, subtitle):
@@ -499,7 +460,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                      ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
         detect_justice_paix_keywords(texte_brut, extra_keywords)
-
+        adresse = prioriser_adresse_proche_nom_struct(nom, texte_brut, adresse, min_ratio=0.80)
 
     if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
 
@@ -762,29 +723,51 @@ for doc in documents:
         adresse_cleaned = []
 
         for a in adresse:
-            # 🔄 Remplacer les virgules par des espaces et normaliser
-            cleaned = a.replace(",", " ").strip()
-            cleaned = re.sub(r'\s+', ' ', cleaned)
+            cleaned = a.strip()
+
+            # Normaliser les espaces autour des virgules mais NE PAS les supprimer
+            cleaned = re.sub(r'\s*,\s*', ', ', cleaned)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,.;')
+
+            # Artefact : une lettre isolée avant l’adresse (ex: "e 5600 ...")
             cleaned = re.sub(r'^[A-Za-z]\s+(?=\d{4}\b|[A-ZÀ-ÿ])', '', cleaned)
-            # 🧹 Supprime "CP Ville" seuls, avec ou sans quartier entre parenthèses
-            if re.fullmatch(r"\d{4}\s+[A-ZÀ-ÿ][\w\-’'() ]{2,}", cleaned) and len(cleaned.split()) <= 4:
-                continue
-            # ✂️ Tronquer le texte si du récit est présent
+
+            # Couper le récit (ex: ", a été", "; BCE", etc.) — ta fonction interne
             cleaned = tronque_texte_apres_adresse(cleaned)
-            # 🚫 Supprimer un artefact au début (ex: "e 4141 ..." → "4141 ...")
+
+            # Trop court / vide après tronquage
             if not cleaned or len(cleaned.split()) < 2:
                 continue
-            if any(token in cleaned.lower() for token in NETTOIE_ADRESSE_SET):
+
+            # CP + Ville seuls (2–4 tokens) → on jette SEULEMENT s'il n'y a pas d'autre nombre que le CP
+            # (ça évite de jeter "5600 Philippeville, Gueule-du-Loup(SAU) 161")
+            has_only_cp = (
+                    re.fullmatch(r"\d{4}\s+[A-ZÀ-ÿ][\wÀ-ÿ'’\-() ]{1,}$", cleaned) and
+                    not re.search(r"\b\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?\b", cleaned)
+            )
+            if has_only_cp:
                 continue
 
-                # 🚫 Exclure si adresse institutionnelle
-            if cleaned.upper() in ADRESSES_INSTITUTIONS_SET:
+            # Mots à nettoyer : matcher en MOT ENTIER pour éviter les faux positifs ("home", etc.)
+            if any(re.search(rf"\b{re.escape(tok)}\b", cleaned.lower()) for tok in NETTOIE_ADRESSE_SET):
                 continue
 
-            # ✅ Ajouter si unique
-            if cleaned and cleaned not in seen:
-                seen.add(cleaned)
+            # Exclure institutions : comparer le préfixe avant la 1re virgule ou avant " à "
+            cap = cleaned.upper()
+            cap_prefix = re.split(r",\s*|\s+À\s+", cap, maxsplit=1)[0]
+            if cap_prefix in ADRESSES_INSTITUTIONS_SET:
+                continue
+
+            # Déduplication : clé normalisée (sans toucher l’affichage final)
+            key = re.sub(r'\s+', ' ', cap)  # tu peux ajouter unidecode si tu veux ignorer les accents
+            if key not in seen:
+                seen.add(key)
                 adresse_cleaned.append(cleaned)
+        # ❌ Supprimer les adresses trop courtes (ex: "5100 Namur")
+        adresse_cleaned = [
+                a for a in adresse_cleaned
+                if len(re.findall(r'\w+', a)) >= 3
+            ]
 
         doc["adresse"] = adresse_cleaned if adresse_cleaned else None
 
@@ -869,6 +852,47 @@ with open(json_path, "w", encoding="utf-8") as f:
     json.dump(documents, f, indent=2, ensure_ascii=False)
 print(f"[💾] Fichier JSON sauvegardé : {json_path}")
 
+print("[📥] Mes Logs…")
+# 🔔 Log TOUTES les adresses (doublons compris) dans UNE seule entrée par doc
+for doc in documents:
+    adrs = doc.get("adresse") or []  # toujours une liste
+    # normalise un peu et garde même les doublons
+    adrs_norm = [re.sub(r"\s+", " ", a).strip() for a in adrs if isinstance(a, str) and a.strip()]
+    if not adrs_norm:
+        continue
+
+    # Regroupe tout dans un seul champ (séparateur au choix)
+    all_in_one = " | ".join(adrs_norm)  # ex: "addr1 | addr2 | addr2 | addr3"
+    # --- Récupère UNIQUEMENT le nom canonique depuis doc["nom"] ---
+    nom_field = doc.get("nom")
+    canon_name = ""
+
+    if isinstance(nom_field, dict):
+        # priorité aux canonicals
+        canonicals = nom_field.get("canonicals") or []
+        if isinstance(canonicals, list) and canonicals:
+            canon_name = str(canonicals[0]).strip()
+        elif nom_field.get("records"):
+            for r in nom_field["records"]:
+                if isinstance(r, dict) and isinstance(r.get("canonical"), str) and r["canonical"].strip():
+                    canon_name = r["canonical"].strip()
+                    break
+        elif isinstance(nom_field.get("aliases_flat"), list) and nom_field["aliases_flat"]:
+            canon_name = str(nom_field["aliases_flat"][0]).strip()
+    elif isinstance(nom_field, list):
+        # prend le premier string non vide
+        for s in nom_field:
+            if isinstance(s, str) and s.strip():
+                canon_name = s.strip()
+                break
+    elif isinstance(nom_field, str):
+        canon_name = nom_field.strip()
+    logger_adresses.warning(
+        f"DOC ID: '{doc['doc_hash']}'\n"
+        f"NOM: '{canon_name}'\n"
+        f"Adresse incomplète ou suspecte : '{all_in_one}'\n"
+        f"Texte : {doc.get('text', '')}..."
+    )
 
 print("[📥] Connexion à PostgreSQL…")
 

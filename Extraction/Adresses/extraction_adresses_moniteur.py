@@ -5,29 +5,160 @@ from Utilitaire.outils.MesOutils import nettoyer_adresse, couper_fin_adresse
 import logging
 
 loggerAdresses = logging.getLogger("adresses_logger")
-logged_adresses = set()  # Pour éviter les doublons de log (doc_id + adresse)
+
 
 
 def extract_address(texte_html, doc_id):
     adresse_list = []
 
     soup = BeautifulSoup(texte_html, 'html.parser')
-    texte = soup.get_text(separator=' ')
+    texte = soup.get_text(separator=" ")
+    texte = (texte
+             .replace("\xa0", " ")
+             .replace("\u202f", " ")
+             .replace("\u2009", " ")
+             .replace("\u200a", " "))
     texte = re.sub(r'\s+', ' ', texte).strip()
+    DOMI = r"(?:domicili(?:é|ée|e|\(e\))?)"
+    # Autoriser les tirets Unicode dans les noms de voie
+
+    DASH_CHARS = r"\-\u2010-\u2015"  # -, -, ‒, –, —, ―
+    NUM_TOKEN = r"\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?"
+    # Après NUM_TOKEN, ajoute ce préfixe commun :
+    NUM_LABEL = r"(?:num(?:[ée]ro)?\.?|n[°ºo]?\.?|nr\.?)"
+    # 1) "domicilié à CP VILLE, <type> <voie>, NUM"
+    RX_VILLE_VOIE_VIRGULE_NUM_TY = re.compile(rf"""
+        {DOMI}\s+à\s+
+        (?P<cp>\d{{4}})\s+
+        (?P<ville>[A-ZÀ-ÖØ-öø-ÿ'’\- ]+?)\s*,\s*
+        (?P<voie>(?:rue|avenue|av\.?|chauss[ée]e|place|boulevard|
+                   impasse|chemin|square|all[ée]e|clos|voie)\s+
+                   [A-ZÀ-ÖØ-öø-ÿ0-9'’\-\.\s()]+?)\s*,\s*
+        (?:(?:{NUM_LABEL})\s*)?                                 # ← préfixe "numéro"/"n°" optionnel
+        (?P<num>""" + NUM_TOKEN + r""")                         # ex: "28" ou "1/44"
+    """, re.IGNORECASE | re.UNICODE | re.VERBOSE)
+
+    # 2) Variante sans mot-clé de voie : "domicilié à CP VILLE, <libellé>, NUM"
+    RX_VILLE_VOIE_VIRGULE_NUM_ANY = re.compile(rf"""
+        {DOMI}\s+à\s+
+        (?P<cp>\d{{4}})\s+
+        (?P<ville>[A-ZÀ-ÖØ-öø-ÿ'’\- ]+?)\s*,\s*
+        (?P<voie>[A-ZÀ-ÖØ-öø-ÿ0-9'’\-\.\s()]+?)\s*,\s*
+        (?:(?:{NUM_LABEL})\s*)?                                 # ← préfixe optionnel
+        (?P<num>""" + NUM_TOKEN + r""")
+    """, re.IGNORECASE | re.UNICODE | re.VERBOSE)
+    for rx in (RX_VILLE_VOIE_VIRGULE_NUM_TY, RX_VILLE_VOIE_VIRGULE_NUM_ANY):
+        for m in rx.finditer(texte):
+            cp = m.group('cp')
+            ville = m.group('ville').strip()
+            voie = m.group('voie').strip()
+            num = m.group('num')
+
+            adr = f"{voie} {num}, à {cp} {ville}"
+            # Harmonise comme le reste du pipeline
+            adr = nettoyer_adresse(adr)
+            adr = couper_fin_adresse(adr).rstrip(".")
+            print(f"voici ce qui est matche(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((({adr}")
+            adresse_list.append(adr)
     # — Cas 1 : "1325 Chaumont-Gistoux, Bas-Bonlez, résidence les Lilas 57"
     RX_CHAUMONT_RESIDENCE = re.compile(r"""
         \b(?P<cp>\d{4})\s+(?P<ville>Chaumont\-Gistoux)\s*,\s*
         (?P<localite>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*
         r[ée]sidence\s+(?P<resname>[^,;]+?)\s+(?P<num>\d{1,4})
     """, re.IGNORECASE | re.VERBOSE)
+    # 3) Domicile avec "home/résidence/maison de repos"
+    RX_DOMICILE_AVEC_HOME = re.compile(rf"""
+        {DOMI}\s+à\s+
+        (?P<cp>\d{{4}})\s+
+        (?P<ville>[A-ZÀ-ÿ'’\- ]+?)      # Ville
+        \s*,\s*
+        (?:                             # --- bloc home / résidence (OPTIONNEL) ---
+            (?:home|r[ée]sidence|maison\s+de\s+repos)  # mot-clé
+            [^,]{{0,120}}               # libellé libre jusqu'à la virgule
+            \s*,\s*
+        )?
+        (?P<type>rue|avenue|av\.?|chauss[ée]e|place|boulevard|impasse|
+            chemin|square|all[ée]e|clos|voie)\s+
+        (?P<nomvoie>[A-ZÀ-ÿ0-9'’\-\.\s]+?)\s+
+        (?P<num>\d{{1,4}})
+        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*(?P<boite>[A-Z0-9/\.\-]+))?   # boîte (optionnelle)
+    """, re.IGNORECASE | re.UNICODE | re.VERBOSE)
+    # 👉 Nouveau pattern pour le cas :
+    # "5101 Namur, Home "La Closière", avenue du Bois Williame 11[, boîte X]"
+    RX_DOMICILE_HOME_APRES_CP = re.compile(r"""
+        (?P<cp>\d{4})\s+(?P<ville>[A-Za-zÀ-ÖØ-öø-ÿ' \-]+)\s*,\s*
+        Home\s+"?[^",]+"?\s*,\s*                 # on tolère Home "..."
+        (?P<type>[A-Za-zÀ-ÖØ-öø-ÿ]+)\s+          # type de voie (rue/avenue/...)
+        (?P<nomvoie>[^,0-9]+?)\s+                # nom de voie
+        (?P<num>\d+\w?)                          # numéro (ex: 11, 11A)
+        (?:,\s*bo[îi]te\s*(?P<boite>[\w-]+))?    # boîte (optionnel)
+    """, re.IGNORECASE | re.VERBOSE)
+
+    # 👉 Ajoute simplement ce second passage à côté de ton RX_DOMICILE_AVEC_HOME
+    for m in RX_DOMICILE_HOME_APRES_CP.finditer(texte):
+        cp = m.group('cp')
+        ville = m.group('ville').strip()
+        voie = m.group('type').capitalize()
+        rue = m.group('nomvoie').strip()
+        num = m.group('num')
+        box = m.groupdict().get('boite')
+
+        adr = f"{voie} {rue} {num}"
+        if box:
+            adr += f", boîte {box}"
+        adr += f", à {cp} {ville}"
+        adresse_list.append(adr)
+    # — Fast-path ultra ciblé pour : "domiciliée à 4800 Verviers, rue Béribou, 1/44[, boîte X]"
+    # 4) Fast-path "domiciliée à CP Ville, [type] nomvoie, num"
+    # 3) Ville, (type de voie optionnel), libellé, virgule, numéro
+    # 3) "domicilié à CP VILLE, [<type> ]<nomvoie>, NUM[, boîte X]"
+    RX_CP_VILLE_VOIE_VIRGULE_NUM = re.compile(rf"""
+        {DOMI}\s+à\s+
+        (?P<cp>\d{{4}})\s+
+        (?P<ville>[A-ZÀ-ÿ'’\- ]+)\s*,\s*
+        (?:(?P<type>rue|avenue|av\.?|chauss[ée]e|place|
+            boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+)? 
+        (?P<nomvoie>[A-ZÀ-ÿ0-9'’\-\.\s()]+?)\s*,\s*
+        (?:(?:{NUM_LABEL})\s*)?                                 # ← préfixe optionnel
+        (?P<num>\d{{1,4}}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?) 
+        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*(?P<boite>[A-Z0-9/\.\-]+))?
+    """, re.IGNORECASE | re.VERBOSE)
+
+    for m in RX_CP_VILLE_VOIE_VIRGULE_NUM.finditer(texte):
+        cp = m.group('cp')
+        ville = m.group('ville').strip()
+        voie_type = m.group('type')
+        nomvoie = m.group('nomvoie').strip()
+        num = m.group('num')
+        boite = m.group('boite')
+
+        adr = f"{(voie_type or '').capitalize() + ' ' if voie_type else ''}{nomvoie} {num}"
+        if boite:
+            adr += f", boîte {boite}"
+        adr += f", à {cp} {ville}"
+        adresse_list.append(adr)
 
     # — Cas 2 : "Les Avrils , 4520 Wanze, Rue des Loups 19"
     RX_LOCALITE_CP_VILLE_VOIE = re.compile(r"""
         (?P<localite>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*
         (?P<cp>\d{4})\s+(?P<ville>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*
-        (?P<type>rue|avenue|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+
+        (?P<type>rue|avenue|Av.|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+
         (?P<nomvoie>[A-ZÀ-ÿa-z'’\- ]+?)\s+(?P<num>\d{1,4})
     """, re.IGNORECASE | re.VERBOSE)
+    # Cas 3 : "4020 Liège, La Maison Heureuse, Rue Winston-Churchill 353"
+    RX_CP_VILLE_PRECISION_RUE = re.compile(
+        rf"""
+        {DOMI}\s+à\s+
+        (?P<cp>\d{{4}})\s+                       # CP
+        (?P<ville>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*        # Ville
+        (?P<precision>[A-ZÀ-ÿa-z'’\- ]+?)\s*,\s* # Résidence, bâtiment, etc.
+        (?P<type>rue|avenue|Av\.|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+
+        (?P<nomvoie>[A-ZÀ-ÿa-z'’\- ]+?)\s+
+        (?P<num>\d{{1,4}})                       # Numéro
+        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*(?P<boite>[A-Z0-9/\.\-]+))?  # Boîte (optionnelle)
+        """,
+        flags=re.IGNORECASE | re.VERBOSE,
+    )
     # ⚡ Fast-path ciblé sur le texte complet (pas de segmentation)
     for m in RX_CHAUMONT_RESIDENCE.finditer(texte):
         adr = f"résidence {m.group('resname').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
@@ -36,16 +167,38 @@ def extract_address(texte_html, doc_id):
     for m in RX_LOCALITE_CP_VILLE_VOIE.finditer(texte):
         adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
         adresse_list.append(adr)
+        # — Cas 3 : "4020 Liège, La Maison Heureuse, Rue Winston-Churchill 353"
+    for m in RX_CP_VILLE_PRECISION_RUE.finditer(texte):
+        adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}"
+        boite = m.groupdict().get('boite')
+        if boite:
+            adr += f", boîte {boite}"
+        adr += f", à {m.group('cp')} {m.group('ville')}"
+        adresse_list.append(adr)
 
-    # Match : "domicilié à 3078 Kortenberg, Kiewistraat 30"
+    for m in RX_DOMICILE_AVEC_HOME.finditer(texte):
+        cp = m.group('cp')
+        ville = m.group('ville').strip()
+        voie = m.group('type').capitalize()
+        rue = m.group('nomvoie').strip()
+        num = m.group('num')
+        box = m.groupdict().get('boite')
+
+        adr = f"{voie} {rue} {num}"
+        if box:
+            adr += f", boîte {box}"
+        adr += f", à {cp} {ville}"
+        adresse_list.append(adr)  # <— TU OUBLIAIS CETTE LIGNE
+
+    # 6) "domicilié à CP Ville, Rue NUM"
     m_cp_first = re.search(
-        r"""domicili[ée]?\s+à\s+
-            (\d{4})\s+                   # CP
-            ([A-ZÀ-ÿ\-]+),\s+            # Ville
-            ([A-ZÀ-ÿa-z'\- ]+?)\s+       # Rue
-            (\d{1,4})                    # Numéro
+        rf"""{DOMI}\s+à\s+
+            (\d{{4}})\s+                   # CP
+            ([A-ZÀ-ÿ\-]+),\s+              # Ville
+            ([A-ZÀ-ÿa-z'\- ]+?)\s+         # Rue
+            (\d{{1,4}})                    # Numéro
             (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*
-                ([A-Z0-9/\.\-]+))?       # Boîte : lettres, chiffres, slash etc.
+                ([A-Z0-9/\.\-]+))?         # Boîte : lettres, chiffres, slash etc.
         """,
         texte,
         flags=re.IGNORECASE | re.VERBOSE
@@ -91,8 +244,9 @@ def extract_address(texte_html, doc_id):
         full += f", à {cp} {ville}"
         adresse_list.append(full)
 
+    # 7) Variante simple "DOMI ... adr NUM, à CP Ville"
     m_simple = re.search(
-        r"domicili[ée]?,?\s+(?P<adr>[A-ZÀ-ÿa-z\s'\-]+?\s+\d{1,4})(?:\s*,)?\s+à\s+(\d{4})\s+([A-ZÀ-ÿ\-]+)",
+        rf"{DOMI},?\s+(?P<adr>[A-ZÀ-ÿa-z\s'\-]+?\s+\d{{1,4}})(?:\s*,)?\s+à\s+(\d{{4}})\s+([A-ZÀ-ÿ\-]+)",
         texte,
         flags=re.IGNORECASE
     )
@@ -106,7 +260,7 @@ def extract_address(texte_html, doc_id):
 
     # Match : "domicilié rue Charles Vanderstrappen 24, 1030 Schaerbeek"
     m_rue_first = re.search(
-        r"domicili[ée]?\s+(?:rue|avenue|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+"
+        rf"{DOMI}\s+(?:rue|avenue|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+"
         r"([A-ZÀ-ÿa-z'\- ]+?)\s+(\d{1,4})\s*,\s*(\d{4})\s+([A-ZÀ-ÿ\-]+)",
         texte,
         flags=re.IGNORECASE
@@ -149,7 +303,7 @@ def extract_address(texte_html, doc_id):
     # - éventuellement suivis d'une lettre (ex: 21B), sauf si c’est "B." (comme dans "B.C.E.")
     # - optionnellement suivi d’un séparateur ("/") et d’un identifiant (ex: "/bte14")
     NUM_TOKEN = r"\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?"
-
+    # Séparateur entre nom de voie et numéro : espace OU virgule + espace
     # Un mot possible dans le nom d’une rue : lettres, chiffres, apostrophes, tirets, etc.
     # Inclut aussi des petits mots fréquents dans les noms (de, du, des, la, etc.)
     MOT_NOM_VOIE = r"(?:[A-ZÀ-ÿa-z0-9'’()/\.-]+|de|du|des|la|le|l’|l'|d’|d')"
@@ -279,10 +433,10 @@ def extract_address(texte_html, doc_id):
 
     patterns_base = [
 
-        r"domicili[ée](?:\(e\))?\s+à\s+" + core_1,
-        r"domicili[ée]?\s+à\s+" + core_2,
-        r"domicili[ée]?\s+à\s+" + core_3,
-        r"domicili[ée]?\s+à\s+" + core_4,
+        rf"{DOMI}\s+à\s+" + core_1,
+        rf"{DOMI}\s+à\s+" + core_2,
+        rf"{DOMI}\s+à\s+" + core_3,
+        rf"{DOMI}\s+à\s+" + core_4,
         core_5_any_before,
         core_5b_no_voie,
         core_13_est_etabli,
@@ -294,17 +448,17 @@ def extract_address(texte_html, doc_id):
         core_19_ayant_siege_cp_then_street_stop,    # << nouveau
         core_20_siege_situe_cp_then_no_voie_stop,   # << ajout
         core_21_siege_situe_cp_then_voie_stop,      # << ajout
-        r"domicili[ée](?:\(e\))?\s+à\s+" + core_22_residence,
+        rf"{DOMI}\s+à\s+" + core_22_residence,
 
-        r"domicili[ée]" + PROX + r"\bà\s+" + core_6_nl,
-        r"domicili[ée]" + PROX + r"\bà\s+" + core_7_fr,
-        r"domicili[ée]" + PROX + r"\bà\s+" + core_8_rue_simple,
-        r"domicili[ée]" + PROX + r"\bà\s+" + core_9_autres_voies,
-        r"domicili[ée]" + PROX + core_11_any_before_generic,
+        rf"{DOMI}" + PROX + r"\bà\s+" + core_6_nl,
+        rf"{DOMI}" + PROX + r"\bà\s+" + core_7_fr,
+        rf"{DOMI}" + PROX + r"\bà\s+" + core_8_rue_simple,
+        rf"{DOMI}" + PROX + r"\bà\s+" + core_9_autres_voies,
+        rf"{DOMI}" + PROX + core_11_any_before_generic,
 
-        r"domicili[ée](?:\(e\))?\s+à\s+" + core_12_wild,
-        r"domiciliée\s+à\s+(.+?),?\s+est\s+décédée",
-        r"domicili[ée](?:\(e\))?\s+à\s+" + core_14_wild_end,
+        rf"{DOMI}\s+à\s+" + core_12_wild,
+        rf"{DOMI}\s+à\s+(.+?),?\s+est\s+décédée",
+        rf"{DOMI}\s+à\s+" + core_14_wild_end,
 
         # ex: Domicile : rue de Jambes 319, à 5100 DAVE.
         rf"domicile\s*:\s*({VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}(?:{ANNEXE_SUFFIX})?\s*,\s*à\s+\d{{4}}\s+{MOTS_NOM_VOIE})",
@@ -326,12 +480,12 @@ def extract_address(texte_html, doc_id):
         rf"domicile\s*:\s*({VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}(?:{ANNEXE_SUFFIX})?\s*(?:,|[-–])\s*\d{{4}}\s+{MOTS_NOM_VOIE})",
 
         # ── Variantes "de son vivant" — MISE À NIVEAU VERS NUM_TOKEN + ANNEXE_SUFFIX ──
-        rf"domicili[ée](?:\(e\))?\s+de\s+son\s+vivant\s+("
+        rf"{DOMI}\s+de\s+son\s+vivant\s+("
         rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
         rf"(?:{ANNEXE_SUFFIX})?)"
         r"\s*,\s*à\s*\d{4}\s+" + MOTS_NOM_VOIE,
 
-        rf"domicili[ée](?:\(e\))?\s+de\s+son\s+vivant\s+("
+        rf"{DOMI}\s+de\s+son\s+vivant\s+("
         rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
         rf"(?:{ANNEXE_SUFFIX})?)"
         r"\s*(?:,\s*)?à\s*\d{4}\s+" + MOTS_NOM_VOIE + r"(?=(?:\s*(?:,| et\b)|$))",
@@ -347,18 +501,18 @@ def extract_address(texte_html, doc_id):
         rf"(?:{ANNEXE_SUFFIX})?)",
 
         # Cas inversé : "… à VILLE, rue XXX 12"
-        rf"domicili[ée](?:\(e\))?\s+de\s+son\s+vivant\s+à\s+{MOTS_NOM_VOIE},?\s+("
+        rf"{DOMI}\s+de\s+son\s+vivant\s+à\s+{MOTS_NOM_VOIE},?\s+("
         rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
         rf"(?:{ANNEXE_SUFFIX})?)",
-        rf"domicili[ée]?,?\s+({MOTS_NOM_VOIE}\s+{NUM_TOKEN}\s*,?\s*à\s*\d{{4}}\s+{MOTS_NOM_VOIE})",
+        rf"{DOMI},?\s+({MOTS_NOM_VOIE}\s+{NUM_TOKEN}\s*,?\s*à\s*\d{{4}}\s+{MOTS_NOM_VOIE})",
 
         # Virgule après "vivant"
-        rf"domicili[ée](?:\(e\))?\s+de\s+son\s+vivant\s*,\s*("
+        rf"{DOMI}\s+de\s+son\s+vivant\s*,\s*("
         rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
         rf"(?:{ANNEXE_SUFFIX})?)"
         r"\s*,?\s*à\s*\d{4}\s+" + MOTS_NOM_VOIE,
 
-        rf"domicili[ée]?,?\s+({MOTS_NOM_VOIE}\s+{NUM_TOKEN}\s*,?\s+à\s+\d{{4}}\s+{MOTS_NOM_VOIE})",
+        rf"{DOMI},?\s+({MOTS_NOM_VOIE}\s+{NUM_TOKEN}\s*,?\s+à\s+\d{{4}}\s+{MOTS_NOM_VOIE})",
 
 
         # Variantes "en son vivant"
@@ -372,16 +526,16 @@ def extract_address(texte_html, doc_id):
         rf"(?:{ANNEXE_SUFFIX})?)"
         r"\s*,\s*\d{4}\s+" + MOTS_NOM_VOIE,
 
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_1,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_2,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_3,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_4,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_6_nl,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_7_fr,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_10_fran_large,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_11_any_before_generic,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_12_wild,
-        r"en\s+son\s+vivant\s+domicili[ée](?:\(e\))?\s+à\s+" + core_14_wild_end,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_1,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_2,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_3,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_4,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_6_nl,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_7_fr,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_10_fran_large,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_11_any_before_generic,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_12_wild,
+        rf"en\s+son\s+vivant\s+{DOMI}\s+à\s+" + core_14_wild_end,
 
         r"en\s+son\s+vivant\s+à\s+" + core_6_nl,
         r"en\s+son\s+vivant\s+à\s+" + core_7_fr,
@@ -410,22 +564,12 @@ def extract_address(texte_html, doc_id):
         return re.sub(r"\\s\+à\\s\+", r"\\s*(?:à\\s+)?", p)
 
     def vivant_before_domicilie(p: str) -> str:
-        # insère "(en|de) son vivant, ?" juste avant la 1ère occurrence de "domicilié(e)"
-        return re.sub(
-            r"(?i)(?=\bdomicili\[ée\]\(\?:\\\(e\\\)\)\?\b|\bdomicili\[ée\]\b)",
-            r"(?:en|de)\\s+son\\s+vivant\\s*,?\\s*",
-            p,
-            count=1
-        )
+        return re.sub(rf"(?i)(?={DOMI})",
+                      lambda m: r"(?:en|de)\s+son\s+vivant\s*,?\s*", p, count=1)
 
     def vivant_after_domicilie(p: str) -> str:
-        # ajoute "(en|de) son vivant, ?" juste APRÈS "domicilié(e)" + espaces
-        return re.sub(
-            r"(?i)(domicili\[ée\](?:\\\(e\\\))?\\s+)",
-            r"\\1(?:en|de)\\s+son\\s+vivant\\s*,?\\s+",
-            p,
-            count=1
-        )
+        return re.sub(rf"(?i)({DOMI}\s+)",
+                      lambda m: m.group(1) + r"(?:en|de)\s+son\s+vivant\s*,?\s+", p, count=1)
 
     patterns_expanded = set()
     for p in patterns_base:
@@ -490,17 +634,5 @@ def extract_address(texte_html, doc_id):
             if n != code_postal:
                 return True  # adresse valide : code postal + autre nombre
 
-    for adresse in adresse_list:
-        if not adresse_valide(adresse):
-            key = (doc_id, adresse.strip().lower())
-            if key in logged_adresses:
-                continue  # déjà loggé => skip
-            logged_adresses.add(key)
-
-            loggerAdresses.warning(
-                f"DOC ID: '{doc_id}'\n"
-                f"Adresse incomplète ou suspecte : '{adresse}'\n"
-                f"Texte : {texte}"
-            )
-
+    print(list(set(adresse_list)))
     return list(set(adresse_list))

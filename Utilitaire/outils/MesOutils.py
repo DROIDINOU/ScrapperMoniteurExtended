@@ -4,14 +4,174 @@ import os
 import pickle
 import hashlib
 import csv
+import re
+import difflib
 
 # --- Bibliothèques tierces ---
 from bs4 import BeautifulSoup, NavigableString, Tag
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from typing import List, Any, Optional
+
 
 # --- Modules internes au projet ---
 from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBIS, MOISMAPBIS, \
     ANNEEMAPBIS, TVA_INSTITUTIONS
+
+
+
+
+POSTAL_RX = re.compile(r"\b([1-9]\d{3})\b")
+
+
+
+def strip_html_tags(text):
+    return re.sub('<.*?>', '', text)
+
+
+def extract_page_index_from_url(pdf_url):
+    match = re.search(r'#page=(\d+)', pdf_url)
+    if match:
+        page_number = int(match.group(1))
+        return page_number - 1  # PyMuPDF indexe à partir de 0
+    return None
+
+
+def _normalize_addr_for_match(s: str) -> str:
+    """
+    Nettoie une adresse ou une fenêtre de texte pour améliorer les matches fuzzy :
+    - supprime articles et ponctuation courante
+    - normalise les espaces
+    - met en minuscules
+    """
+    s = s.lower()
+    s = re.sub(r"[,]", " ", s)
+    s = re.sub(r"\b(à|la|le|les|de|du|des|au|aux|et|d’|l’|sur|dans)\b", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def _first_index_diff(addr: str, text: str, min_ratio: float = 0.65, ctx: int = 200) -> Optional[int]:
+    """
+    Retourne l'index de la 1ʳᵉ occurrence *fuzzy* de `addr` dans `text`.
+    Stratégie :
+      1) essai exact (rapide)
+      2) si CP dans l'adresse -> fenêtres autour des CP dans le texte
+      3) sinon, fenêtres glissantes
+    Renvoie None si aucun score n’atteint `min_ratio`.
+    """
+    if not addr or not text:
+        return None
+
+    T = re.sub(r"\s+", " ", text)
+    a = re.sub(r"\s+", " ", addr).strip()
+    if not a:
+        return None
+
+    # 1) exact match
+    m = re.search(re.escape(a), T, flags=re.IGNORECASE)
+    if m:
+        return m.start()
+
+    # 2) collect spans (CP-based or sliding)
+    spans = []
+    mcp = POSTAL_RX.search(a)
+    if mcp:
+        # autour des CP dans le texte
+        for hit in re.finditer(rf"\b{re.escape(mcp.group())}\b", T):
+            s = max(0, hit.start() - ctx)
+            e = min(len(T), hit.end() + ctx)
+            spans.append((s, e))
+    else:
+        # fallback : fenêtres glissantes
+        step = max(50, len(a) // 2 or 1)
+        win = min(len(T), max(len(a) + 200, 250))
+        for i in range(0, len(T), step):
+            spans.append((i, min(len(T), i + win)))
+
+    # 3) best fuzzy match in windows
+    best_ratio, best_pos = 0.0, None
+    a_norm = _normalize_addr_for_match(a)
+
+    for s, e in spans:
+        window = T[s:e]
+        window_norm = _normalize_addr_for_match(window)
+        sm = difflib.SequenceMatcher(a=window_norm, b=a_norm)
+        ratio = sm.ratio()
+        if ratio >= min_ratio and ratio > best_ratio:
+            mlong = sm.find_longest_match(0, len(window_norm), 0, len(a_norm))
+            if mlong and mlong.size > 0:
+                best_ratio, best_pos = ratio, s + mlong.a
+
+    return best_pos
+
+
+def prioriser_adresse_proche_nom_struct(nom: Any, texte: str, adresses: List[str], *, min_ratio: float = 0.80) -> List[str]:
+    """
+    Réordonne `adresses` pour mettre en tête celle(s) trouvée(s) *à droite* du nom dans le texte,
+    la plus proche d'abord. Le repérage d'adresse utilise un match *fuzzy* (difflib).
+
+    - nom : dict (records/canonicals/aliases_flat) ou str/list
+    - texte : texte brut
+    - adresses : list[str] (déjà nettoyées)
+    - min_ratio : seuil difflib (0.0–1.0), défaut 0.80
+    """
+    if not adresses or not isinstance(adresses, list):
+        return adresses
+
+    # 1) flatten des noms possibles depuis la structure
+    def _flat_names(n) -> List[str]:
+        out = []
+        if isinstance(n, dict):
+            out += [c for c in (n.get("canonicals") or []) if isinstance(c, str)]
+            out += [a for a in (n.get("aliases_flat") or []) if isinstance(a, str)]
+            for r in (n.get("records") or []):
+                c = r.get("canonical")
+                if isinstance(c, str):
+                    out.append(c)
+        elif isinstance(n, (list, tuple, set)):
+            out = [s for s in n if isinstance(s, str)]
+        elif isinstance(n, str):
+            out = [n]
+
+        # dédup en conservant l'ordre
+        seen, res = set(), []
+        for s in out:
+            if s and s not in seen:
+                seen.add(s)
+                res.append(s)
+        return res
+
+    noms = _flat_names(nom)
+    if not noms:
+        return adresses
+
+    # 2) position du nom (on prend la 1ʳᵉ occurrence trouvée en exact, insensible à la casse)
+    T = re.sub(r"\s+", " ", texte or "")
+    name_pos = name_end = None
+    for candidate in noms:
+        m = re.search(re.escape(candidate), T, flags=re.IGNORECASE)
+        if m:
+            name_pos, name_end = m.start(), m.end()
+            break
+    if name_pos is None:
+        # pas de nom localisé -> on ne réordonne pas
+        return adresses
+
+    # 3) pour chaque adresse, on cherche un index fuzzy
+    right_with_dist = []
+    rest_in_order = []
+
+    for addr in adresses:
+        idx = _first_index_diff(addr, T, min_ratio=min_ratio)
+        if idx is not None and idx >= name_end:
+            right_with_dist.append((idx - name_end, addr))
+        else:
+            rest_in_order.append(addr)
+
+    # 4) tri par distance croissante pour celles à droite, puis concat
+    right_with_dist.sort(key=lambda x: x[0])
+    ordered = [a for _, a in right_with_dist] + rest_in_order
+    return ordered
+
 
 # --------------------------------------------------------------------------------------
 # UNICODE_SPACES_MAP : Créer un dictionnaire de correspondance Unicode

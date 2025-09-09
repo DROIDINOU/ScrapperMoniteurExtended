@@ -1,11 +1,32 @@
 import re
 
+# Remarques : trois pattern détecte absence d'adresse + va falloir harmoniser
+# interpretation des keywords
+# A vérifier : tous utiles ?
 # =====================================================================================
 #                                        COMPIL REGEX
 # =====================================================================================
-regime_representation_re = re.compile(
-    r"\bplac[ée]e?\s+sous\s+(un\s+)?r[ée]gime\s+de\s+repr[ée]sentation\b.*?\bjuge\s+de\s+paix\b",
-    re.IGNORECASE | re.DOTALL
+# ----------------------------
+# SANS ADRESSE
+# ----------------------------
+radie_office_re = re.compile(
+    r"\bradi[ée]s?\s+d['’]office\b",
+    re.IGNORECASE
+)
+
+sans_adresse_domicile_connu_re = re.compile(
+    r"""
+    \b(
+        sans\s+(adresse|domicile)\s+connue?            # ex: sans adresse connue / sans domicile connu
+        |
+        (adresse|domicile)\s+(inconnue?|ignor[ée]e?)   # ex: adresse inconnue / domicile ignorée
+        |
+        ne\s+(dispose|poss[èe]de)\s+pas\s+d['’]?(une|aucune)?\s+(adresse|domicile)\s+(connue|fixe)
+        |
+        dont\s+(le\s+)?(domicile|adresse)\s+est\s+(inconnue?|ignor[ée]e?)
+    )\b
+    """,
+    re.IGNORECASE | re.VERBOSE
 )
 
 # ----------------------------
@@ -25,13 +46,16 @@ article_492_1_re = re.compile(
 # ++++++
 # pattern récurrents
 # ++++++
+regime_representation_re = re.compile(
+    r"\bplac[ée]e?\s+sous\s+(un\s+)?r[ée]gime\s+de\s+repr[ée]sentation\b.*?\bjuge\s+de\s+paix\b",
+    re.IGNORECASE | re.DOTALL
+)
 designation_re = re.compile(r"\bdésignation\b", re.IGNORECASE)
 nomination_re = re.compile(r"\bnomm(e|é|ée)\b", re.IGNORECASE)
 remplacement_re = re.compile(r"\bremplacement\b", re.IGNORECASE)
 mainlevee_re = re.compile(r"\bmainlevée\b", re.IGNORECASE)
 fin_mesures_re = re.compile(r"\bfin\s+aux\s+mesures\b", re.IGNORECASE)
 fin_mission_re = re.compile(r"\bfin\s+[aà]\s+la\s+mission\b", re.IGNORECASE)
-
 curateur_re = re.compile(r"curateur(?:\s+aux\s+meubles)?", re.IGNORECASE)
 declaration_absence_re = re.compile(
     r"\b(?:sollicit(?:e|ent)|demand(?:e|ent)|requiert|requi[èe]rent|conclu(?:t|ent)(?:\s+à)?)\s+(?:la\s+)?d[ée]claration\s+d['’]?\s*absence\b",
@@ -47,8 +71,9 @@ decharge_mission_administrateur_re = re.compile(
 )
 
 
-
-
+# =====================================================================================
+#                          FONCTION D EXTRACTION PRINCIPALE
+# =====================================================================================
 def detect_justice_paix_keywords(texte_brut, extra_keywords):
     if designation_re.search(texte_brut):
         extra_keywords.append("designation_justice_de_paix")
@@ -78,3 +103,8 @@ def detect_justice_paix_keywords(texte_brut, extra_keywords):
         extra_keywords.append("decharge_administrateur_mission_justice_de_paix")
     if fin_mission_re.search(texte_brut):
         extra_keywords.append("fin_mission_justice_de_paix")
+    if radie_office_re.search(texte_brut):
+        extra_keywords.append("radie_d_office_justice_de_paix")
+    elif sans_adresse_domicile_connu_re.search(texte_brut):
+        extra_keywords.append("sans_adresse_connue_justice_de_paix")
+

@@ -134,6 +134,15 @@ RX_PROTECTION_INTERESSE_NE = re.compile(rf"""
 # ==============================
 # NOMS PRENOMS GENERAL
 # ==============================
+RX_PRENOM_NOM_NE_A = re.compile(rf"""
+    (?P<prenoms>{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,5}})   # 1 à 6 prénoms
+    \s+
+    (?P<nom>[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{{1,}}             # Nom de famille casse Nom-Propre
+       (?:\s+[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{{1,}}){{0,3}})   # Nom composé possible
+    \s*,?\s+
+    (né|née|né\(e\))\s+à                                    # Contexte obligatoire
+""", re.IGNORECASE | re.VERBOSE)
+
 # 1) Cherche : "Nom et prénom(s) : NOM, Prénom(s)" (souvent dans les formulaires ou décisions)
 RX_NOM_ET_PRENOM_LABEL = re.compile(rf"""
     \bNom\s+et\s+prénom[s]?\s*:\s*          # "Nom et prénom :" ou "Nom et prénoms :"
@@ -626,7 +635,6 @@ def nettoyer_noms_avances(noms, longueur_max=80):
     for nom in noms:
 
         nom_nettoye, norm = nettoyer_et_normaliser(nom)
-        print(nom_nettoye, norm)
         if any(terme.strip() in nom_nettoye.lower().strip() for terme in termes_ignores):
             continue
         if len(nom_nettoye) > longueur_max:
@@ -1278,14 +1286,14 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     for m in matches:
         nom_list.append(m.strip())
     match_ne_a_context = re.finditer(
-        r"(.{1,30})\b(né|née|né\(e\))\s+à",
+        r"(.{1,50})\b(né|née|né\(e\))\s+à",
         full_text,
         re.IGNORECASE
     )
 
     for m in match_ne_a_context:
         contexte = m.group(1).strip()
-
+        print(f"voila le pution de salopard: {m.group(1)}")
         # Tente d'extraire un NOM ou "Prénom NOM" à la fin du contexte
         nom_candidat = re.search(
             r"(?:Monsieur|Madame)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)[,;\s]+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)?$",
@@ -1314,7 +1322,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     for m in RX_NOM_ET_PRENOM_LABEL.finditer(full_text):
         nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip().replace(',', ' ')}")
-
+    for m in RX_PRENOM_NOM_NE_A.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
     # Expression régulière pour capturer le nom complet avant "né à"
     match_noms_complets = re.findall(
         r"((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+){1,6}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),?\s+(né|née|né\(e\))\s+à",
@@ -1323,6 +1332,7 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     )
     for nom_complet, _ in match_noms_complets:
         nom_list.append(nom_complet.strip())
+
 
 
 
