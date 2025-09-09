@@ -50,7 +50,7 @@ from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_
     , clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
     liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
     build_address_index, _norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
-    strip_html_tags, extract_page_index_from_url
+    strip_html_tags, extract_page_index_from_url, has_cp_plus_other_number
 from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
     convert_pdf_pages_to_text_range
 from extractbis import extract_person_names
@@ -117,9 +117,9 @@ POSTAL_RE = re.compile(r"\b[1-9]\d{3}\s+[A-Za-zÀ-ÿ'’\- ]{2,}\b")
 BCE_RE = re.compile(r"\b\d{3}\.\d{3}\.\d{3}\b")
 
 
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-#  FONCTIONS PRINCIPALE D EXTRACTION
-# +++++++++++++++++++++++++++++++++++++++++++++++++
+# ---------------------------------------------------------------------------------------------------------------------
+#                               FONCTIONS PRINCIPALES D EXTRACTION
+# ----------------------------------------------------------------------------------------------------------------------
 def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> list[str]:
     """
     Vue ARTICLE uniquement (page=1). Renvoie les lignes contenant un code postal.
@@ -135,7 +135,7 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
 
     for search in searches:
-        url = f"{base}?{urlencode({'language': language,'btw_search': search,'page': 1,'la_search': 'f','caller': 'list','view_numac': '','btw': num})}"
+        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
         try:
             resp = requests.get(url, timeout=20)
             resp.raise_for_status()
@@ -460,7 +460,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                      ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
         detect_justice_paix_keywords(texte_brut, extra_keywords)
-        adresse = prioriser_adresse_proche_nom_struct(nom, texte_brut, adresse, min_ratio=0.80)
+        adresse = prioriser_adresse_proche_nom_struct(nom, texte_brut, adresse)
 
     if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
 
@@ -763,14 +763,29 @@ for doc in documents:
             if key not in seen:
                 seen.add(key)
                 adresse_cleaned.append(cleaned)
-        # ❌ Supprimer les adresses trop courtes (ex: "5100 Namur")
+
+
+        # ❌ Supprimer trop court / trop long (après tout le reste)
+        def nb_mots(s: str) -> int:
+            # compte des "mots" alphanum (é, è, etc. inclus)
+            return len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9]+", s))
+
+
+        MIN_MOTS_ADR = 3
+        MAX_MOTS_ADR = 14  # ajuste à 14–18 si tu veux
+
         adresse_cleaned = [
-                a for a in adresse_cleaned
-                if len(re.findall(r'\w+', a)) >= 3
-            ]
+            a for a in adresse_cleaned
+            if MIN_MOTS_ADR <= nb_mots(a) <= MAX_MOTS_ADR
+        ]
 
         doc["adresse"] = adresse_cleaned if adresse_cleaned else None
-
+        adrs_norm = [re.sub(r"\s+", " ", a).strip() for a in (doc.get("adresse") or []) if
+                     isinstance(a, str) and a.strip()]
+        if adrs_norm and not has_cp_plus_other_number(adrs_norm[0]):
+            logger_adresses.warning(
+                f"[Adresse suspecte] DOC={doc.get('doc_hash')} | 1ère adresse sans (CP + autre n°) : {adrs_norm[0]}"
+            )
 if not documents:
     print("❌ Aucun document à indexer.")
     sys.exit(1)

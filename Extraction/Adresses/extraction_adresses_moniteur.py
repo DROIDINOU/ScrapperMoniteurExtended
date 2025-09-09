@@ -2,15 +2,10 @@ from bs4 import BeautifulSoup
 import re
 from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
 from Utilitaire.outils.MesOutils import nettoyer_adresse, couper_fin_adresse
-import logging
-
-loggerAdresses = logging.getLogger("adresses_logger")
-
 
 
 def extract_address(texte_html, doc_id):
     adresse_list = []
-
     soup = BeautifulSoup(texte_html, 'html.parser')
     texte = soup.get_text(separator=" ")
     texte = (texte
@@ -58,7 +53,6 @@ def extract_address(texte_html, doc_id):
             # Harmonise comme le reste du pipeline
             adr = nettoyer_adresse(adr)
             adr = couper_fin_adresse(adr).rstrip(".")
-            print(f"voici ce qui est matche(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((({adr}")
             adresse_list.append(adr)
     # — Cas 1 : "1325 Chaumont-Gistoux, Bas-Bonlez, résidence les Lilas 57"
     RX_CHAUMONT_RESIDENCE = re.compile(r"""
@@ -362,69 +356,69 @@ def extract_address(texte_html, doc_id):
                                  ) + END_CUT
     core_12_wild = r"(.+?)(?=, [A-Z]{2}|, décédé|$)"
     # ex : "… est établi avenue Besme 107, 1190 Bruxelles"
-    core_13_est_etabli = (
-        rf"est\s+établi\s+("
-        rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"  # avenue Besme 107
-        rf"\s*,\s*\d{{4}}\s+{MOTS_NOM_VOIE}"  # , 1190 Bruxelles
-        r")"
-    )
+    #core_13_est_etabli = (
+        #rf"est\s+établi\s+("
+        #rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"  # avenue Besme 107
+        #rf"\s*,\s*\d{{4}}\s+{MOTS_NOM_VOIE}"  # , 1190 Bruxelles
+        #r")"
+    #)
     core_14_wild_end = r"(.{1,300}?)(?=\.|\bdécéd[ée]|$)"
-    core_15_siege_social = (
-        rf"(?:ayant\s+son\s+)?si[eè]ge\s+social\s*,\s*("
-        rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}\s*,\s*\d{{4}}\s+{MOTS_NOM_VOIE}"
-        r")"
-    )
+    #core_15_siege_social = (
+        #rf"(?:ayant\s+son\s+)?si[eè]ge\s+social\s*,\s*("
+        #rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}\s*,\s*\d{{4}}\s+{MOTS_NOM_VOIE}"
+        #r")"
+    #)
     # ex: "… est établi, allée du Vieux Chêne 23, à 4480 Engis"
-    core_14_est_etabli_cp_apres = (
-        rf"est\s+établi[e]?\s*,?\s*("
-        rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"  # allée du Vieux Chêne 23
-        rf"\s*,?\s*à\s*\d{{4}}\s+{MOTS_NOM_VOIE}"  # , à 4480 Engis
-        r")"
-    )
+    #core_14_est_etabli_cp_apres = (
+        #rf"est\s+établi[e]?\s*,?\s*("
+        #rf"{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"  # allée du Vieux Chêne 23
+        #rf"\s*,?\s*à\s*\d{{4}}\s+{MOTS_NOM_VOIE}"  # , à 4480 Engis
+        #r")"
+    #)
 
-    core_16_siege_etabli_cp_then_street = (
-        rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+établi[e]?\s*à\s*("
-        rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
-        rf"(?:{ANNEXE_SUFFIX})?"
-        r")" + END_CUT
-    )
+    #core_16_siege_etabli_cp_then_street = (
+        #rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+établi[e]?\s*à\s*("
+        #rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
+        #rf"(?:{ANNEXE_SUFFIX})?"
+        #r")" + END_CUT
+    #)
 
-    core_17_etabli_cp_then_street = (
-        rf"est\s+établi[e]?\s*à\s*("
-        rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
-        rf"(?:{ANNEXE_SUFFIX})?"
-        r")" + END_CUT
-    )
+    #core_17_etabli_cp_then_street = (
+        #rf"est\s+établi[e]?\s*à\s*("
+        #rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
+        #rf"(?:{ANNEXE_SUFFIX})?"
+        #r")" + END_CUT
+    #)
 
-    core_18_siege_etabli_cp_then_street_stop = (
-        rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+établi[e]?\s*à\s*("
-        rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
-        rf"(?:{ANNEXE_SUFFIX})?"
-        r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
-    )
+    #core_18_siege_etabli_cp_then_street_stop = (
+        #rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+établi[e]?\s*à\s*("
+        #rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
+        #rf"(?:{ANNEXE_SUFFIX})?"
+        #r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
+    #)
 
-    core_19_ayant_siege_cp_then_street_stop = (
-        rf"ayant\s+son\s+si[eè]ge(?:\s+social)?\s+à\s*("
-        rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
-        rf"(?:{ANNEXE_SUFFIX})?"
-        r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
-    )
+    #core_19_ayant_siege_cp_then_street_stop = (
+        #rf"ayant\s+son\s+si[eè]ge(?:\s+social)?\s+à\s*("
+        #rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
+        #rf"(?:{ANNEXE_SUFFIX})?"
+        #r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
+    #)
 
     # ex : "… dont le siège social est situé à 4987 STOUMONT, Hasoumont 71, boîte 16, B.C.E. …"
-    core_20_siege_situe_cp_then_no_voie_stop = (
-        rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+situ[ée]?\s*à\s*("
-        rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
-        rf"(?:{ANNEXE_SUFFIX})?"
-        r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
-    )
+    #core_20_siege_situe_cp_then_no_voie_stop = (
+        #rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+situ[ée]?\s*à\s*("
+        #rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
+        #rf"(?:{ANNEXE_SUFFIX})?"
+        #r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
+    #)
 
     # Variante si jamais il y a un mot-clé de voie (rue/avenue/…)
-    core_21_siege_situe_cp_then_voie_stop = (
-        rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+situ[ée]?\s*à\s*("
-        rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
-        rf"(?:{ANNEXE_SUFFIX})?"
-        r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
-    )
+    #core_21_siege_situe_cp_then_voie_stop = (
+        #rf"(?:dont\s+le\s+)?si[eè]ge(?:\s+social)?\s+est\s+situ[ée]?\s*à\s*("
+        #rf"\d{{4}}\s+{MOTS_NOM_VOIE}\s*,\s*{VOIE_ALL}\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN}"
+        #rf"(?:{ANNEXE_SUFFIX})?"
+        #r")(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|\s+et\b|$))"
+    #)
     core_22_residence = (
             rf"(\d{{4}}\s+{MOTS_NOM_VOIE},\s*{MOTS_NOM_VOIE},\s*résidence\s+{MOTS_NOM_VOIE}\s+{NUM_TOKEN})"
             + END_CUT
@@ -439,15 +433,15 @@ def extract_address(texte_html, doc_id):
         rf"{DOMI}\s+à\s+" + core_4,
         core_5_any_before,
         core_5b_no_voie,
-        core_13_est_etabli,
-        core_15_siege_social,
-        core_14_est_etabli_cp_apres,
-        core_16_siege_etabli_cp_then_street,  # << ajouté
-        core_17_etabli_cp_then_street,        # << ajouté
-        core_18_siege_etabli_cp_then_street_stop,  # << nouveau
-        core_19_ayant_siege_cp_then_street_stop,    # << nouveau
-        core_20_siege_situe_cp_then_no_voie_stop,   # << ajout
-        core_21_siege_situe_cp_then_voie_stop,      # << ajout
+        #core_13_est_etabli,
+        #core_15_siege_social,
+        #core_14_est_etabli_cp_apres,
+        #core_16_siege_etabli_cp_then_street,  # << ajouté
+        #core_17_etabli_cp_then_street,        # << ajouté
+        #core_18_siege_etabli_cp_then_street_stop,  # << nouveau
+        #core_19_ayant_siege_cp_then_street_stop,    # << nouveau
+        #core_20_siege_situe_cp_then_no_voie_stop,   # << ajout
+        #core_21_siege_situe_cp_then_voie_stop,      # << ajout
         rf"{DOMI}\s+à\s+" + core_22_residence,
 
         rf"{DOMI}" + PROX + r"\bà\s+" + core_6_nl,

@@ -10,18 +10,12 @@ import difflib
 # --- Bibliothèques tierces ---
 from bs4 import BeautifulSoup, NavigableString, Tag
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Tuple
 
 
 # --- Modules internes au projet ---
 from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP, JOURMAPBIS, MOISMAPBIS, \
     ANNEEMAPBIS, TVA_INSTITUTIONS
-
-
-
-
-POSTAL_RX = re.compile(r"\b([1-9]\d{3})\b")
-
 
 
 def strip_html_tags(text):
@@ -35,143 +29,176 @@ def extract_page_index_from_url(pdf_url):
         return page_number - 1  # PyMuPDF indexe à partir de 0
     return None
 
-
-def _normalize_addr_for_match(s: str) -> str:
-    """
-    Nettoie une adresse ou une fenêtre de texte pour améliorer les matches fuzzy :
-    - supprime articles et ponctuation courante
-    - normalise les espaces
-    - met en minuscules
-    """
+# va falloir étendre cela je pense
+def _norm(s: str) -> str:
+    s = s or ""
     s = s.lower()
-    s = re.sub(r"[,]", " ", s)
-    s = re.sub(r"\b(à|la|le|les|de|du|des|au|aux|et|d’|l’|sur|dans)\b", " ", s)
+    s = s.replace("’", "'")
+    # unifier abréviations courantes
+    s = re.sub(r"\bav\.?\b", "avenue", s)
+    s = re.sub(r"\bbd\b", "boulevard", s)
+    s = re.sub(r"\ball[ée]e\b", "allee", s)  # évite la variation é/ée
     s = re.sub(r"\s+", " ", s)
     return s.strip()
 
-def _first_index_diff(addr: str, text: str, min_ratio: float = 0.65, ctx: int = 200) -> Optional[int]:
+
+# ---------------------------------------------------------------------------------------------------------------------
+#                                    VERIFICATION LISTE ADRESSES A CODE POSTAL ET NUMEOR
+#                                    utilisé dans main pour verifier que la premiere adresse
+#                                    qui est l'adresse de la personne concernée est correcte
+# ----------------------------------------------------------------------------------------------------------------------
+def has_cp_plus_other_number(s: str) -> bool:
     """
-    Retourne l'index de la 1ʳᵉ occurrence *fuzzy* de `addr` dans `text`.
-    Stratégie :
-      1) essai exact (rapide)
-      2) si CP dans l'adresse -> fenêtres autour des CP dans le texte
-      3) sinon, fenêtres glissantes
-    Renvoie None si aucun score n’atteint `min_ratio`.
+    Vrai s'il y a au moins une suite de 4 chiffres (CP)
+    ET au moins un autre nombre (1 à 4 chiffres), avec OU sans suffixe '/...'.
+    Exemple : '5600 Philippeville, Gueule-du-Loup 161' -> True
+              '4537 Verlaine, Grand-Route 245/0011'   -> True
+              '5100 Namur'                             -> False
     """
-    if not addr or not text:
-        return None
+    if not s:
+        return False
 
-    T = re.sub(r"\s+", " ", text)
-    a = re.sub(r"\s+", " ", addr).strip()
-    if not a:
-        return None
+    # Tous nombres 1–4 chiffres, éventuellement suivis d'un '/suffixe' (boîte, appart, etc.)
+    nums = [m.group(0) for m in re.finditer(r'\b\d{1,4}(?:/[A-Z0-9\-]+)?\b', s, flags=re.I)]
+    if not nums:
+        return False
 
-    # 1) exact match
-    m = re.search(re.escape(a), T, flags=re.IGNORECASE)
-    if m:
-        return m.start()
+    # Au moins un CP (exactement 4 chiffres)
+    has_cp = any(re.fullmatch(r'\d{4}', n) for n in nums)
+    if not has_cp:
+        return False
 
-    # 2) collect spans (CP-based or sliding)
-    spans = []
-    mcp = POSTAL_RX.search(a)
+    # Au moins deux tokens numériques au total → CP + autre nombre (ex: 61, 245/0011, 32b…)
+    return len(nums) >= 2
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+#                                    ORDONNANCEMENT DES ADRESSES EN FONCTION DU NOM
+#                         (Permet de mettre l'adresse de la personne visee en 1 dans la liste d'adresses)
+# ----------------------------------------------------------------------------------------------------------------------
+# types de voie reconnus
+_VOIE_RX = r"(?:rue|avenue|av\.?|chauss[ée]e|place|boulevard|bd|impasse|chemin|square|all[ée]e|clos|voie)"
+_NUM_RX  = r"\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?"
+
+def _extract_parts(addr: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """
+    Retourne (cp, ville, voie_nom_cle, num) où voie_nom_cle est un 'mot-clé' (ex: 'grosjean').
+    """
+    cp = ville = voie_key = num = None
+
+    # CP + ville
+    mcp = re.search(r"\b(\d{4})\b\s+([A-ZÀ-ÿ'’\- ]{2,})", addr, flags=re.IGNORECASE)
     if mcp:
-        # autour des CP dans le texte
-        for hit in re.finditer(rf"\b{re.escape(mcp.group())}\b", T):
-            s = max(0, hit.start() - ctx)
-            e = min(len(T), hit.end() + ctx)
-            spans.append((s, e))
-    else:
-        # fallback : fenêtres glissantes
-        step = max(50, len(a) // 2 or 1)
-        win = min(len(T), max(len(a) + 200, 250))
-        for i in range(0, len(T), step):
-            spans.append((i, min(len(T), i + win)))
+        cp, ville = mcp.group(1), mcp.group(2).strip().split(",")[0].strip()
 
-    # 3) best fuzzy match in windows
-    best_ratio, best_pos = 0.0, None
-    a_norm = _normalize_addr_for_match(a)
+    # type voie + nom + numéro
+    mvoie = re.search(rf"\b{_VOIE_RX}\b\s+([A-ZÀ-ÿ0-9'’\-\.\s()]+?)\s+({_NUM_RX})\b",
+                      addr, flags=re.IGNORECASE)
+    if mvoie:
+        nom_voie, num = mvoie.group(1).strip(), mvoie.group(2)
+        # choisir un bon mot-clé de la voie (long, alpha, >=3)
+        tokens = re.findall(r"[A-Za-zÀ-ÿ]{3,}", nom_voie)
+        if tokens:
+            # privilégie le plus long (souvent le nom principal, ex: 'Grosjean', 'Dalechamp')
+            tokens.sort(key=len, reverse=True)
+            voie_key = tokens[0].lower()
 
-    for s, e in spans:
-        window = T[s:e]
-        window_norm = _normalize_addr_for_match(window)
-        sm = difflib.SequenceMatcher(a=window_norm, b=a_norm)
-        ratio = sm.ratio()
-        if ratio >= min_ratio and ratio > best_ratio:
-            mlong = sm.find_longest_match(0, len(window_norm), 0, len(a_norm))
-            if mlong and mlong.size > 0:
-                best_ratio, best_pos = ratio, s + mlong.a
+    return cp, ville, voie_key, num
 
-    return best_pos
-
-
-def prioriser_adresse_proche_nom_struct(nom: Any, texte: str, adresses: List[str], *, min_ratio: float = 0.80) -> List[str]:
+def _find_pos_in_text(texte: str, start_from: int, addr: str) -> Tuple[Optional[int], int]:
     """
-    Réordonne `adresses` pour mettre en tête celle(s) trouvée(s) *à droite* du nom dans le texte,
-    la plus proche d'abord. Le repérage d'adresse utilise un match *fuzzy* (difflib).
-
-    - nom : dict (records/canonicals/aliases_flat) ou str/list
-    - texte : texte brut
-    - adresses : list[str] (déjà nettoyées)
-    - min_ratio : seuil difflib (0.0–1.0), défaut 0.80
+    Cherche un ancrage pour `addr` *à droite* de start_from.
+    Retourne (pos, score) ; score +2 si voie+num trouvés proches, +1 si CP+ville.
     """
-    if not adresses or not isinstance(adresses, list):
+    T = _norm(texte)
+    addr_n = _norm(addr)
+
+    cp, ville, voie_key, num = _extract_parts(addr)
+
+    # 1) voie + numéro proches
+    pos = None
+    score = 0
+    if voie_key and num:
+        i1 = T.find(voie_key, start_from)
+        i2 = T.find(_norm(num), start_from)
+        if i1 >= 0 and i2 >= 0 and abs(i1 - i2) < 60:  # fenêtre tolérante
+            pos = min(i1, i2)
+            score += 2
+
+    # 2) sinon CP + Ville
+    if pos is None and cp and ville:
+        pat_cpville = f"{cp} {_norm(ville)}"
+        i = T.find(pat_cpville, start_from)
+        if i >= 0:
+            pos = i
+            score += 1
+
+    # 3) dernier recours : premier token distinctif de l’adresse
+    if pos is None:
+        # cherche un token alpha de >=3 chars provenant de l’adresse
+        for tok in re.findall(r"[A-Za-zÀ-ÿ]{3,}", addr_n):
+            i = T.find(tok, start_from)
+            if i >= 0:
+                pos = i
+                break
+
+    return pos, score
+
+def prioriser_adresse_proche_nom_struct(nom: Any, texte: str, adresses: List[str], *, min_tokens_required: bool = True) -> List[str]:
+    """
+    Met en tête l'adresse située à droite du nom, la plus proche (voie+num priorisés).
+    Si min_tokens_required=True, supprime les adresses 'faibles' (pas de numéro).
+    """
+    if not adresses:
         return adresses
 
-    # 1) flatten des noms possibles depuis la structure
-    def _flat_names(n) -> List[str]:
-        out = []
-        if isinstance(n, dict):
-            out += [c for c in (n.get("canonicals") or []) if isinstance(c, str)]
-            out += [a for a in (n.get("aliases_flat") or []) if isinstance(a, str)]
-            for r in (n.get("records") or []):
-                c = r.get("canonical")
-                if isinstance(c, str):
-                    out.append(c)
-        elif isinstance(n, (list, tuple, set)):
-            out = [s for s in n if isinstance(s, str)]
-        elif isinstance(n, str):
-            out = [n]
+    # 0) optionnel : filtrer les adresses faibles (élimine "1140 Evere, Av")
+    if min_tokens_required:
+        strong = []
+        for a in adresses:
+            # garde si un numéro d'adresse est présent
+            if re.search(rf"\b{_NUM_RX}\b", a):
+                strong.append(a)
+        if strong:
+            adresses = strong
 
-        # dédup en conservant l'ordre
-        seen, res = set(), []
-        for s in out:
-            if s and s not in seen:
-                seen.add(s)
-                res.append(s)
-        return res
-
-    noms = _flat_names(nom)
-    if not noms:
-        return adresses
-
-    # 2) position du nom (on prend la 1ʳᵉ occurrence trouvée en exact, insensible à la casse)
+    # 1) position du nom (premier match insensible à la casse)
+    #    essaie d’abord la forme complète passée (ex: "Huberte JADOT")
     T = re.sub(r"\s+", " ", texte or "")
-    name_pos = name_end = None
-    for candidate in noms:
-        m = re.search(re.escape(candidate), T, flags=re.IGNORECASE)
-        if m:
-            name_pos, name_end = m.start(), m.end()
-            break
-    if name_pos is None:
-        # pas de nom localisé -> on ne réordonne pas
-        return adresses
+    name_m = None
+    if isinstance(nom, str):
+        name_m = re.search(re.escape(nom), T, flags=re.IGNORECASE)
+    elif isinstance(nom, dict):
+        for cand in (nom.get("canonicals") or []) + (nom.get("aliases_flat") or []):
+            if isinstance(cand, str):
+                name_m = re.search(re.escape(cand), T, flags=re.IGNORECASE)
+                if name_m: break
+    elif isinstance(nom, (list, tuple, set)):
+        for cand in nom:
+            if isinstance(cand, str):
+                name_m = re.search(re.escape(cand), T, flags=re.IGNORECASE)
+                if name_m: break
 
-    # 3) pour chaque adresse, on cherche un index fuzzy
-    right_with_dist = []
-    rest_in_order = []
+    if not name_m:
+        return adresses  # pas trouvé → on ne réordonne pas
 
-    for addr in adresses:
-        idx = _first_index_diff(addr, T, min_ratio=min_ratio)
-        if idx is not None and idx >= name_end:
-            right_with_dist.append((idx - name_end, addr))
+    name_end = name_m.end()
+    Tn = _norm(T)
+
+    # 2) scorer chaque adresse par sa position à droite et la qualité de match
+    scored = []
+    rest = []
+    for a in adresses:
+        pos, score = _find_pos_in_text(T, len(Tn[:name_end]), a)
+        if pos is not None and pos >= name_end:
+            scored.append((pos - name_end, -score, a))
         else:
-            rest_in_order.append(addr)
+            rest.append(a)
 
-    # 4) tri par distance croissante pour celles à droite, puis concat
-    right_with_dist.sort(key=lambda x: x[0])
-    ordered = [a for _, a in right_with_dist] + rest_in_order
+    # 3) tri : d’abord plus près, et meilleur score (voie+num > cp+ville)
+    scored.sort(key=lambda x: (x[0], x[1]))
+    ordered = [a for _, _, a in scored] + rest
     return ordered
-
 
 # --------------------------------------------------------------------------------------
 # UNICODE_SPACES_MAP : Créer un dictionnaire de correspondance Unicode
@@ -184,6 +211,11 @@ def _norm_spaces(s: str) -> str:
     s = (s or "").translate(UNICODE_SPACES_MAP).replace("\xa0", " ").replace("\u202f", " ")
     return re.sub(r"\s+", " ", s).strip()
 
+# --------------------------------------------------------------------------------------
+# Retourne que les chiffres de la chaine
+# Utilise pour transformer les tva avec points (0514.194.192)
+# en tva sans point (0514194192)
+# --------------------------------------------------------------------------------------
 def digits_only(s: str) -> str:
     return re.sub(r"\D+", "", s or "")
 
@@ -209,13 +241,13 @@ def _format_address(row: dict, lang: str) -> str:
     suf_alt  = "NL" if lang == "FR" else "FR"
 
     street = _pick(row.get(f"Street{suf_main}"), row.get(f"Street{suf_alt}"))
-    muni   = _pick(row.get(f"Municipality{suf_main}"), row.get(f"Municipality{suf_alt}"))
-    country= _pick(row.get(f"Country{suf_main}"), row.get(f"Country{suf_alt}"))
+    muni = _pick(row.get(f"Municipality{suf_main}"), row.get(f"Municipality{suf_alt}"))
+    country = _pick(row.get(f"Country{suf_main}"), row.get(f"Country{suf_alt}"))
 
     zipcode = (row.get("Zipcode") or "").strip()
-    number  = (row.get("HouseNumber") or "").strip()
-    box     = (row.get("Box") or "").strip()
-    extra   = (row.get("ExtraAddressInfo") or "").strip()
+    number = (row.get("HouseNumber") or "").strip()
+    box = (row.get("Box") or "").strip()
+    extra = (row.get("ExtraAddressInfo") or "").strip()
 
     # Libellé boîte selon langue (usage BE)
     box_lbl = "bte" if lang == "FR" else "bus"
@@ -458,8 +490,8 @@ def clean_date_jugement(raw):
 
 # Petit normaliseur des nombres en mots → int (pour le tag "…_X_ans")
 _WORD2INT = {
-    "un":1,"une":1,"deux":2,"trois":3,"quatre":4,"cinq":5,"six":6,"sept":7,"huit":8,"neuf":9,
-    "dix":10,"onze":11,"douze":12,"quinze":15,"vingt":20
+    "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9,
+    "dix": 10, "onze": 11, "douze": 12, "quinze": 15, "vingt": 20
 }
 
 def normalize_annees(val: str) -> int | None:
