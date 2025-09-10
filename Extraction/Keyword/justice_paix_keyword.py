@@ -28,6 +28,13 @@ sans_adresse_domicile_connu_re = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE
 )
+# ----------------------------
+# Avec adresse résidence
+# ----------------------------
+residence_re = re.compile(
+    r"\b(ayant\s+sa\s+résidence\s+à|résidant(?:\s+à)?)\b",
+    re.IGNORECASE
+)
 
 # ----------------------------
 # Type décision
@@ -58,15 +65,19 @@ fin_mesures_re = re.compile(r"\bfin\s+aux\s+mesures\b", re.IGNORECASE)
 fin_mission_re = re.compile(r"\bfin\s+[aà]\s+la\s+mission\b", re.IGNORECASE)
 curateur_re = re.compile(r"curateur(?:\s+aux\s+meubles)?", re.IGNORECASE)
 declaration_absence_re = re.compile(
-    r"\b(?:sollicit(?:e|ent)|demand(?:e|ent)|requiert|requi[èe]rent|conclu(?:t|ent)(?:\s+à)?)\s+(?:la\s+)?d[ée]claration\s+d['’]?\s*absence\b",
+    r"\b(?:sollicit(?:e|ent)|demand(?:e|ent)|requiert|requi[èe]rent|conclu(?:t|ent)(?:\s+à)?)\s+"
+    r"(?:la\s+)?d[ée]claration\s+d['’]?\s*absence\b",
     re.IGNORECASE
 )
+
 administrateur_personne_biens_re = re.compile(
     r"\ba\s+été\s+désign[ée]?\s+en\s+qualité\s+d['’]administrateur\s+de\s+(la\s+)?personne(?:\s+et\s+des?\s+biens)?",
     re.IGNORECASE
 )
 decharge_mission_administrateur_re = re.compile(
-    r"\ba\s+été\s+d[ée]charg[ée]?\s+de\s+sa\s+mission(?:\s+(?:d['’]administrateur|parmi\s+les\s+administrateurs?)\s+(?:des?\s+biens|de\s+la\s+personne|des?\s+biens\s+et\s+de\s+la\s+personne|de\s+la\s+personne\s+et\s+des?\s+biens))?",
+    r"\ba\s+été\s+d[ée]charg[ée]?\s+de\s+sa\s+mission(?:\s+"
+    r"(?:d['’]administrateur|parmi\s+les\s+administrateurs?)\s+"
+    r"(?:des?\s+biens|de\s+la\s+personne|des?\s+biens\s+et\s+de\s+la\s+personne|de\s+la\s+personne\s+et\s+des?\s+biens))?",
     re.IGNORECASE
 )
 
@@ -107,4 +118,5 @@ def detect_justice_paix_keywords(texte_brut, extra_keywords):
         extra_keywords.append("radie_d_office_justice_de_paix")
     elif sans_adresse_domicile_connu_re.search(texte_brut):
         extra_keywords.append("sans_adresse_connue_justice_de_paix")
-
+    if residence_re.search(texte_brut):
+        extra_keywords.append("residence_detectee_justice_de_paix")

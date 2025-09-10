@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import List, Tuple
 
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import urlencode, urljoin
 
 # --- Bibliothèques tierces ---
 import fitz  # PyMuPDF
@@ -18,15 +18,13 @@ import meilisearch
 import psycopg2
 import pytesseract
 import requests
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from PIL import Image
-# from psycopg2.extras import Json
 from tqdm import tqdm
 
 # --- Modules internes au projet ---
 from logger_config import setup_logger, setup_fallback3_logger, setup_dynamic_logger
-from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
+from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
 from Extraction.NomPrenom.extraction_nom_terrorisme_bis import extraire_personnes_terrorisme
@@ -43,17 +41,16 @@ from Extraction.Keyword.succession_keyword import detect_succession_keywords
 from Extraction.MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte
 from Extraction.Dates.extractionDateNaissanceDeces import extract_date_after_birthday, \
     extract_dates_after_decede
-from Extraction.Dates.extraction_date_jugement import extract_jugement_date, extract_date_after_rendu_par
+from Extraction.Dates.extraction_date_jugement import extract_jugement_date
 from Utilitaire.ConvertDateToMeili import convertir_date
-from Utilitaire.outils.MesOutils import get_month_name, detect_erratum, extract_numero_tva, \
-    extract_clean_text, clean_url, generate_doc_hash_from_html, convert_french_text_date_to_numeric\
-    , clean_date_jugement, _norm_nrn, extract_nrn_variants, has_person_names, decode_nrn, norm_er, \
-    liste_vide_ou_que_vides_lenient, clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
+from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
+    extract_clean_text, clean_url, generate_doc_hash_from_html, \
+    clean_date_jugement, extract_nrn_variants, has_person_names, norm_er, \
+     clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
     build_address_index, _norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
-    strip_html_tags, extract_page_index_from_url, has_cp_plus_other_number
-from ParserMB.MonParser import find_linklist_in_items, retry, get_publication_pdfs_for_tva, \
-    convert_pdf_pages_to_text_range
-from extractbis import extract_person_names
+    extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
+    verifier_premiere_adresse_apres_nom
+from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
 keyword = sys.argv[1]
@@ -184,8 +181,8 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     return []
 
 
-from_date = date.fromisoformat("2025-07-01")
-to_date = "2025-07-04"  # date.today()
+from_date = date.fromisoformat("2025-08-01")
+to_date = "2025-08-04"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -460,7 +457,6 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                      ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
         detect_justice_paix_keywords(texte_brut, extra_keywords)
-        adresse = prioriser_adresse_proche_nom_struct(nom, texte_brut, adresse)
 
     if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
 
@@ -778,14 +774,29 @@ for doc in documents:
             a for a in adresse_cleaned
             if MIN_MOTS_ADR <= nb_mots(a) <= MAX_MOTS_ADR
         ]
+        nettoyer_adresses_par_keyword(adresse_cleaned, keyword)
+        adresse_cleaned = prioriser_adresse_proche_nom_struct(
+            doc.get("nom"),
+            doc.get("text", ""),
+            adresse_cleaned,
+            min_tokens_required=False  # tu as déjà filtré les adresses 'faibles' avant
+        )
 
         doc["adresse"] = adresse_cleaned if adresse_cleaned else None
         adrs_norm = [re.sub(r"\s+", " ", a).strip() for a in (doc.get("adresse") or []) if
                      isinstance(a, str) and a.strip()]
-        if adrs_norm and not has_cp_plus_other_number(adrs_norm[0]):
+        if adrs_norm and not has_cp_plus_other_number_aligned(adrs_norm[0]):
             logger_adresses.warning(
                 f"[Adresse suspecte] DOC={doc.get('doc_hash')} | 1ère adresse sans (CP + autre n°) : {adrs_norm[0]}"
             )
+        verifier_premiere_adresse_apres_nom(
+            nom=doc.get("nom"),
+            texte=doc.get("text", ""),
+            adresse=(doc.get("adresse") or [None])[0],
+            doc_hash=doc.get("doc_hash"),
+            logger=logger_adresses
+        )
+
 if not documents:
     print("❌ Aucun document à indexer.")
     sys.exit(1)
@@ -905,7 +916,7 @@ for doc in documents:
     logger_adresses.warning(
         f"DOC ID: '{doc['doc_hash']}'\n"
         f"NOM: '{canon_name}'\n"
-        f"Adresse incomplète ou suspecte : '{all_in_one}'\n"
+        f"Adresse log general : '{all_in_one}'\n"
         f"Texte : {doc.get('text', '')}..."
     )
 
