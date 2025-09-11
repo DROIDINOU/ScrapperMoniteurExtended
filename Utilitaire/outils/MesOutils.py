@@ -12,15 +12,27 @@ from typing import List, Any, Optional, Tuple
 
 # --- Modules internes au projet ---
 from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INSTITUTIONS
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 NETTOYAGE FINAL DES ADRESSES
 # Nettoie une liste d'adresses selon un mot-clé thématique (keyword).
-# Les parties de texte non pertinentes (comme "personne protégée", "a été placé...", etc.)
-# sont supprimées selon le contexte du keyword.
 # :param adresses: liste d'adresses extraites (list[str])
 # :param keyword: mot-clé du contexte (str), ex: "justice+de+paix", "terrorisme", ...
 # :return: liste nettoyée d'adresses (list[str])
 # ----------------------------------------------------------------------------------------------------------------------
+# Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
+# (espaces insécables, espaces fines, etc.) par des espaces normaux,
+# et en supprimant les espaces zéro largeur.
+def normaliser_espaces_invisibles(s: str) -> str:
+    if not s:
+        return ""
+    # Remplace les espaces invisibles par un vrai espace
+    return s.replace('\u00A0', ' ') \
+            .replace('\u202F', ' ') \
+            .replace('\u2009', ' ') \
+            .replace('\u200A', ' ') \
+            .replace('\u200B', '')  # espace zéro largeur
 
 
 def nettoyer_adresses_par_keyword(adresses, keyword):
@@ -32,7 +44,7 @@ def nettoyer_adresses_par_keyword(adresses, keyword):
 
     for adr in adresses:
         original = adr  # sauvegarde avant nettoyage
-
+        adr = normaliser_espaces_invisibles(adr)
         # Normalisation espaces
         cleaned = re.sub(r'\s+', ' ', adr).strip()
 
@@ -40,6 +52,11 @@ def nettoyer_adresses_par_keyword(adresses, keyword):
         if keyword == "justice+de+paix":
             # Supprimer les mentions du récit typiques
             cleaned = re.sub(r"et des biens de", "", cleaned, flags=re.IGNORECASE)
+        if keyword == "succession":
+            print(repr(cleaned))
+            # Supprimer les mentions du récit typiques
+            cleaned = re.sub(r"\(e\)", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\(Av", "", cleaned, flags=re.IGNORECASE)
 
         if cleaned:
             nettoyees.append(cleaned)
@@ -89,32 +106,34 @@ def _norm(s: str) -> str:
 #                                    utilisé dans main pour verifier que la premiere adresse
 #                                    qui est l'adresse de la personne concernée est correcte
 # ----------------------------------------------------------------------------------------------------------------------
+
+# extrait le code postal (pas de 0 en debut de chaine)
+CP_RX = re.compile(r"\b([1-9]\d{3})\b")
 # Même idée que dans l’extraction, mais plus tolérante pour la validation
 DASH_CHARS = r"\-\u2010-\u2015"  # -, ‐, ‒, –, —, ―
+# Avec ou sans libellé "num./n°/nr" juste avant
+NUM_LABEL = r"(?:num(?:[ée]ro)?\.?|n[°ºo]?\.?|nr\.?)"
 # Autorise espaces autour de / ou - (ex: "60 / 0-1")
 NUM_TOKEN_LOOSE = rf"\d{{1,4}}(?:[A-Za-z](?!\s*\.))?(?:\s*[/[{DASH_CHARS}]]\s*[A-ZÀ-ÿ0-9\-]+)?"
-NUM_LABEL = r"(?:num(?:[ée]ro)?\.?|n[°ºo]?\.?|nr\.?)"
-
-CP_RX = re.compile(r"\b([1-9]\d{3})\b")
-# Avec ou sans libellé "num./n°/nr" juste avant
 ADDR_NUM_RX = re.compile(rf"(?:{NUM_LABEL}\s*)?({NUM_TOKEN_LOOSE})", re.IGNORECASE)
 
+# normalisation des espaces
 def _norm_spaces(s: str) -> str:
     if not s:
         return ""
     s = s.replace("\xa0", " ").replace("\u202f", " ").replace("\u2009", " ").replace("\u200a", " ")
     return re.sub(r"\s+", " ", s).strip()
 
+
+#     True s'il y a au moins 1 CP (4 chiffres) ET au moins 1 numéro d'adresse
+#     au sens de l’extraction (NUM_TOKEN tolérant), distinct du/des CP.
+#     Ex:
+#       - '7000 Mons, Boulevard Sainctelette 60 / 0-1' -> True
+#       - '4537 Verlaine, Grand-Route 245/0011'        -> True
+#       - '4802 Verviers, avenue de Thiervaux 2 322'   -> True (deux nombres distincts)
+#       - '5100 Namur'                                  -> False
 def has_cp_plus_other_number_aligned(s: str) -> bool:
-    """
-    True s'il y a au moins 1 CP (4 chiffres) ET au moins 1 numéro d'adresse
-    au sens de l’extraction (NUM_TOKEN tolérant), distinct du/des CP.
-    Ex:
-      - '7000 Mons, Boulevard Sainctelette 60 / 0-1' -> True
-      - '4537 Verlaine, Grand-Route 245/0011'        -> True
-      - '4802 Verviers, avenue de Thiervaux 2 322'   -> True (deux nombres distincts)
-      - '5100 Namur'                                  -> False
-    """
+
     s = _norm_spaces(s)
     if not s:
         return False
@@ -144,40 +163,66 @@ def has_cp_plus_other_number_aligned(s: str) -> bool:
     # S'il reste au moins un nombre hors CP -> True
     return len(simple_nums) >= 1
 # ---------------------------------------------------------------------------------------------------------------------
-#                                    ORDONNANCEMENT DES ADRESSES EN FONCTION DU NOM
+#                                         ORDONNANCEMENT DES ADRESSES EN FONCTION DU NOM
 #                         (Permet de mettre l'adresse de la personne visee en 1 dans la liste d'adresses)
+#                                 ATTENTION POUR SUCCESSION ON A DES LISTES DE NOM (A MODIFIER!)
 # ----------------------------------------------------------------------------------------------------------------------
 
 # ---------------------------
 # Recherche positions dans le texte
 # ---------------------------
 
-def _first_after(T: str, pat: Optional[str], start: int) -> Optional[int]:
+# ------------------------------------------------------------------------------
+# Renvoie la position (index) de la première occurrence de `pat` dans `T`,
+# mais uniquement si elle apparaît APRÈS une position donnée `start`.
+# Si `pat` est vide ou non trouvé → retourne None.
+# Exemple :
+#    T = "abc 123 def 456"
+#    _first_after(T, "456", 5) → 12
+#    _first_after(T, "123", 10) → None
+# ------------------------------------------------------------------------------
+def _first_after(text: str, pat: Optional[str], start: int) -> Optional[int]:
     if not pat:
         return None
-    i = T.find(pat, start)
+    i = text.find(pat, start)
     return i if i >= 0 else None
 
 
-def _first_any(T: str, pat: Optional[str]) -> Optional[int]:
+# ------------------------------------------------------------------------------
+# Renvoie la position (index) de la première occurrence de `pat` dans `T`,
+# sans contrainte de position de départ.
+# Si `pat` est vide ou non trouvé → retourne None.
+# Exemple :
+#    T = "abc 123 def 456"
+#    _first_any(T, "123") → 4
+#    _first_any(T, "zzz") → None
+# ------------------------------------------------------------------------------
+def _first_any(text: str, pat: Optional[str]) -> Optional[int]:
     if not pat:
         return None
-    i = T.find(pat)
+    i = text.find(pat)
     return i if i >= 0 else None
-
-# ---------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------
+# _NUM_RX : motif pour capturer un "numéro d'adresse" (souvent après le nom de la voie).
+# Il correspond à :
+# - 1 à 4 chiffres          → ex: 1, 23, 504, 9999
+# - suivis optionnellement d'une lettre (sans point) → ex: 23A, 41b
+# - éventuellement suivi d’un "/suffixe"             → ex: 28/001, 45/B, 56/123A
 #
-# ---------------------------------------------------------------------------------------------------------------------
+# Ne capture pas :
+# - les "492/4" ou "499/7" (articles de loi), car on filtre les cas avec une lettre + point
+# - des numéros avec un point après la lettre (ex: "1A.") grâce au lookahead négatif
+#
+# Exemple de matchs valides : "25", "3A", "102b", "245/0011", "50/A2"
+# --------------------------------------------------------------------------------------------
+_NUM_RX = r"\b\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?\b"
 
 
-
-_NUM_RX  = r"\b\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?\b"
-
-
-
+# extraction du code postal
 def _extract_cp(addr: str) -> Optional[str]:
-    m = re.search(r"\b(\d{4})\b", addr)
+    m = re.search(r"\b([1-9]\d{3})\b", addr)
     return m.group(1) if m else None
+
 
 
 def verifier_si_premiere_adresse_est_bien_rapprochee_du_nom(nom: Any, texte: str, adresse: str, doc_hash: str, logger=None):
@@ -307,10 +352,10 @@ def prioriser_adresse_proche_nom_struct(
     return [a for _, a in scored]
 
 
-# --------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
 #                                             Logs
-
-# --------------------------------------------------------------------------------------
+#                            DETECTE SI PREMIERE ADRESSE CORRESPOND BIEN A L ADRESSE DU NOM
+# ---------------------------------------------------------------------------------------------------------------------
 # --------------------------- 🔧 Normalisation texte
 
 

@@ -46,7 +46,7 @@ from Utilitaire.ConvertDateToMeili import convertir_date
 from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     extract_clean_text, clean_url, generate_doc_hash_from_html, \
     clean_date_jugement, extract_nrn_variants, has_person_names, norm_er, \
-     clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
+    clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
     build_address_index, _norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
     extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
     verifier_premiere_adresse_apres_nom
@@ -181,8 +181,8 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     return []
 
 
-from_date = date.fromisoformat("2025-08-01")
-to_date = "2025-08-04"  # date.today()
+from_date = date.fromisoformat("2025-07-01")
+to_date = "2025-07-30"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -654,11 +654,11 @@ with requests.Session() as session:
 
                 # ✅ Forcer administrateur à être une liste si ce n’est pas None
         if isinstance(doc["administrateur"], str):
-                    doc["administrateur"] = [doc["administrateur"]]
+            doc["administrateur"] = [doc["administrateur"]]
         elif doc["administrateur"] is None:
-                    doc["administrateur"] = None
+            doc["administrateur"] = None
         elif not isinstance(doc["administrateur"], list):
-                    doc["administrateur"] = [str(doc["administrateur"])]
+            doc["administrateur"] = [str(doc["administrateur"])]
 
 # ✅ Enrichissement des dénominations – une seule passe
 for doc in documents:
@@ -709,7 +709,7 @@ def tronque_texte_apres_adresse(chaine):
 # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste
 for doc in documents:
     adresse = doc.get("adresse")
-
+    word = doc.get("keyword")
     # Si c’est une chaîne → transforme en liste
     if isinstance(adresse, str):
         adresse = [adresse]
@@ -727,22 +727,21 @@ for doc in documents:
 
             # Artefact : une lettre isolée avant l’adresse (ex: "e 5600 ...")
             cleaned = re.sub(r'^[A-Za-z]\s+(?=\d{4}\b|[A-ZÀ-ÿ])', '', cleaned)
-
             # Couper le récit (ex: ", a été", "; BCE", etc.) — ta fonction interne
             cleaned = tronque_texte_apres_adresse(cleaned)
+            nombres = re.findall(r'\b\d{1,5}\b', cleaned)
 
-            # Trop court / vide après tronquage
+            # Filtrer : si un seul nombre ET c'est un CP → on ignore
+            if len(nombres) == 1 and re.fullmatch(r'\d{4}', nombres[0]):
+                print(f"[CP SEUL] Écarté : {cleaned}")
+                continue
             if not cleaned or len(cleaned.split()) < 2:
                 continue
 
             # CP + Ville seuls (2–4 tokens) → on jette SEULEMENT s'il n'y a pas d'autre nombre que le CP
             # (ça évite de jeter "5600 Philippeville, Gueule-du-Loup(SAU) 161")
-            has_only_cp = (
-                    re.fullmatch(r"\d{4}\s+[A-ZÀ-ÿ][\wÀ-ÿ'’\-() ]{1,}$", cleaned) and
-                    not re.search(r"\b\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?\b", cleaned)
-            )
-            if has_only_cp:
-                continue
+            # Détection des adresses type "4032 Liège" → on ne garde pas
+
 
             # Mots à nettoyer : matcher en MOT ENTIER pour éviter les faux positifs ("home", etc.)
             if any(re.search(rf"\b{re.escape(tok)}\b", cleaned.lower()) for tok in NETTOIE_ADRESSE_SET):
@@ -774,7 +773,8 @@ for doc in documents:
             a for a in adresse_cleaned
             if MIN_MOTS_ADR <= nb_mots(a) <= MAX_MOTS_ADR
         ]
-        nettoyer_adresses_par_keyword(adresse_cleaned, keyword)
+        nettoyer_adresses_par_keyword(adresse_cleaned, word)
+        adresse_cleaned = nettoyer_adresses_par_keyword(adresse_cleaned, word)
         adresse_cleaned = prioriser_adresse_proche_nom_struct(
             doc.get("nom"),
             doc.get("text", ""),
@@ -796,6 +796,7 @@ for doc in documents:
             doc_hash=doc.get("doc_hash"),
             logger=logger_adresses
         )
+
 
 if not documents:
     print("❌ Aucun document à indexer.")
