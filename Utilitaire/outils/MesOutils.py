@@ -13,17 +13,256 @@ from typing import List, Any, Optional, Tuple
 # --- Modules internes au projet ---
 from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INSTITUTIONS
 
+# TODO:
+#  Rajouter dans nettoyer_adresses_par_keyword des patterns a nettoyer au fur et a mesure de l evolution du \
+#  scrapping -> faut un log pour quasi tout ....
+# note:
+#   contrairement à set(out), l’ordre d’apparition est conservé (car depuis Python 3.7+,
+#   les dicts gardent l’ordre d’insertion).
+#   dict.fromkeys(seq) crée un dictionnaire dont les clés sont les éléments de la liste.
+
 
 # ----------------------------------------------------------------------------------------------------------------------
-#                                 NETTOYAGE FINAL DES ADRESSES
-# Nettoie une liste d'adresses selon un mot-clé thématique (keyword).
-# :param adresses: liste d'adresses extraites (list[str])
-# :param keyword: mot-clé du contexte (str), ex: "justice+de+paix", "terrorisme", ...
-# :return: liste nettoyée d'adresses (list[str])
+#                                         FONCTIONS DE NORMALISATION
 # ----------------------------------------------------------------------------------------------------------------------
-# Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
-# (espaces insécables, espaces fines, etc.) par des espaces normaux,
-# et en supprimant les espaces zéro largeur.
+
+
+# normalisation des espaces
+def norm_spaces(s: str) -> str:
+    if not s:
+        return ""
+    s = s.replace("\xa0", " ").replace("\u202f", " ").replace("\u2009", " ").replace("\u200a", " ")
+    return re.sub(r"\s+", " ", s).strip()
+# ----------------------------------------------------------------------------------------------------------------------
+#                                         FONCTIONS UTILISEES POUR LES DATES
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+# Convertit une date en lettres (ex : 'trente mai deux mil vingt-trois')
+# en format '30 mai 2023'
+# utilise dans extraction_date_jugement.py
+def convert_french_text_date_to_numeric(text_date):
+
+    words = text_date.lower().strip().split()
+
+    # Créer une date si les 3 parties sont reconnaissables
+    jour = next((v for k, v in JOURMAPBIS.items() if k in text_date), None)
+    mois = next((v for k, v in MOISMAPBIS.items() if k in text_date), None)
+    annee = next((v for k, v in ANNEEMAPBIS.items() if k in text_date), None)
+
+    if jour and mois and annee:
+        return f"{jour} {mois} {annee}"
+
+    return None
+
+
+# transforme mois en lettre en mois en chiffre
+# utilise dans extraction_date_jugement.py
+def get_month_name(month_num):
+    mois = [
+        "", "janvier", "février", "mars", "avril", "mai", "juin",
+        "juillet", "août", "septembre", "octobre", "novembre", "décembre"
+    ]
+    return mois[month_num] if 1 <= month_num <= 12 else ""
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS UTILISEES POUR LES NUMEROS RN
+# ----------------------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
+# normalise les rn
+def _norm_nrn(yy, mm, dd, bloc, suffix):
+    yy = yy.zfill(2)
+    mm = mm.zfill(2)
+    dd = dd.zfill(2)
+    bloc = bloc.zfill(3)
+    suffix = suffix.zfill(2)
+    return f"{yy}.{mm}.{dd}-{bloc}.{suffix}"
+# Vérifie qu'un numéro national belge (NRN) est valide avec le contrôle modulo 97.
+# Nrn est attendu au format 'YYMMDDXXXCD' (11 chiffres sans séparateurs).
+
+
+def is_valid_nrn(nrn: str) -> bool:
+    digits = re.sub(r"\D", "", nrn)  # enlève les séparateurs éventuels
+    if len(digits) != 11:
+        return False
+
+    base = digits[:9]
+    cd = int(digits[9:])
+    # Cas avant 2000
+    if 97 - (int(base) % 97) == cd:
+        return True
+    # Cas après 2000 (préfixe "2")
+    if 97 - (int("2" + base) % 97) == cd:
+        return True
+
+    return False
+
+
+#  Fonction principale d'extraction des numéros RN
+def extract_nrn_variants(text: str):
+    # Définit les séparateurs possibles dans un numéro de registre national (NRN)
+    # Ex : "51.12.25-387.18" → séparateurs peuvent être ".", "-", "/", ou espace
+    _NRSEP = r"[.\-/ ]"
+    # Définit les libellés textuels qui peuvent précéder un NRN
+    # Ex : "NRN: 51.12.25-387.18" ou "Registre national 51-12-25 387 18"
+    LABEL = r"(?:NRN|R\.?\s*N\.?|REGISTRE\s+NATIONAL)"
+    out = []
+
+    # 1) NRN avec séparateurs
+    rx_nrn = rf"\b(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{3}}){_NRSEP}(\d{{2}})\b"
+    for yy, mm, dd, bloc, suffix in re.findall(rx_nrn, text):
+        nrn = f"{yy}{mm}{dd}{bloc}{suffix}"
+        if is_valid_nrn(nrn):
+            out.append(_norm_nrn(yy, mm, dd, bloc, suffix))
+
+    # 2) NRN collé (11 chiffres)
+    rx_nrn_plain = r"\b(\d{2})(\d{2})(\d{2})(\d{3})(\d{2})\b"
+    for yy, mm, dd, bloc, suffix in re.findall(rx_nrn_plain, text):
+        nrn = f"{yy}{mm}{dd}{bloc}{suffix}"
+        if is_valid_nrn(nrn):
+            out.append(_norm_nrn(yy, mm, dd, bloc, suffix))
+
+    # 3) NRN précédé d’un libellé
+    rx_labeled = rf"(?:\b|[\(\[])\s*(?:{LABEL})\s*[:\-]?\s*(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{3}}){_NRSEP}(\d{{2}})"
+    for yy, mm, dd, bloc, suffix in re.findall(rx_labeled, text, flags=re.IGNORECASE):
+        nrn = f"{yy}{mm}{dd}{bloc}{suffix}"
+        if is_valid_nrn(nrn):
+            out.append(_norm_nrn(yy, mm, dd, bloc, suffix))
+
+    # Déduplication
+    return list(dict.fromkeys(out))
+
+
+# transforme en format bce avec .
+def format_bce(n: str | None) -> str | None:
+    if not n:
+        return None
+    d = re.sub(r"\D", "", str(n))
+    if len(d) == 9:
+        d = "0" + d
+    if len(d) != 10:
+        return None
+    return f"{d[:4]}.{d[4:7]}.{d[7:]}"
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS UTILISEES POUR LES NUMEROS DE TVA
+# ----------------------------------------------------------------------------------------------------------------------
+# transforme en format bce avec .
+def format_bce(n: str | None) -> str | None:
+    if not n:
+        return None
+    d = re.sub(r"\D", "", str(n))
+    if len(d) == 9:
+        d = "0" + d
+    if len(d) != 10:
+        return None
+    return f"{d[:4]}.{d[4:7]}.{d[7:]}"
+
+
+# Retourne que les chiffres de la chaine
+# Utilise pour transformer les tva avec points (0514.194.192)
+# en tva sans point (0514194192)
+def digits_only(s: str) -> str:
+    return re.sub(r"\D+", "", s or "")
+
+
+# extraits les numéros de tva
+# Exemples détectés : 1008.529.190, 0108 529 190, 0423456789, 05427-15196, etc.
+def extract_numero_tva(text: str, format_output: bool = False) -> list[str]:
+
+    text = text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+
+    # Liste des résultats
+    tvas = []
+
+    # 🔹 1. Format standard 4+3+3 (avec espace, point, tiret ou rien)
+    pattern_4_3_3 = r"\b(\d{4})[\s.\-]?(\d{3})[\s.\-]?(\d{3})\b"
+    matches = re.findall(pattern_4_3_3, text)
+    for a, b, c in matches:
+        raw = f"{a}{b}{c}"
+        if len(raw) == 10 and raw.isdigit():
+            tvas.append(f"{raw[:4]}.{raw[4:7]}.{raw[7:]}" if format_output else raw)
+
+    # 🔹 2. Format alternatif : 5 + 5 chiffres (souvent avec tiret)
+    pattern_5_5 = r"\b(\d{5})[\s.\-]?(\d{5})\b"
+    matches_alt = re.findall(pattern_5_5, text)
+    for a, b in matches_alt:
+        raw = f"{a}{b}"
+        if len(raw) == 10 and raw.isdigit():
+            tvas.append(f"{raw[:4]}.{raw[4:7]}.{raw[7:]}" if format_output else raw)
+
+    # 🔁 Supprime les doublons tout en conservant l’ordre
+    seen = set()
+    tvas = [x for x in tvas if not (x in seen or seen.add(x))]
+
+    # 🔹 3. Exclure ceux qui sont dans la liste TVA_ETAT
+    if TVA_INSTITUTIONS:
+        # on normalise sans points pour comparer
+        tva_set = {x.replace(".", "") for x in TVA_INSTITUTIONS}
+        tvas = [x for x in tvas if x.replace(".", "") not in tva_set]
+
+    return tvas
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS UTILISEES POUR LES SUCCESSIONS
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def to_list_dates(x):
+    """Normalise un champ date (None/str/list/tuple) en liste de chaînes non vides."""
+    if x is None:
+        return []
+    if isinstance(x, str):
+        return [x] if x.strip() else []
+    if isinstance(x, (list, tuple)):
+        return [s for s in x if isinstance(s, str) and s.strip()]
+    return []
+
+
+def names_list_from_nom(nom):
+    """
+    Extrait la liste des noms 'canonicals' depuis le champ nom (voir structure fournie).
+    Fallbacks si le format varie.
+    """
+    if not nom:
+        return []
+    if isinstance(nom, dict):
+        if isinstance(nom.get("canonicals"), list) and nom["canonicals"]:
+            return [s for s in nom["canonicals"] if isinstance(s, str) and s.strip()]
+        if isinstance(nom.get("records"), list):
+            out = []
+            for r in nom["records"]:
+                if isinstance(r, dict) and isinstance(r.get("canonical"), str) and r["canonical"].strip():
+                    out.append(r["canonical"].strip())
+            return out
+        # fallback générique
+        vals = []
+        for k in ("aliases_flat", "aliases"):
+            v = nom.get(k)
+            if isinstance(v, list):
+                vals.extend([s for s in v if isinstance(s, str) and s.strip()])
+        return vals
+    if isinstance(nom, list):
+        return [s for s in nom if isinstance(s, str) and s.strip()]
+    if isinstance(nom, str):
+        return [nom] if nom.strip() else []
+    return []
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS DE NETTOYAGE D'ERREURS RECURENTES
+#   1 : normaliser_espaces_invisibles : Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
+#       (espaces insécables, espaces fines, etc.) par des espaces normaux,
+#       et en supprimant les espaces zéro largeur.
+#   2 : strip_html_tags : supprime les balises html du texte
+#   3 : fonctions suppression erreurs d'ocr (doublons)
+#       - remove_duplicate_paragraphs - remove_av_parentheses - dedupe_phrases_ocr
+#   4 : norm_er : supprimer double er pour les dates
+# ----------------------------------------------------------------------------------------------------------------------
+# 1 : Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
 def normaliser_espaces_invisibles(s: str) -> str:
     if not s:
         return ""
@@ -35,6 +274,84 @@ def normaliser_espaces_invisibles(s: str) -> str:
             .replace('\u200B', '')  # espace zéro largeur
 
 
+# 2 : strip_html_tags : supprime les balises html du texte
+#     Supprime toutes les balises HTML d'une chaîne de texte.
+#     Utilise une expression régulière pour matcher toute séquence de type <...>
+#     (non-gourmande, pour ne pas avaler trop de contenu), puis la remplace par une chaîne vide.
+def strip_html_tags(text):
+    return re.sub('<.*?>', '', text)
+
+
+# --------------------------
+# 3 Suppressions erreurs OCR
+# --------------------------
+# Supprime paragraphes dedoublés
+def remove_duplicate_paragraphs(text: str) -> str:
+    # Découpe à chaque "Déclaration d'acceptation"
+    blocks = re.split(r'(?=Déclaration d\'acceptation)', text)
+
+    seen = set()
+    uniques = []
+    for b in blocks:
+        b = b.strip()
+        if not b:
+            continue
+        if b not in seen:
+            seen.add(b)
+            uniques.append(b)
+
+    # On recolle les blocs avec un espace (ou double saut de ligne si tu préfères)
+    return " ".join(uniques)
+
+
+# supprime tutes les parenthèses qui commencent par Av / Av.
+def remove_av_parentheses(texte: str) -> str:
+    return re.sub(r"\(Av\.?.*?\)", "", texte, flags=re.IGNORECASE)
+
+
+# Supprime des doublons OCR fréquents comme 'Succession en déshérence Succession en déshérence'
+def dedupe_phrases_ocr(texte: str) -> str:
+    # Cas 1 : duplication directe mot pour mot
+    texte = re.sub(r"(Succession en déshérence)\s+\1", r"\1", texte, flags=re.IGNORECASE)
+    # Cas 2 : tu peux prévoir d’autres séquences récurrentes
+    # (ex. "Administration générale ... Administration générale ...")
+    # texte = re.sub(r"(Administration générale de la documentation patrimoniale),?\s+\1",
+    # r"\1", texte, flags=re.IGNORECASE)
+    return texte
+
+
+# 4 Supprimer double er pour les dates
+def norm_er(x):
+    if isinstance(x, str):
+            x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
+            x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
+            return x
+    return x
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                        NETTOYAGE DES ADRESSES
+# 1 Nettoyer en tronquant le texte (nettoyage final dans mainscrapper.py)
+# 2 Nettoie une liste d'adresses selon un mot-clé thématique (keyword). (nettoyage final dans mainscrapper.py)
+# 3 Nettoie une adresse en supprimant un artefact fréquent : un 'a' ou 'à' (avec ou sans accent) placé juste avant
+#   (nettoyage dans extraction_adresses_moniteur.py)
+# 4 couper_fin_adresse
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+# 1 Fonction pour tronquer tout texte après le début du récit
+def tronque_texte_apres_adresse(chaine):
+    marqueurs = [
+        " est décédé", " est décédée", " est morte",
+        " sans laisser", " Avant de statuer", " le Tribunal",
+        " article 4.33", " Tribunal de Première Instance"
+    ]
+    for m in marqueurs:
+        if m in chaine:
+            return chaine.split(m)[0].strip()
+    return chaine.strip()
+
+
+# 2 Nettoie une liste d'adresses selon un mot-clé thématique (keyword)
 def nettoyer_adresses_par_keyword(adresses, keyword):
 
     if not adresses:
@@ -66,13 +383,31 @@ def nettoyer_adresses_par_keyword(adresses, keyword):
 
     return nettoyees
 
-# ---------------------------------------------------------------------------------------------------------------------
-#     Supprime toutes les balises HTML d'une chaîne de texte.
-#     Utilise une expression régulière pour matcher toute séquence de type <...>
-#     (non-gourmande, pour ne pas avaler trop de contenu), puis la remplace par une chaîne vide.
-# ----------------------------------------------------------------------------------------------------------------------
-def strip_html_tags(text):
-    return re.sub('<.*?>', '', text)
+
+# 3 Nettoie une adresse en supprimant un artefact fréquent :
+# un 'a' ou 'à' (avec ou sans accent) placé juste avant
+# un code postal suivi d'une ville.
+# Exemple :
+# "à 4032 Liège" → "4032 Liège"
+# "a 1000 Bruxelles" → "1000 Bruxelles"
+def nettoyer_adresse(adresse: str) -> str:
+    # Regex : cherche "à " ou "a " devant 4 chiffres + ville et supprime
+    return re.sub(r"\b[àa]\s+(?=\d{4}\s+[A-ZÀ-Ÿ])", "", adresse, flags=re.IGNORECASE)
+
+
+#  4 Coupe la fin d'une adresse dès qu'apparaissent certains mots-clés
+# indiquant qu'on sort du champ adresse (éléments de procédure, infos perso, etc.).
+# Mots-clés déclencheurs : "Signifié", "N°", "Casier", "Nationalité",
+# "Né", "Date", "le <jour> <mois>".
+# Exemple : "1000 Bruxelles, Rue de la Loi 12 Signifié le 03/01/2024"  → "1000 Bruxelles, Rue de la Loi 12"
+def couper_fin_adresse(adresse: str) -> str:
+
+    # Split l'adresse au premier mot-clé trouvé et garde uniquement la partie avant
+    adresse = re.split(
+        r"\b(Signifi[eé]|N°|Casier|Nationalit[eé]|Né[e]?\b|Date|le\s+\d{1,2}\s+\w+)",
+        adresse
+    )[0]
+    return adresse.strip()
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -106,7 +441,6 @@ def _norm(s: str) -> str:
 #                                    utilisé dans main pour verifier que la premiere adresse
 #                                    qui est l'adresse de la personne concernée est correcte
 # ----------------------------------------------------------------------------------------------------------------------
-
 # extrait le code postal (pas de 0 en debut de chaine)
 CP_RX = re.compile(r"\b([1-9]\d{3})\b")
 # Même idée que dans l’extraction, mais plus tolérante pour la validation
@@ -116,15 +450,6 @@ NUM_LABEL = r"(?:num(?:[ée]ro)?\.?|n[°ºo]?\.?|nr\.?)"
 # Autorise espaces autour de / ou - (ex: "60 / 0-1")
 NUM_TOKEN_LOOSE = rf"\d{{1,4}}(?:[A-Za-z](?!\s*\.))?(?:\s*[/[{DASH_CHARS}]]\s*[A-ZÀ-ÿ0-9\-]+)?"
 ADDR_NUM_RX = re.compile(rf"(?:{NUM_LABEL}\s*)?({NUM_TOKEN_LOOSE})", re.IGNORECASE)
-
-# normalisation des espaces
-def _norm_spaces(s: str) -> str:
-    if not s:
-        return ""
-    s = s.replace("\xa0", " ").replace("\u202f", " ").replace("\u2009", " ").replace("\u200a", " ")
-    return re.sub(r"\s+", " ", s).strip()
-
-
 #     True s'il y a au moins 1 CP (4 chiffres) ET au moins 1 numéro d'adresse
 #     au sens de l’extraction (NUM_TOKEN tolérant), distinct du/des CP.
 #     Ex:
@@ -134,7 +459,7 @@ def _norm_spaces(s: str) -> str:
 #       - '5100 Namur'                                  -> False
 def has_cp_plus_other_number_aligned(s: str) -> bool:
 
-    s = _norm_spaces(s)
+    s = norm_spaces(s)
     if not s:
         return False
 
@@ -162,6 +487,7 @@ def has_cp_plus_other_number_aligned(s: str) -> bool:
     simple_nums = [n for n in simple_nums if n not in cps]
     # S'il reste au moins un nombre hors CP -> True
     return len(simple_nums) >= 1
+
 # ---------------------------------------------------------------------------------------------------------------------
 #                                         ORDONNANCEMENT DES ADRESSES EN FONCTION DU NOM
 #                         (Permet de mettre l'adresse de la personne visee en 1 dans la liste d'adresses)
@@ -181,6 +507,8 @@ def has_cp_plus_other_number_aligned(s: str) -> bool:
 #    _first_after(T, "456", 5) → 12
 #    _first_after(T, "123", 10) → None
 # ------------------------------------------------------------------------------
+
+
 def _first_after(text: str, pat: Optional[str], start: int) -> Optional[int]:
     if not pat:
         return None
@@ -215,14 +543,20 @@ def _first_any(text: str, pat: Optional[str]) -> Optional[int]:
 #
 # Exemple de matchs valides : "25", "3A", "102b", "245/0011", "50/A2"
 # --------------------------------------------------------------------------------------------
+
+
 _NUM_RX = r"\b\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?\b"
 
 
-# extraction du code postal
-def _extract_cp(addr: str) -> Optional[str]:
+def _extract_cp(addr: Optional[str]) -> Optional[str]:
+    """
+    Extrait un code postal à 4 chiffres (commençant par 1-9) depuis une adresse.
+    Retourne None si addr est None, vide ou ne contient pas de CP.
+    """
+    if not addr or not isinstance(addr, str):
+        return None
     m = re.search(r"\b([1-9]\d{3})\b", addr)
     return m.group(1) if m else None
-
 
 
 def verifier_si_premiere_adresse_est_bien_rapprochee_du_nom(nom: Any, texte: str, adresse: str, doc_hash: str, logger=None):
@@ -269,6 +603,8 @@ def verifier_si_premiere_adresse_est_bien_rapprochee_du_nom(nom: Any, texte: str
 
 # Score “occurrences près du nom”
 # ---------------------------
+
+
 def _window_tokens_score(texte: str, start: int, addr: str, window: int = 220) -> Tuple[int, int]:
     """
     Compte le nb d'occurrences de tokens (>=3 lettres) de l'adresse
@@ -293,18 +629,15 @@ def _window_tokens_score(texte: str, start: int, addr: str, window: int = 220) -
 # Fonction principale
 # ---------------------------
 def prioriser_adresse_proche_nom_struct(
-    nom: Any,
+    nom: str,
     texte: str,
     adresses: List[str],
-    *,
-    min_tokens_required: bool = False  # gardé pour compat, ignoré ici
 ) -> List[str]:
     """
     Règle :
       1) CP le plus proche après le nom
       2) si même CP → numéro d'adresse le plus proche après le nom
-      3) si CP & numéro identiques → + d'occurrences de la chaîne près du nom (petite fenêtre)
-      4) fallbacks : première occurrence 'anywhere', puis longueur, puis ordre initial
+      3) sinon ordre initial
     """
     if not adresses:
         return adresses
@@ -314,37 +647,19 @@ def prioriser_adresse_proche_nom_struct(
 
     scored = []
     for idx, a in enumerate(adresses):
-        a_norm = _norm(a)
         cp = _extract_cp(a)
         hn = _extract_house_num(a)
 
-        # positions “après nom”
         cp_after = _first_after(T, cp, name_end) if cp else None
         hn_after = _first_after(T, _norm(hn) if hn else None, name_end) if hn else None
 
-        # positions “n’importe où”
-        cp_any  = _first_any(T, cp) if cp else None
-        hn_any  = _first_any(T, _norm(hn) if hn else None) if hn else None
-
-        # occurrences dans une petite fenêtre à droite du nom
-        near_score, near_pos = _window_tokens_score(texte, name_end, a)
-
-        # clé de tri (plus petit = mieux)
+        # clé de tri simplifiée
         key = (
             0 if cp_after is not None else 1,
             (cp_after - name_end) if cp_after is not None else 10**9,
-
             0 if hn_after is not None else 1,
             (hn_after - name_end) if hn_after is not None else 10**9,
-
-            -near_score,                  # plus d’occurrences = mieux
-            near_pos,                     # plus tôt dans la fenêtre = mieux
-
-            cp_any if cp_any is not None else 10**9,
-            hn_any if hn_any is not None else 10**9,
-
-            -len(a_norm),                 # plus descriptif = mieux
-            idx                           # stabilité d’ordre initial
+            idx  # fallback : ordre initial
         )
         scored.append((key, a))
 
@@ -352,11 +667,18 @@ def prioriser_adresse_proche_nom_struct(
     return [a for _, a in scored]
 
 
+
 # ---------------------------------------------------------------------------------------------------------------------
 #                                             Logs
 #                            DETECTE SI PREMIERE ADRESSE CORRESPOND BIEN A L ADRESSE DU NOM
 # ---------------------------------------------------------------------------------------------------------------------
-# --------------------------- 🔧 Normalisation texte
+# ---------------------------  Normalisation texte
+# Normalise une chaîne de caractères :
+#  - gère les cas None → chaîne vide
+#  - unifie certains caractères spéciaux (apostrophes, guillemets)
+#  - compresse les espaces multiples en un seul
+#  - supprime les espaces en début et fin
+# - met tout en minuscules
 
 
 def _norm(s: str) -> str:
@@ -365,7 +687,7 @@ def _norm(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip().lower()
     return s
 
-# --------------------------- 🔍 Localiser le nom dans le texte
+# ---------------------------  Localiser le nom dans le texte
 def _name_end_in_text(nom: Any, texte: str) -> int:
     T = _norm(texte)
     candidates = []
@@ -407,23 +729,22 @@ def _clean_dates_and_grands_nombres(s: str) -> str:
     return s
 
 
-def _extract_house_num(addr: str) -> Optional[str]:
-    cp = _extract_cp(addr)
+def _extract_house_num(addr: Optional[str]) -> Optional[str]:
+    """
+    Extrait le premier numéro de maison trouvé dans une adresse (1 à 4 chiffres, éventuellement avec suffixe).
+    Retourne None si pas trouvé ou si addr est None.
+    """
+    if not addr or not isinstance(addr, str):
+        return None
     for m in re.finditer(r"\b\d{1,4}(?:/[A-ZÀ-ÿ0-9\-]+)?\b", addr):
-        token = m.group(0)
-        if re.match(r"\b\d{1,4}/\d", token):  # Exclure 492/4 etc.
-            continue
-        if cp and token == cp:
-            continue
-        return token
+        return m.group(0)
     return None
 
 
+# Compare la première adresse extraite après le nom (CP + numéro) à l'adresse priorisée.
+# Logger si elles ne correspondent pas.
 def verifier_premiere_adresse_apres_nom(nom: Any, texte: str, adresse: str, doc_hash: str, logger=None):
-    """
-    Compare la première adresse extraite après le nom (CP + numéro) à l'adresse priorisée.
-    Logger si elles ne correspondent pas.
-    """
+
     T = _norm(texte)
     name_end = _name_end_in_text(nom, texte)
     T_after_nom = _clean_dates_and_grands_nombres(T[name_end:])
@@ -473,15 +794,6 @@ def verifier_premiere_adresse_apres_nom(nom: Any, texte: str, adresse: str, doc_
 
 
 UNICODE_SPACES_MAP = dict.fromkeys(map(ord, "\u00A0\u202F\u2007\u2009\u200A\u200B"), " ")
-
-
-# --------------------------------------------------------------------------------------
-# Retourne que les chiffres de la chaine
-# Utilise pour transformer les tva avec points (0514.194.192)
-# en tva sans point (0514194192)
-# --------------------------------------------------------------------------------------
-def digits_only(s: str) -> str:
-    return re.sub(r"\D+", "", s or "")
 
 
 # --------------------------------------------------------------------------------------
@@ -612,20 +924,6 @@ def is_entite_publique(entite_bce: str) -> bool:
     return s.startswith("0200")
 
 
-# --------------------------------------------------------------------------------------
-# transforme en format bce avec .
-# --------------------------------------------------------------------------------------
-def format_bce(n: str | None) -> str | None:
-    if not n:
-        return None
-    d = re.sub(r"\D", "", str(n))
-    if len(d) == 9:
-        d = "0" + d
-    if len(d) != 10:
-        return None
-    return f"{d[:4]}.{d[4:7]}.{d[7:]}"
-
-
 def _csv_mtime(path: str) -> float:
     try:
         return os.path.getmtime(path)
@@ -713,42 +1011,6 @@ def has_person_names(nom):
     if isinstance(nom, (list, str)):
         return bool(nom)
     return False
-# --- Utils NRN ---
-
-
-def _norm_nrn(yy, mm, dd, bloc, suffix):
-    yy = yy.zfill(2); mm = mm.zfill(2); dd = dd.zfill(2)
-    bloc = bloc.zfill(3); suffix = suffix.zfill(2)
-    return f"{yy}.{mm}.{dd}-{bloc}.{suffix}"
-
-
-def extract_nrn_variants(text: str):
-    # Séparateurs autorisés entre blocs du NRN
-    _NRSEP = r"[.\-/ ]"
-
-    # Libellés possibles avant le NRN:
-    # - NRN
-    # - R.N. / R N / R.N / R. N. (avec ou sans points/espaces)
-    # - Registre national
-    LABEL = r"(?:NRN|R\.?\s*N\.?|REGISTRE\s+NATIONAL)"
-
-    out = []
-
-    # 1) NRN « isolé » (sans libellé)
-    rx_nrn = rf"\b(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{3}}){_NRSEP}(\d{{2}})\b"
-    for yy, mm, dd, bloc, suffix in re.findall(rx_nrn, text):
-        out.append(_norm_nrn(yy, mm, dd, bloc, suffix))
-
-    # 2) NRN précédé d’un libellé (inclut variantes et parenthèses)
-    #    Ex : "NRN: 67.07.21-123.45"
-    #         "(R.N. 33.06.22-133.39)"
-    #         "Registre national 67-07-21 123 45"
-    rx_labeled = rf"(?:\b|[\(\[])\s*(?:{LABEL})\s*[:\-]?\s*(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{2}}){_NRSEP}(\d{{3}}){_NRSEP}(\d{{2}})"
-    for yy, mm, dd, bloc, suffix in re.findall(rx_labeled, text, flags=re.IGNORECASE):
-        out.append(_norm_nrn(yy, mm, dd, bloc, suffix))
-
-    # dédoublonnage en conservant l'ordre
-    return list(dict.fromkeys(out))
 
 
 def clean_date_jugement(raw):
@@ -768,7 +1030,6 @@ def clean_date_jugement(raw):
 
 
 # ***********************************
-# get_month_name
 # detect_erratum
 # extract_numero_tva
 # extract_clean_text
@@ -806,15 +1067,6 @@ def chemin_log(nom_fichier: str = "succession.log") -> str:
     return os.path.join(projet_dir, "logs", nom_fichier)
 
 
-# ____________________________________________________________
-    # Transforme numero de 1 à 12 en un mois de la liste mois.
-# ____________________________________________________________
-def get_month_name(month_num):
-    mois = [
-        "", "janvier", "février", "mars", "avril", "mai", "juin",
-        "juillet", "août", "septembre", "octobre", "novembre", "décembre"
-    ]
-    return mois[month_num] if 1 <= month_num <= 12 else ""
 
 
 # ____________________________________________________________
@@ -836,44 +1088,6 @@ def detect_erratum(texte_html):
     return False
 
 
-# ____________________________________________________________
-    # extraits les numéros de tva
-    # Exemples détectés : 1008.529.190, 0108 529 190, 0423456789, 05427-15196, etc.
-# ____________________________________________________________
-def extract_numero_tva(text: str, format_output: bool = False) -> list[str]:
-
-    text = text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
-
-    # Liste des résultats
-    tvas = []
-
-    # 🔹 1. Format standard 4+3+3 (avec espace, point, tiret ou rien)
-    pattern_4_3_3 = r"\b(\d{4})[\s.\-]?(\d{3})[\s.\-]?(\d{3})\b"
-    matches = re.findall(pattern_4_3_3, text)
-    for a, b, c in matches:
-        raw = f"{a}{b}{c}"
-        if len(raw) == 10 and raw.isdigit():
-            tvas.append(f"{raw[:4]}.{raw[4:7]}.{raw[7:]}" if format_output else raw)
-
-    # 🔹 2. Format alternatif : 5 + 5 chiffres (souvent avec tiret)
-    pattern_5_5 = r"\b(\d{5})[\s.\-]?(\d{5})\b"
-    matches_alt = re.findall(pattern_5_5, text)
-    for a, b in matches_alt:
-        raw = f"{a}{b}"
-        if len(raw) == 10 and raw.isdigit():
-            tvas.append(f"{raw[:4]}.{raw[4:7]}.{raw[7:]}" if format_output else raw)
-
-    # 🔁 Supprime les doublons tout en conservant l’ordre
-    seen = set()
-    tvas = [x for x in tvas if not (x in seen or seen.add(x))]
-
-    # 🔹 3. Exclure ceux qui sont dans la liste TVA_ETAT
-    if TVA_INSTITUTIONS:
-        # on normalise sans points pour comparer
-        tva_set = {x.replace(".", "") for x in TVA_INSTITUTIONS}
-        tvas = [x for x in tvas if x.replace(".", "") not in tva_set]
-
-    return tvas
 # ____________________________________________________________
     # Extrait un texte propre à partir d’un objet BeautifulSoup.
     # Par défaut, supprime la section 'Liens :' et ses liens.
@@ -955,88 +1169,12 @@ def generate_doc_hash_from_html(html, date_doc):
     return hashlib.sha256(full_string.encode("utf-8")).hexdigest()
 
 
-def convert_french_text_date_to_numeric(text_date):
-    """
-    Convertit une date en lettres (ex : 'trente mai deux mil vingt-trois')
-    en format '30 mai 2023'
-    """
-
-    words = text_date.lower().strip().split()
-
-    # Créer une date si les 3 parties sont reconnaissables
-    jour = next((v for k, v in JOURMAPBIS.items() if k in text_date), None)
-    mois = next((v for k, v in MOISMAPBIS.items() if k in text_date), None)
-    annee = next((v for k, v in ANNEEMAPBIS.items() if k in text_date), None)
-
-    if jour and mois and annee:
-        return f"{jour} {mois} {annee}"
-
-    return None
-
-
-def normalize_mois(val):
-    mots = {
-        "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5,
-        "six": 6, "sept": 7, "huit": 8, "neuf": 9, "dix": 10,
-        "onze": 11, "douze": 12
-    }
-    if val.isdigit():
-        return int(val)
-    return mots.get(val.lower(), None)
-
-
-def decode_nrn(nrn: str):
-    """
-    Décode un numéro de registre national belge en date de naissance + sexe.
-    Retourne (YYYY-MM-DD, sexe).
-    """
-    nrn = re.sub(r"\D", "", nrn)  # garder seulement les chiffres
-    if len(nrn) != 11:
-        return None
-
-    base = nrn[:9]    # YYMMDDXXX
-    cle = int(nrn[9:])  # 2 chiffres finaux
-
-    # Test siècle 1900
-    if (97 - (int(base) % 97)) == cle:
-        year = 1900 + int(base[:2])
-    else:
-        year = 2000 + int(base[:2])
-
-    month = int(base[2:4])
-    day = int(base[4:6])
-
-    # Sexe = bloc XXX pair = femme / impair = homme
-    sexe = "M" if int(base[6:9]) % 2 == 1 else "F"
-
-    return f"{year:04d}-{month:02d}-{day:02d}", sexe
-
-
-def norm_er(x):
-    if isinstance(x, str):
-            x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
-            x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
-            return x
-    return x
-
-
-def liste_vide_ou_que_vides_lenient(lst):
-    return (not lst) or all(
-        (s is None) or (isinstance(s, str) and not s.strip())
-        for s in lst
-    )
-
-
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS UTILISEES POUR NETTOYAGE DES NOMS
+# ----------------------------------------------------------------------------------------------------------------------
+# Supprime de la liste les noms qui correspondent exactement à 'en cause de' (espaces ignorés, insensible à la casse).
 def clean_nom_trib_entreprise(noms: list[str]) -> list[str]:
-    """
-    Supprime de la liste les noms qui correspondent exactement à 'en cause de' (espaces ignorés, insensible à la casse).
 
-    Args:
-        noms (list[str]): Liste de noms extraits à nettoyer.
-
-    Returns:
-        list[str]: Liste filtrée des noms.
-    """
     return [
         nom for nom in noms
         if (nom.strip().lower() != "en cause de"
@@ -1047,18 +1185,7 @@ def clean_nom_trib_entreprise(noms: list[str]) -> list[str]:
             and nom.strip().lower() != "1. l'etat belge spf finances"
             and nom.strip().lower() != "2. l etat belge spf finances"
             and nom.strip().lower() != "3. l etat belge spf finances"
+            and nom.strip().lower() != "4. l etat belge spf finances"
             and nom.strip().lower() != "spf finances")
-
     ]
-
-
-def nettoyer_adresse(adresse):
-    # Supprime "à" ou "a" (avec ou sans accent) juste avant CP + Ville
-    return re.sub(r"\b[àa]\s+(?=\d{4}\s+[A-ZÀ-Ÿ])", "", adresse, flags=re.IGNORECASE)
-
-
-def couper_fin_adresse(adresse):
-    # Coupe si des mots comme "Signifié", "N°", "Casier", "Nationalité", etc. apparaissent
-    adresse = re.split(r"\b(Signifi[eé]|N°|Casier|Nationalit[eé]|Né[e]?\b|Date|le\s+\d{1,2}\s+\w+)", adresse)[0]
-    return adresse.strip()
 

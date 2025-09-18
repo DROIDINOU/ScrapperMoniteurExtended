@@ -5,6 +5,10 @@ from Utilitaire.outils.MesOutils import nettoyer_adresse, couper_fin_adresse
 
 
 def extract_address(texte_html, doc_id):
+    # ______________________________
+    #    LISTE D ADRESSE ET
+    #    NETTOYAGE DU TEXTE
+    # -------------------------------
     adresse_list = []
     soup = BeautifulSoup(texte_html, 'html.parser')
     texte = soup.get_text(separator=" ")
@@ -14,13 +18,17 @@ def extract_address(texte_html, doc_id):
              .replace("\u2009", " ")
              .replace("\u200a", " "))
     texte = re.sub(r'\s+', ' ', texte).strip()
+    # ______________________________
+    #        REGEX PRECIS
+    # -------------------------------
+    # reperage des domiciles
     DOMI = r"(?:domicili(?:é|ée|e|\(e\))?)"
-    # Autoriser les tirets Unicode dans les noms de voie
-
-    DASH_CHARS = r"\-\u2010-\u2015"  # -, -, ‒, –, —, ―
+    # Ce regex reconnaît un numéro d’adresse réaliste : simple (42), avec lettre (42B), avec sous-numéro (42/7),
+    # avec lettre + sous-numéro (42A/3B).
     NUM_TOKEN = r"\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?"
-    # Après NUM_TOKEN, ajoute ce préfixe commun :
+    # Capture les différentes facon d'écrire numero
     NUM_LABEL = r"(?:num(?:[ée]ro)?\.?|n[°ºo]?\.?|nr\.?)"
+    # Regex extraction d'adresses
     # 1) "domicilié à CP VILLE, <type> <voie>, NUM"
     RX_VILLE_VOIE_VIRGULE_NUM_TY = re.compile(rf"""
         {DOMI}\s+à\s+
@@ -54,12 +62,12 @@ def extract_address(texte_html, doc_id):
             adr = nettoyer_adresse(adr)
             adr = couper_fin_adresse(adr).rstrip(".")
             adresse_list.append(adr)
-    # — Cas 1 : "1325 Chaumont-Gistoux, Bas-Bonlez, résidence les Lilas 57"
-    RX_CHAUMONT_RESIDENCE = re.compile(r"""
-        \b(?P<cp>\d{4})\s+(?P<ville>Chaumont\-Gistoux)\s*,\s*
-        (?P<localite>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*
-        r[ée]sidence\s+(?P<resname>[^,;]+?)\s+(?P<num>\d{1,4})
-    """, re.IGNORECASE | re.VERBOSE)
+    # — Cas 1 : "1325 Chaumont-Gistoux, Bas-Bonlez, résidence les Lilas 57" REDONDANT PREVU PAR NUMERO 22 RESIDENCE
+    # RX_CHAUMONT_RESIDENCE = re.compile(r"""
+    # \b(?P<cp>\d{4})\s+(?P<ville>Chaumont\-Gistoux)\s*,\s*
+    # (?P<localite>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*
+    # r[ée]sidence\s+(?P<resname>[^,;]+?)\s+(?P<num>\d{1,4})
+    # """, re.IGNORECASE | re.VERBOSE)
     # 3) Domicile avec "home/résidence/maison de repos"
     RX_DOMICILE_AVEC_HOME = re.compile(rf"""
         {DOMI}\s+à\s+
@@ -154,9 +162,9 @@ def extract_address(texte_html, doc_id):
         flags=re.IGNORECASE | re.VERBOSE,
     )
     # ⚡ Fast-path ciblé sur le texte complet (pas de segmentation)
-    for m in RX_CHAUMONT_RESIDENCE.finditer(texte):
-        adr = f"résidence {m.group('resname').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
-        adresse_list.append(adr)
+    #for m in RX_CHAUMONT_RESIDENCE.finditer(texte):
+        # adr = f"résidence {m.group('resname').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
+        # adresse_list.append(adr)
 
     for m in RX_LOCALITE_CP_VILLE_VOIE.finditer(texte):
         adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
@@ -185,25 +193,23 @@ def extract_address(texte_html, doc_id):
         adresse_list.append(adr)  # <— TU OUBLIAIS CETTE LIGNE
 
     # 6) "domicilié à CP Ville, Rue NUM"
-    m_cp_first = re.search(
-        rf"""{DOMI}\s+à\s+
+    for m in re.finditer(
+            rf"""{DOMI}\s+à\s+
             (\d{{4}})\s+                   # CP
             ([A-ZÀ-ÿ\-]+),\s+              # Ville
             ([A-ZÀ-ÿa-z'\- ]+?)\s+         # Rue
             (\d{{1,4}})                    # Numéro
             (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*
-                ([A-Z0-9/\.\-]+))?         # Boîte : lettres, chiffres, slash etc.
+                ([A-Z0-9/\.\-]+))?         # Boîte : optionnelle
         """,
-        texte,
-        flags=re.IGNORECASE | re.VERBOSE
-    )
-
-    if m_cp_first:
-        cp = m_cp_first.group(1)
-        ville = m_cp_first.group(2)
-        rue = m_cp_first.group(3).strip()
-        num = m_cp_first.group(4)
-        boite = m_cp_first.group(5)
+            texte,
+            flags=re.IGNORECASE | re.VERBOSE
+    ):
+        cp = m.group(1)
+        ville = m.group(2)
+        rue = m.group(3).strip()
+        num = m.group(4)
+        boite = m.group(5)
 
         full = f"{rue} {num}"
         if boite:
@@ -211,26 +217,26 @@ def extract_address(texte_html, doc_id):
         full += f", à {cp} {ville}"
         adresse_list.append(full)
 
-    m_cp_apres = re.search(
-        r"""(?:
-            avenue|rue|boulevard|chauss[ée]e|place|impasse|all[ée]e|clos|voie|chemin|square
-        )\s+
-        ([A-ZÀ-ÿa-z'\- ]+?)\s+        # nom rue
-        (\d{1,4})                     # numéro
-        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*([A-Z0-9/\.\-]+))?    # boîte
-        \s*,?\s*
-        (\d{4})\s+                    # CP
-        ([A-ZÀ-ÿ\- ]{2,})             # ville
-        """,
-        texte,
-        flags=re.IGNORECASE | re.VERBOSE
-    )
-    if m_cp_apres:
-        rue = m_cp_apres.group(1).strip()
-        num = m_cp_apres.group(2)
-        boite = m_cp_apres.group(3)
-        cp = m_cp_apres.group(4)
-        ville = m_cp_apres.group(5)
+    # Variante : "Rue NUM, CP Ville"
+    for m in re.finditer(
+            r"""(?:
+                avenue|rue|boulevard|chauss[ée]e|place|impasse|all[ée]e|clos|voie|chemin|square
+            )\s+
+            ([A-ZÀ-ÿa-z'\- ]+?)\s+        # nom rue
+            (\d{1,4})                     # numéro
+            (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*([A-Z0-9/\.\-]+))?    # boîte
+            \s*,?\s*
+            (\d{4})\s+                    # CP
+            ([A-ZÀ-ÿ\- ]{2,})             # ville
+            """,
+            texte,
+            flags=re.IGNORECASE | re.VERBOSE
+    ):
+        rue = m.group(1).strip()
+        num = m.group(2)
+        boite = m.group(3)
+        cp = m.group(4)
+        ville = m.group(5)
 
         full = f"{rue} {num}"
         if boite:
@@ -239,36 +245,30 @@ def extract_address(texte_html, doc_id):
         adresse_list.append(full)
 
     # 7) Variante simple "DOMI ... adr NUM, à CP Ville"
-    m_simple = re.search(
-        rf"{DOMI},?\s+(?P<adr>[A-ZÀ-ÿa-z\s'\-]+?\s+\d{{1,4}})(?:\s*,)?\s+à\s+(\d{{4}})\s+([A-ZÀ-ÿ\-]+)",
-        texte,
-        flags=re.IGNORECASE
-    )
-
-    if m_simple:
-        rue = m_simple.group("adr").strip()
-        cp = m_simple.group(2)
-        ville = m_simple.group(3)
+    for m in re.finditer(
+            rf"{DOMI},?\s+(?P<adr>[A-ZÀ-ÿa-z\s'\-]+?\s+\d{{1,4}})(?:\s*,)?\s+à\s+(\d{{4}})\s+([A-ZÀ-ÿ\-]+)",
+            texte,
+            flags=re.IGNORECASE
+    ):
+        rue = m.group("adr").strip()
+        cp = m.group(2)
+        ville = m.group(3)
         full = f"{rue}, à {cp} {ville}".strip()
         adresse_list.append(full)
 
     # Match : "domicilié rue Charles Vanderstrappen 24, 1030 Schaerbeek"
-    m_rue_first = re.search(
-        rf"{DOMI}\s+(?:rue|avenue|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+"
-        r"([A-ZÀ-ÿa-z'\- ]+?)\s+(\d{1,4})\s*,\s*(\d{4})\s+([A-ZÀ-ÿ\-]+)",
-        texte,
-        flags=re.IGNORECASE
-    )
-
-    if m_rue_first:
-        rue = m_rue_first.group(1).strip()
-        num = m_rue_first.group(2)
-        cp = m_rue_first.group(3)
-        ville = m_rue_first.group(4)
+    for m in re.finditer(
+            rf"{DOMI}\s+(?:rue|avenue|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+"
+            r"([A-ZÀ-ÿa-z'\- ]+?)\s+(\d{1,4})\s*,\s*(\d{4})\s+([A-ZÀ-ÿ\-]+)",
+            texte,
+            flags=re.IGNORECASE
+    ):
+        rue = m.group(1).strip()
+        num = m.group(2)
+        cp = m.group(3)
+        ville = m.group(4)
         full = f"{rue} {num}, à {cp} {ville}"
         adresse_list.append(full)
-
-
     # ────────────────────────────────────────────────────────────────
     # 🔍 Définition des composants de motifs d'adresses postales
     # Objectif : construire des regex réutilisables pour capturer
@@ -558,12 +558,10 @@ def extract_address(texte_html, doc_id):
         return re.sub(r"\\s\+à\\s\+", r"\\s*(?:à\\s+)?", p)
 
     def vivant_before_domicilie(p: str) -> str:
-        return re.sub(rf"(?i)(?={DOMI})",
-                      lambda m: r"(?:en|de)\s+son\s+vivant\s*,?\s*", p, count=1)
+        return re.sub(rf"(?i)(?={DOMI})", lambda m: r"(?:en|de)\s+son\s+vivant\s*,?\s*", p, count=1)
 
     def vivant_after_domicilie(p: str) -> str:
-        return re.sub(rf"(?i)({DOMI}\s+)",
-                      lambda m: m.group(1) + r"(?:en|de)\s+son\s+vivant\s*,?\s+", p, count=1)
+        return re.sub(rf"(?i)({DOMI}\s+)", lambda m: m.group(1) + r"(?:en|de)\s+son\s+vivant\s*,?\s+", p, count=1)
 
     patterns_expanded = set()
     for p in patterns_base:
@@ -628,5 +626,4 @@ def extract_address(texte_html, doc_id):
             if n != code_postal:
                 return True  # adresse valide : code postal + autre nombre
 
-    print(list(set(adresse_list)))
     return list(set(adresse_list))

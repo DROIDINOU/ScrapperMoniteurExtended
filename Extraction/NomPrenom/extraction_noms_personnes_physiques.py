@@ -8,6 +8,10 @@ import logging
 # logger + set pour eviter les doublons de log (doc_id +adresses)
 loggernomspersonnes = logging.getLogger("nomspersonnes_logger")
 logged_nomspersonnes = set()
+
+# logger + set pour eviter les doublons de log (doc_id +adresses)
+loggernomdouble = logging.getLogger("nomsdouble_logger")
+logged_nomdouble = set()
 # ++++++++++++++++++++++++++++++++++++++
 #     VARIABLES / REGEX DE NETTOYAGE
 # ++++++++++++++++++++++++++++++++++++++
@@ -166,6 +170,10 @@ RX_NR_NP = re.compile(rf"""
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
     (?=\s*,?\s*(?:né|née|né\(e\)|RR?N|NRN|\(|$))
 """, re.IGNORECASE | re.VERBOSE)
+RX_ABSENCE = re.compile(
+    r"présomption\s+d['’]absence\s+à\s+l[’']égard\s+de\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s'\-]+)",
+    flags=re.IGNORECASE
+)
 # 3) générique “NOM, Prénoms, né …”
 RX_NP_NE = re.compile(rf"""
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
@@ -316,7 +324,9 @@ RX_SV_NE_LE = re.compile(
 )
 
 RX_SV_DESHERENCE_SIMPLE = re.compile(
-    r"succession?\s+(?:en\s+d[ée]sh[ée]rence\s+)?de\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s'’\-]+?),",
+    r"succession?\s+(?:en\s+d[ée]sh[ée]rence\s+)?de\s+"
+    r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s'’\-,]+?)"
+    r"(?=\s+(?:né|née|domicilié|domiciliée|décédé|décédée|est|sans\s+laisser))",
     re.IGNORECASE,
 )
 
@@ -564,12 +574,15 @@ def nettoyer_noms_avances(noms, longueur_max=80):
                       "l'etat belge spf finances", "l etat belge spf finances", "L'ETAT BELGE SPF FINANCES",
                       "etat belge", "spf finances"]
 
+
     def invert_if_comma(s: str) -> str:
         if "," in s:
-            parts = [p.strip() for p in s.split(",", 1)]
-            if len(parts) == 2:
-                return f"{parts[1]} {parts[0]}"
+            left, right = [p.strip() for p in s.split(",", 1)]
+            # inverser seulement si la partie avant la virgule ressemble à un NOM en majuscules
+            if re.fullmatch(r"[A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ'’\-]+", left):
+                return f"{right} {left}"
         return s
+
 
     def extraire_nom_depuis_phrase(nom):
         patterns = [
@@ -588,25 +601,38 @@ def nettoyer_noms_avances(noms, longueur_max=80):
                 return match.group(1).strip()
         return nom.strip()
 
+
     def nettoyer_et_normaliser(nom):
         # extraction initiale
         if nom.lower().startswith("le juge de paix du canton de visé a désigné à".lower()):
             nom = re.sub(r"le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+Visé\s+a\s+désigné\s+à\s+", "", nom,
                          flags=re.IGNORECASE)
 
-        nom = extraire_nom_depuis_phrase(nom)
-        # --- NOUVEAU : retirer le bruit légal neutre avant filtrage ---
+        # 👉 extraire un éventuel nom après "succession de ..."
+        extrait = extraire_nom_depuis_phrase(nom)
+        if extrait != nom:  # éviter récursion infinie
+            nom = extrait
+
+        # 🆕 suppression de blocs répétés 2× (OCR → "Tasnier Anne Marie Tasnier Anne Marie")
+        tokens = nom.split()
+        half = len(tokens) // 2
+        if half > 2 and tokens[:half] == tokens[half:]:
+            nom = " ".join(tokens[:half])
+
+        # --- Nettoyage neutre ---
         for rx in STRIP_PHRASES_REGEX:
             nom = rx.sub(" ", nom)
 
-        # suppression préfixes "né ...", "pour la succession ..."
+        # suppression préfixes "né ..." etc.
         nom = re.sub(rf"^\s*{PREFIXES}\s+", "", nom, flags=re.IGNORECASE)
 
         # suppression titres
         nom = re.sub(titres_regex, '', nom, flags=re.IGNORECASE)
-        # 🔹 suppression de tous les chiffres et signes associés
-        nom = re.sub(r"\d+", "", nom)  # chiffres simples
-        nom = re.sub(r"\s*[\/\-]\s*\d+\w*", "", nom)  # ex: 12/3, 45-A, 123B
+
+        # suppression chiffres et formats "12/3", "45-A"...
+        nom = re.sub(r"\d+", "", nom)
+        nom = re.sub(r"\s*[\/\-]\s*\d+\w*", "", nom)
+
         # coupe le contexte après le nom
         nom = re.split(CONTEXT_CUT, nom, 1, flags=re.IGNORECASE)[0]
 
@@ -614,7 +640,7 @@ def nettoyer_noms_avances(noms, longueur_max=80):
         nom = nom.replace(";", " ").replace("|", " ").replace(":", " ")
         nom = re.sub(r"\s+", " ", nom).strip(" ,;-")
 
-        # inversion éventuelle "Nom, Prénom"
+        # inversion éventuelle "NOM, Prénom"
         nom = invert_if_comma(nom)
 
         # suppression doublon final ("Moll Moll" → "Moll")
@@ -632,9 +658,34 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
     noms_nettoyes = []
     noms_normalises = []
+
+    def _dedupe_tokens(nom: str) -> str:
+        tokens = nom.split()
+        seen = []
+        for t in tokens:
+            if not seen or seen[-1].lower() != t.lower():
+                seen.append(t)
+        return " ".join(seen)
+
+    def _dedupe_blocks(n: str) -> str:
+        tokens = n.split()
+        half = len(tokens) // 2
+        if half > 2 and tokens[:half] == tokens[half:]:
+            return " ".join(tokens[:half])
+        return n
+
     for nom in noms:
 
         nom_nettoye, norm = nettoyer_et_normaliser(nom)
+        # 👉 étape anti-répétition OCR
+        nom_nettoye_dedup = _dedupe_tokens(nom_nettoye)
+        nom_nettoye_dedup = _dedupe_blocks(nom_nettoye_dedup)
+        if nom_nettoye_dedup != nom_nettoye:
+            loggernomdouble.warning(
+                f"[OCR doublon] Nom corrigé : '{nom_nettoye}' → '{nom_nettoye_dedup}'"
+            )
+        nom_nettoye = nom_nettoye_dedup
+
         if any(terme.strip() in nom_nettoye.lower().strip() for terme in termes_ignores):
             continue
         if len(nom_nettoye) > longueur_max:
@@ -647,9 +698,10 @@ def nettoyer_noms_avances(noms, longueur_max=80):
         to_remove = []
         dup = False
         for i, exist in enumerate(noms_normalises):
-            if norm == exist or norm in exist:
+            if norm == exist:  # égalité stricte seulement
                 dup = True
                 break
+            # si tu veux vraiment supprimer la plus courte :
             if exist in norm:
                 to_remove.append(i)
 
@@ -681,6 +733,10 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     full_text = soup.get_text(separator=" ").strip()
 
     nom_list = []
+
+    m = RX_ABSENCE.search(full_text)
+    if m:
+        nom_list.append(m.group(1).strip())
 
     for m in RX_INTERDIT_A.finditer(full_text):
         nom = (m.group('nom') or m.group('nom2')).strip()

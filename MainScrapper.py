@@ -4,6 +4,7 @@ import json
 import locale
 import logging
 import os
+import unicodedata
 import re
 import sys
 from collections import defaultdict
@@ -47,9 +48,10 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     extract_clean_text, clean_url, generate_doc_hash_from_html, \
     clean_date_jugement, extract_nrn_variants, has_person_names, norm_er, \
     clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
-    build_address_index, _norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
+    build_address_index, norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
     extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
-    verifier_premiere_adresse_apres_nom
+    verifier_premiere_adresse_apres_nom, remove_av_parentheses, to_list_dates, names_list_from_nom, \
+    remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
@@ -71,6 +73,12 @@ logger_adresses.debug("🔍 Logger 'adresses_logger' initialisé pour les adress
 # Par exemple pour la catégorie "succession"
 logger_nomspersonnes = setup_dynamic_logger(name="nomspersonnes_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomspersonnes.debug("🔍 Logger 'nomspersonnes_logger' initialisé pour les noms.")
+
+logger_nomsdouble = setup_dynamic_logger(name="nomsdouble_logger", keyword=keyword, level=logging.DEBUG)
+logger_nomsdouble.debug("🔍 Logger 'nomsdouble_logger' initialisé pour les noms.")
+
+logger_nomsvsdates = setup_dynamic_logger(name="nomsvsdates_logger", keyword=keyword, level=logging.DEBUG)
+logger_nomsvsdates.debug("🔍 Logger 'nomsvsdates_logger' initialisé pour les noms et dates.")
 
 logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
@@ -113,6 +121,108 @@ ADDRESS_INDEX = build_address_index(
 POSTAL_RE = re.compile(r"\b[1-9]\d{3}\s+[A-Za-zÀ-ÿ'’\- ]{2,}\b")
 BCE_RE = re.compile(r"\b\d{3}\.\d{3}\.\d{3}\b")
 
+
+def _log_len_mismatch(doc, date_naissance, date_deces, nom):
+    births = to_list_dates(date_naissance)
+    deaths = to_list_dates(date_deces)
+    names = names_list_from_nom(nom)
+
+    nb, nd, nn = len(births), len(deaths), len(names)
+    doc_hash = doc.get("doc_hash")
+
+    # 1) naissance vs décès
+    if nb != nd:
+        logger_nomsvsdates.warning(
+            f"[LEN_MISMATCH naissance≠décès] DOC={doc_hash} | n_naiss={nb} n_deces={nd} | "
+            f"naiss={births} | deces={deaths}"
+        )
+
+    # 2) dates vs nombre de noms (si on a au moins un nom)
+    if nn > 0 and (nb != nn or nd != nn):
+        logger_nomsvsdates.warning(
+            f"[LEN_MISMATCH dates≠noms] DOC={doc_hash} | n_noms={nn} n_naiss={nb} n_deces={nd} | "
+            f"noms={names} | naiss={births} | deces={deaths}"
+        )
+
+
+def _strip_accents(s: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
+
+def _first_token_from_nom_field(nom_field: dict | str) -> str | None:
+    """
+    Récupère le 1er canonical (si dict) ou la chaîne (si str),
+    puis retourne son 1er mot (ex: 'Carolina' pour 'Carolina Verboven').
+    """
+    base = None
+    if isinstance(nom_field, dict):
+        # priorité aux canonicals
+        cans = nom_field.get("canonicals") or []
+        if cans:
+            base = cans[0]
+        elif nom_field.get("records"):
+            base = nom_field["records"][0].get("canonical")
+        elif nom_field.get("aliases_flat"):
+            base = nom_field["aliases_flat"][0]
+    elif isinstance(nom_field, str):
+        base = nom_field
+
+    if not base:
+        return None
+
+    # 1er mot (lettres/accents/tirets/apostrophes)
+    m = re.search(r"[A-Za-zÀ-ÖØ-öø-ÿ'’-]+", base)
+    if not m:
+        return None
+    token = m.group(0).strip()
+    # Filtre mini longueur pour éviter 'de', 'le', etc. (tu peux ajuster)
+    return token if len(token) >= 3 else None
+
+def _log_nom_repetition_locale_first_token(doc, window=80):
+    """
+    Cherche la répétition locale du 1er mot du 1er canonical.
+    Si ce mot apparaît >= 2 fois dans une fenêtre courte => warning.
+    """
+    nom_field = doc.get("nom")
+    texte = doc.get("text", "") or ""
+    if not nom_field or not texte:
+        return
+
+    token = _first_token_from_nom_field(nom_field)
+    if not token:
+        return
+
+    # normalisation accent-insensible
+    token_key = _strip_accents(token).lower()
+    if not token_key:
+        return
+
+    texte_norm = _strip_accents(texte).lower()
+
+    # mot entier
+    pat = re.compile(rf"\b{re.escape(token_key)}\b", re.IGNORECASE)
+
+    for m in pat.finditer(texte_norm):
+        start, end = m.span()
+        left = max(0, start - window)
+        right = min(len(texte_norm), end + window)
+        fen = texte_norm[left:right]
+
+        # compte du token dans la fenêtre
+        if len(pat.findall(fen)) >= 2:
+            # utilise ton logger déjà défini (tu semblais utiliser `loggernomspersonnes`)
+            try:
+                logger_nomsdouble.warning(
+                    f"[Nom (1er mot) dédoublé localement] DOC={doc.get('doc_hash')} | "
+                    f"token='{token}' | fenêtre={window} | extrait=…{fen}…"
+                )
+            except NameError:
+                # fallback print si le logger n'existe pas dans ce scope
+                print(
+                    f"[Nom (1er mot) dédoublé localement] DOC={doc.get('doc_hash')} | "
+                    f"token='{token}' | fenêtre={window} | extrait=…{fen}…"
+                )
+            break  # un log par doc suffit
 
 # ---------------------------------------------------------------------------------------------------------------------
 #                               FONCTIONS PRINCIPALES D EXTRACTION
@@ -160,7 +270,7 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
 
         # 3) récupérer lignes + normaliser espaces/guillemets
         text = node.get_text("\n", strip=True).replace('"', " ").replace("’", "'")
-        lines = [_norm_spaces(ln) for ln in text.split("\n") if ln.strip()]
+        lines = [norm_spaces(ln) for ln in text.split("\n") if ln.strip()]
 
         # 4) filtrer le bruit puis garder les lignes avec CP
         out = []
@@ -320,6 +430,7 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         return (
             numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
             None, None, None, None, None, None, None, None)
+    # si terrorisme on a besoin de garder les liens pour acceder aux pdf où certains noms devront etre recherchés
     if keyword != "terrorisme":
         texte_brut = extract_clean_text(main)
     else:
@@ -388,34 +499,32 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
 
     # Cas normal
     # on va devoir deplacer nom
-    nom = extract_name_from_text(str(main), keyword, doc_id=doc_id)
-    raw_naissance = extract_date_after_birthday(str(main))  # liste ou str
+
+    texte_date_naissance = remove_av_parentheses(texte_brut)  # 🚨 on nettoie ici
+    texte_date_naissance_sansdup = remove_duplicate_paragraphs(texte_date_naissance)
+    texte_date_naissance_deces = dedupe_phrases_ocr(texte_date_naissance_sansdup)
+    raw_naissance = extract_date_after_birthday(str(texte_date_naissance_deces))  # liste ou str
+    nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
+
     if isinstance(raw_naissance, list):
         raw_naissance = [norm_er(s) for s in raw_naissance]
     elif isinstance(raw_naissance, str):
         raw_naissance = norm_er(raw_naissance)
-    date_naissance = convertir_date(raw_naissance)  # -> liste ISO ou None
+    date_naissance = convertir_date(raw_naissance)  # liste ISO ou None
 
     adresse = extract_address(str(texte_brut), doc_id=doc_id)
     if not date_jugement:
         date_jugement = extract_jugement_date(str(texte_brut))
 
     if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
-        raw_deces = extract_dates_after_decede(str(texte_brut), first_only=False)  # liste ou str
-
-        # Normalise les "er" dans la/les dates extraites
-        def _norm_er(x):
-            if isinstance(x, str):
-                x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
-                x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
-                return x
-            return x
+        raw_deces = extract_dates_after_decede(str(texte_date_naissance_deces), first_only=False)  # liste ou str
 
         if isinstance(raw_deces, list):
-            raw_deces = [_norm_er(s) for s in raw_deces]
+            raw_deces = [norm_er(s) for s in raw_deces]
         elif isinstance(raw_deces, str):
-            raw_deces = _norm_er(raw_deces)
-
+            raw_deces = norm_er(raw_deces)
+        # 🚨 Ajoute ce filtre ici
+            # 🚨 Applique le filtre contre les dates parasites (Av, Avenue, parenthèses)
         date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
         adresse = extract_address(str(texte_brut), doc_id=doc_id)
         detect_succession_keywords(texte_brut, extra_keywords)
@@ -424,17 +533,12 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
             raw_deces = extract_dates_after_decede(str(main))
 
-            def _norm_er(x):
-                if isinstance(x, str):
-                    x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
-                    x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
-                    return x
-                return x
+
 
             if isinstance(raw_deces, list):
-                raw_deces = [_norm_er(s) for s in raw_deces]
+                raw_deces = [norm_er(s) for s in raw_deces]
             elif isinstance(raw_deces, str):
-                raw_deces = _norm_er(raw_deces)
+                raw_deces = norm_er(raw_deces)
 
             date_deces = convertir_date(raw_deces)
 
@@ -510,18 +614,10 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         raw_deces = extract_dates_after_decede(str(main))  # liste ou str
         nom_trib_entreprise = clean_nom_trib_entreprise(nom_trib_entreprise)
 
-        # Normalise les "er" dans la/les dates extraites
-        def _norm_er(x):
-            if isinstance(x, str):
-                x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
-                x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
-                return x
-            return x
-
         if isinstance(raw_deces, list):
-            raw_deces = [_norm_er(s) for s in raw_deces]
+            raw_deces = [norm_er(s) for s in raw_deces]
         elif isinstance(raw_deces, str):
-            raw_deces = _norm_er(raw_deces)
+            raw_deces = norm_er(raw_deces)
 
         date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
 
@@ -693,23 +789,88 @@ for doc in documents:
                     seen_local.add(addr)
             doc["adresses_by_bce"] = cur_list or None
 
-# 🔪 Fonction pour tronquer tout texte après le début du récit
-def tronque_texte_apres_adresse(chaine):
-    marqueurs = [
-        " est décédé", " est décédée", " est morte",
-        " sans laisser", " Avant de statuer", " le Tribunal",
-        " article 4.33", " Tribunal de Première Instance"
-    ]
-    for m in marqueurs:
-        if m in chaine:
-            return chaine.split(m)[0].strip()
-    return chaine.strip()
 
-
+# On va faire les logs ici
 # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste
+# 🧼 Nettoyage des champs noms
+
 for doc in documents:
     adresse = doc.get("adresse")
     word = doc.get("keyword")
+    nom = doc.get("nom")
+    date_naissance = doc.get("date_naissance")
+    date_deces = doc.get("date_deces")
+
+
+    # ✅ Fonction utilitaire pour extraire le nom canonique
+    def extraire_nom_canonique(nom_field) -> list[str]:
+        """
+        Récupère TOUS les noms trouvés (canonicals, records, aliases…).
+        Pas de priorisation, juste une liste plate unique.
+        """
+        noms = []
+
+        if isinstance(nom_field, dict):
+            # canonicals
+            noms.extend([c.strip() for c in (nom_field.get("canonicals") or []) if isinstance(c, str) and c.strip()])
+
+            # records
+            for r in nom_field.get("records", []):
+                if isinstance(r, dict) and isinstance(r.get("canonical"), str):
+                    val = r["canonical"].strip()
+                    if val:
+                        noms.append(val)
+
+            # aliases_flat
+            noms.extend([a.strip() for a in (nom_field.get("aliases_flat") or []) if isinstance(a, str) and a.strip()])
+
+        elif isinstance(nom_field, list):
+            noms.extend([s.strip() for s in nom_field if isinstance(s, str) and s.strip()])
+
+        elif isinstance(nom_field, str):
+            noms.append(nom_field.strip())
+
+        # 🔄 déduplication case-insensitive
+        seen = set()
+        result = []
+        for n in noms:
+            key = n.lower()
+            if key not in seen:
+                result.append(n)
+                seen.add(key)
+
+        return result or []
+
+
+    # ✅ Vérif nom valide
+    def est_nom_valide(nom: str) -> bool:
+        if not isinstance(nom, str):
+            return False
+        tokens = [t for t in nom.strip().split() if t]
+        if len(tokens) < 2:  # doit avoir au moins prénom + nom
+            return False
+        if len("".join(tokens)) < 3:  # trop court
+             return False
+        STOPWORDS = {"de", "la", "le", "et", "des", "du", "l’", "l'"}
+        if all(t.lower() in STOPWORDS for t in tokens):
+            return False
+        return True
+
+
+    canon_name = extraire_nom_canonique(nom)
+
+    # On ne garde que les noms valides
+    noms_valides = [n for n in canon_name if est_nom_valide(n)]
+
+    if not noms_valides:
+        logger_nomspersonnes.warning(
+            f"[Nom invalide] DOC={doc.get('doc_hash')} | NOMS bruts='{nom}'"
+        )
+        doc["nom"] = None  # 🚫 aucun nom exploitable
+    else:
+        doc["nom"] = noms_valides  # ✅ liste de noms valides
+    _log_len_mismatch(doc, date_naissance, date_deces, nom)
+    _log_nom_repetition_locale_first_token(doc, window=80)  # 👈 ajout ici
     # Si c’est une chaîne → transforme en liste
     if isinstance(adresse, str):
         adresse = [adresse]
@@ -741,8 +902,6 @@ for doc in documents:
             # CP + Ville seuls (2–4 tokens) → on jette SEULEMENT s'il n'y a pas d'autre nombre que le CP
             # (ça évite de jeter "5600 Philippeville, Gueule-du-Loup(SAU) 161")
             # Détection des adresses type "4032 Liège" → on ne garde pas
-
-
             # Mots à nettoyer : matcher en MOT ENTIER pour éviter les faux positifs ("home", etc.)
             if any(re.search(rf"\b{re.escape(tok)}\b", cleaned.lower()) for tok in NETTOIE_ADRESSE_SET):
                 continue
@@ -759,7 +918,6 @@ for doc in documents:
                 seen.add(key)
                 adresse_cleaned.append(cleaned)
 
-
         # ❌ Supprimer trop court / trop long (après tout le reste)
         def nb_mots(s: str) -> int:
             # compte des "mots" alphanum (é, è, etc. inclus)
@@ -773,13 +931,11 @@ for doc in documents:
             a for a in adresse_cleaned
             if MIN_MOTS_ADR <= nb_mots(a) <= MAX_MOTS_ADR
         ]
-        nettoyer_adresses_par_keyword(adresse_cleaned, word)
         adresse_cleaned = nettoyer_adresses_par_keyword(adresse_cleaned, word)
         adresse_cleaned = prioriser_adresse_proche_nom_struct(
             doc.get("nom"),
             doc.get("text", ""),
             adresse_cleaned,
-            min_tokens_required=False  # tu as déjà filtré les adresses 'faibles' avant
         )
 
         doc["adresse"] = adresse_cleaned if adresse_cleaned else None
@@ -796,6 +952,7 @@ for doc in documents:
             doc_hash=doc.get("doc_hash"),
             logger=logger_adresses
         )
+
 
 
 if not documents:

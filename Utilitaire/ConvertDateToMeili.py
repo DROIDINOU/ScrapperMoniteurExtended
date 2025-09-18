@@ -15,20 +15,18 @@ MOIS = {
     "décembre": 12, "dec": 12, "déc": 12, "december": 12
 }
 
+
+# Convertit une date (numérique ou textuelle) en format 'YYYY-MM-DD'.
+# Retourne None si la date est vide ou invalide.
 def convertir_date(date_str):
-    """
-    Convertit une date (numérique ou textuelle) en format 'YYYY-MM-DD'.
-    Retourne None si la date est vide ou invalide.
-    """
     # --- AJOUT : prise en charge des listes/tuples ---
     if isinstance(date_str, (list, tuple)):
-        out, seen = [], set()
+        out = []
         for s in date_str:
             if not isinstance(s, str):
                 continue
             iso = convertir_date(s)  # réutilise la logique existante
-            if iso and iso not in seen:
-                seen.add(iso)
+            if iso:
                 out.append(iso)
         return out or None
     # -------------------------------------------------

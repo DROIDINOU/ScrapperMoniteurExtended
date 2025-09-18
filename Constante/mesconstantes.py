@@ -207,7 +207,7 @@ MOISMAPTEST = {
 
 MOIS_PATTERN = "|".join(map(re.escape, sorted(MOISMAP.keys(), key=len, reverse=True)))
 
-_MOISMAP_NORM = {
+MOISMAP_NORM = {
     # janvier
     "janvier": "01", "janv": "01", "jan": "01", "janiver": "01",
     # fevrier
