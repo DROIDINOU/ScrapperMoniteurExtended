@@ -6,42 +6,6 @@ from Utilitaire.outils.MesOutils import get_month_name, convert_french_text_date
 from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP
 
 
-def extract_date_after_rendu_par(texte_brut):
-
-    # 1️⃣ Format écrit en lettres
-    match_lettres = re.search(
-        r"le\s+(" + "|".join(JOURMAP.keys()) + r")\s+(" + "|".join(
-            MOISMAP.keys()) + r")\s+((?:deux\s+mille(?:[\s\-]\w+){0,2}))",
-        texte_brut,
-        flags=re.IGNORECASE
-    )
-    if match_lettres:
-        jour_txt = match_lettres.group(1).lower()
-        mois_txt = match_lettres.group(2).lower()
-        annee_txt = match_lettres.group(3).lower().replace("-", " ").strip()
-
-        jour = JOURMAP.get(jour_txt)
-        mois = MOISMAP.get(mois_txt)
-        annee = ANNEMAP.get(annee_txt)
-
-        if jour and mois and annee:
-            return f"{annee}-{mois}-{int(jour): 02d}"
-
-    # 2️⃣ Format numérique classique : 18/12/2024, 18-12-2024, 18.12.2024
-    match_numeric = re.search(r"\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b", texte_brut)
-    if match_numeric:
-        jour, mois, annee = match_numeric.groups()
-        if len(annee) == 2:
-            annee = f"20{annee}"  # suppose 21e siècle
-        return f"{annee}-{int(mois): 02d}-{int(jour): 02d}"
-
-    # 3️⃣ Format ISO : 2024-12-18, 2024/12/18, etc.
-    match_iso = re.search(r"\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b", texte_brut)
-    if match_iso:
-        annee, mois, jour = match_iso.groups()
-        return f"{annee}-{int(mois): 02d}-{int(jour): 02d}"
-    return None
-
 # ATTENTION A RETRAVAILLER PAS COMPLET
 def extract_jugement_date(text):
     """

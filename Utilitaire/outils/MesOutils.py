@@ -65,6 +65,32 @@ def get_month_name(month_num):
     ]
     return mois[month_num] if 1 <= month_num <= 12 else ""
 
+# __________________________________________________
+# Fonctions utilisees dans tribunal_premiere_instance_keyword
+# --------------------------------------------------
+def normalize_mois(val):
+    mots = {
+        "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5,
+        "six": 6, "sept": 7, "huit": 8, "neuf": 9, "dix": 10,
+        "onze": 11, "douze": 12
+    }
+    if val.isdigit():
+        return int(val)
+    return mots.get(val.lower(), None)
+
+
+# Petit normaliseur des nombres en mots → int (pour le tag "…_X_ans")
+# on a pas besoin de tout la generalement c est tjs les mêmes nombres d'annees
+_WORD2INT = {
+    "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9,
+    "dix": 10, "onze": 11, "douze": 12, "quinze": 15, "vingt": 20
+}
+
+
+def normalize_annees(val: str) -> int | None:
+    v = (val or "").strip().lower()
+    return int(v) if v.isdigit() else _WORD2INT.get(v)
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS RN
@@ -1034,16 +1060,7 @@ def clean_date_jugement(raw):
 # extract_numero_tva
 # extract_clean_text
 # ************************************
-# Petit normaliseur des nombres en mots → int (pour le tag "…_X_ans")
-_WORD2INT = {
-    "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9,
-    "dix": 10, "onze": 11, "douze": 12, "quinze": 15, "vingt": 20
-}
 
-
-def normalize_annees(val: str) -> int | None:
-    v = (val or "").strip().lower()
-    return int(v) if v.isdigit() else _WORD2INT.get(v)
 
 
 # faire comme celui en dessous pour plus de securite

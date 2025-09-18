@@ -859,13 +859,19 @@ for doc in documents:
 
     canon_name = extraire_nom_canonique(nom)
 
-    # On ne garde que les noms valides
     noms_valides = [n for n in canon_name if est_nom_valide(n)]
 
     if not noms_valides:
-        logger_nomspersonnes.warning(
+        # Log standard si aucun nom exploitable
+        logger_nomspersonnes.info(
             f"[Nom invalide] DOC={doc.get('doc_hash')} | NOMS bruts='{nom}'"
         )
+        # Log spécifique si plusieurs propositions invalides
+        if len(canon_name) > 1:
+            logger_nomspersonnes.warning(
+                f"[Tous les noms invalides] DOC={doc.get('doc_hash')} | "
+                f"NOMS candidats={canon_name}"
+            )
         doc["nom"] = None  # 🚫 aucun nom exploitable
     else:
         doc["nom"] = noms_valides  # ✅ liste de noms valides
