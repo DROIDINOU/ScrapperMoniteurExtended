@@ -1,19 +1,19 @@
 import re
 import unicodedata
+from bs4 import BeautifulSoup
 import logging
 
 # --- Modules internes au projet ---
 from Utilitaire.outils.MesOutils import strip_accents
+from logger_config import setup_logger, setup_dynamic_logger, LoggedList
 
 # ______________________________________________________________________________________________
 #                                          VARIABLES GLOBALES
 # -----------------------------------------------------------------------------------------------
+
 # logger + set pour eviter les doublons de log (doc_id +adresses)
 seen_nomspersonnes = set()
 
-# logger + set pour eviter les doublons de log (doc_id +adresses)
-loggernomdouble = logging.getLogger("nomsdouble_logger")
-logged_nomdouble = set()
 # ++++++++++++++++++++++++++++++++++++++
 #     VARIABLES / REGEX DE NETTOYAGE
 # ++++++++++++++++++++++++++++++++++++++
@@ -698,10 +698,6 @@ def nettoyer_noms_avances(noms, longueur_max=80):
         # 👉 étape anti-répétition OCR
         nom_nettoye_dedup = _dedupe_tokens(nom_nettoye)
         nom_nettoye_dedup = _dedupe_blocks(nom_nettoye_dedup)
-        if nom_nettoye_dedup != nom_nettoye:
-            loggernomdouble.warning(
-                f"[OCR doublon] Nom corrigé : '{nom_nettoye}' → '{nom_nettoye_dedup}'"
-            )
         nom_nettoye = nom_nettoye_dedup
 
         if any(terme.strip() in nom_nettoye.lower().strip() for terme in termes_ignores):
@@ -744,97 +740,97 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
 
 def extract_name_before_birth(texte_html, keyword, doc_id):
-    from bs4 import BeautifulSoup
-    import re
+
+    dyn_log = setup_dynamic_logger(name="extraction_names", keyword=keyword)
 
     soup = BeautifulSoup(texte_html, 'html.parser')
     full_text = soup.get_text(separator=" ").strip()
 
-    nom_list = []
+    nom_list = LoggedList(full_text, doc_id, logger=dyn_log)
 
-    m = RX_ABSENCE.search(full_text)
-    if m:
-        nom_list.append(m.group(1).strip())
+    absence = RX_ABSENCE.search(full_text)
+    if absence:
+        nom_list.append(absence.group(1).strip(), regex_name="RX_ABSENCE", m=absence)
 
-    for m in RX_INTERDIT_A.finditer(full_text):
-        nom = (m.group('nom') or m.group('nom2')).strip()
-        prenoms = (m.group('prenoms') or m.group('prenoms2')).strip()
-        nom_list.append(f"{nom}, {prenoms}")
+    for interdit_a in RX_INTERDIT_A.finditer(full_text):
+        nom = (interdit_a.group('nom') or interdit_a.group('nom2')).strip()
+        prenoms = (interdit_a.group('prenoms') or interdit_a.group('prenoms2')).strip()
+        nom_list.append(f"{nom}, {prenoms}", regex_name="RX_INTERDIT_A", m=interdit_a)
 
-    for m in RX_LE_NOMME_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for lenomme in RX_LE_NOMME_NP.finditer(full_text):
+        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}", regex_name="RX_LE_NOMME_NP", m=lenomme)
 
-    for m in RX_NR_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxnrnp in RX_NR_NP.finditer(full_text):
+        nom_list.append(f"{rxnrnp.group('nom').strip()}, {rxnrnp.group('prenoms').strip()}")
 
-    for m in RX_NP_NE.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxnpne in RX_NP_NE.finditer(full_text):
+        nom_list.append(f"{rxnpne.group('nom').strip()}, {rxnpne.group('prenoms').strip()}")
 
-    for m in RX_SV_ANY.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for succession_any in RX_SV_ANY.finditer(full_text):
+        nom_list.append(succession_any.group(1).strip(), regex_name="RX_SV_ANY", m=succession_any)
 
-    for m in RX_SV_NOM_COMPLET_VIRG.finditer(full_text):
-        nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}")
+    for rxsvnomcomplet in RX_SV_NOM_COMPLET_VIRG.finditer(full_text):
+        nom_list.append(f"{rxsvnomcomplet.group(1).strip()}, {rxsvnomcomplet.group(2).strip()}", regex_name="RX_SV_NOM_COMPLET_VIRG", m=rxsvnomcomplet)
 
-    for m in RX_SRV_SIMPLE.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for rxsrvsimple in RX_SRV_SIMPLE.finditer(full_text):
+        nom_list.append(rxsrvsimple.group(1).strip(), regex_name="RX_SRV_SIMPLE", m=rxsrvsimple)
 
-    for m in RX_SRV_NP.finditer(full_text):
-        nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}")
+    for rxsrvnp in RX_SRV_NP.finditer(full_text):
+        nom_list.append(f"{rxsrvnp.group(1).strip()}, {rxsrvnp.group(2).strip()}", regex_name="RX_SRV_NP", m=rxsrvnp)
 
     # (déjà précompilés ailleurs) — personnes visées par la succession / curateur
-    for m in RX_SV_PN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxsvpn in RX_SV_PN.finditer(full_text):
+        nom_list.append(f"{rxsvpn.group('nom').strip()}, {rxsvpn.group('prenoms').strip()}", regex_name="RX_SV_PN", m=rxsvpn)
 
-    for m in RX_SV_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxsvnp in RX_SV_NP.finditer(full_text):
+        nom_list.append(f"{rxsvnp.group('nom').strip()}, {rxsvnp.group('prenoms').strip()}", regex_name="RX_SV_NP", m=rxsvnp)
 
-    for m in RX_CURATEUR_SV_PN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxcurateursvpn in RX_CURATEUR_SV_PN.finditer(full_text):
+        nom_list.append(f"{rxcurateursvpn.group('nom').strip()}, {rxcurateursvpn.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_PN", m=rxcurateursvpn)
 
-    for m in RX_CURATEUR_SV_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxcurateursvnp in RX_CURATEUR_SV_NP.finditer(full_text):
+        nom_list.append(f"{rxcurateursvnp.group('nom').strip()}, {rxcurateursvnp.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_NP", m=rxcurateursvnp)
 
     # variantes supplémentaires
-    for m in RX_SV_NOM_VIRG_PRENOMS.finditer(full_text):
-        nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}")
+    for rxsvnomvirgprenoms in RX_SV_NOM_VIRG_PRENOMS.finditer(full_text):
+        nom_list.append(f"{rxsvnomvirgprenoms.group(1).strip()}, {rxsvnomvirgprenoms.group(2).strip()}", regex_name="RX_SV_NOM_VIRG_PRENOMS", m=rxsvnomvirgprenoms)
 
-    for m in RX_SV_FEU_PAIRE.finditer(full_text):
-        nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}")
+    for rxsvfeupaire in RX_SV_FEU_PAIRE.finditer(full_text):
+        nom_list.append(f"{rxsvfeupaire.group(1).strip()}, {rxsvfeupaire.group(2).strip()}", regex_name="RX_SV_FEU_PAIRE", m=rxsvfeupaire)
 
     # 🔹 Ajout spécifique pour : "mesures de protection à l’égard de la personne et des biens de l’intéressé Prénom Nom, né à ..."
-    for m in RX_PROTECTION_INTERESSE_NE.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+    for rxprotectioninteressene in RX_PROTECTION_INTERESSE_NE.finditer(full_text):
+        nom_list.append(f"{rxprotectioninteressene.group('nom').strip()}, {rxprotectioninteressene.group('prenoms').strip()}", regex_name="RX_PROTECTION_INTERESSE_NE", m= rxprotectioninteressene)
 
-    for m in RX_SV_FEU_VARIANTES.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for rxsvfeuvariantes in RX_SV_FEU_VARIANTES.finditer(full_text):
+        nom_list.append(rxsvfeuvariantes.group(1).strip(), regex_name="RX_SV_FEU_VARIANTES", m=rxsvfeuvariantes)
 
-    for m in RX_SRV_M_RN.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for rxsrvmrn in RX_SRV_M_RN.finditer(full_text):
+        nom_list.append(rxsrvmrn.group(1).strip(), regex_name="RX_SRV_M_RN", m=rxsrvmrn)
 
-    for m in RX_ADMIN_SV_SPEC.finditer(full_text):
-        parts = m.group(1).strip().split()
+    for rxadminsvspec in RX_ADMIN_SV_SPEC.finditer(full_text):
+        parts = rxadminsvspec.group(1).strip().split()
         if len(parts) >= 2:
-            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}")
+            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_ADMIN_SV_SPEC", m=rxadminsvspec)
 
-    for m in RX_SV_PART_VAC.finditer(full_text):
-        parts = m.group(1).strip().split()
+    for rxsvpartvac in RX_SV_PART_VAC.finditer(full_text):
+        parts = rxsvpartvac.group(1).strip().split()
         if len(parts) >= 2:
-            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}")
+            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_SV_PART_VAC", m=rxsvpartvac)
 
-    for m in RX_ADMIN_SV_VAC_ALT.finditer(full_text):
-        parts = m.group(1).strip().split()
+    for rxadminsvvacalt in RX_ADMIN_SV_VAC_ALT.finditer(full_text):
+        parts = rxadminsvvacalt.group(1).strip().split()
         if len(parts) >= 2:
-            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}")
+            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_ADMIN_SV_VAC_ALT", m=rxadminsvvacalt)
 
-    for m in RX_SV_NE_LE.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for rxsvnele in RX_SV_NE_LE.finditer(full_text):
+        nom_list.append(rxsvnele.group(1).strip(), regex_name="RX_SV_NE_LE", m=rxsvnele)
 
-    for m in RX_SV_DESHERENCE_SIMPLE.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for rxsvdesherencesimple in RX_SV_DESHERENCE_SIMPLE.finditer(full_text):
+        nom_list.append(rxsvdesherencesimple.group(1).strip(), regex_name="RX_SV_DESHERENCE_SIMPLE", m=rxsvdesherencesimple)
 
-    for m in RX_ADMIN_PROV_SUCC_DE.finditer(full_text):
-        nom_list.append(m.group(1).strip())
+    for rxadminprovsuccde in RX_ADMIN_PROV_SUCC_DE.finditer(full_text):
+        nom_list.append(rxadminprovsuccde.group(1).strip(), regex_name="RX_ADMIN_PROV_SUCC_DE", m=rxadminprovsuccde)
 
     for m in RX_SRV_NOMPRENOM.finditer(full_text):
         nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
@@ -1437,5 +1433,6 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     seen_nomspersonnes.update(
         (doc_id, n.strip().lower()) for n in nouveaux_noms
     )
-
+    if isinstance(nom_list, LoggedList):
+        nom_list.flush()
     return group_names_for_meili(noms_nettoyes)
