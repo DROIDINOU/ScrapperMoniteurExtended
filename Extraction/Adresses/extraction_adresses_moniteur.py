@@ -3,6 +3,9 @@ import re
 from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
 from Utilitaire.outils.MesOutils import nettoyer_adresse, couper_fin_adresse
 
+# PROX : sert à limiter des recherches contextuelles à ~80 caractères autour
+    # utile pour matcher "domicilié à ..." dans une phrase plus large
+PROX = r"[^\.]{0,80}?"
 
 def extract_address(texte_html, doc_id):
     # ______________________________
@@ -16,19 +19,45 @@ def extract_address(texte_html, doc_id):
              .replace("\xa0", " ")
              .replace("\u202f", " ")
              .replace("\u2009", " ")
-             .replace("\u200a", " "))
+             .replace("\u200a", " ")
+             # ↓ normalise les guillemets typographiques
+             .replace("“", '"').replace("”", '"')
+             .replace("«", '"').replace("»", '"'))
     texte = re.sub(r'\s+', ' ', texte).strip()
     # ______________________________
     #        REGEX PRECIS
     # -------------------------------
     # reperage des domiciles
-    DOMI = r"(?:domicili(?:é|ée|e|\(e\))?)"
+    DOMI = r"(?:domicili(?:é|ée|e|\(e\))?(?:\s+et\s+résidant(?:e)?)?)"
     # Ce regex reconnaît un numéro d’adresse réaliste : simple (42), avec lettre (42B), avec sous-numéro (42/7),
     # avec lettre + sous-numéro (42A/3B).
     NUM_TOKEN = r"\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-ZÀ-ÿ0-9\-]+)?"
     # Capture les différentes facon d'écrire numero
     NUM_LABEL = r"(?:num(?:[ée]ro)?\.?|n[°ºo]?\.?|nr\.?)"
     # Regex extraction d'adresses
+    RX_DOMI_CP_VILLE_PRECISION_RUE_NUM_FALLBACK = re.compile(
+        rf"""
+        {DOMI}[\s\S]{{0,120}}?\bà\s+                      # ex: "domicilié et résidant à"
+        (?P<cp>\d{{4}})\s+                                # CP
+        (?P<ville>[A-ZÀ-ÖØ-öø-ÿ'’\- ]+?)\s*,\s*           # Ville
+        (?P<precision>(?:"[^"]+"|[«»“”][^«»“”]+[«»“”]|[^,]+?))\s*,\s*  # "La Tramontane II" ou texte libre
+        (?P<type>rue|avenue|av\.?|chauss[ée]e|place|boulevard|
+            impasse|chemin|square|all[ée]e|clos|voie)\s+   # type de voie
+        (?P<nomvoie>[A-ZÀ-ÖØ-öø-ÿ0-9'’\-\.\s()]+?)\s+     # nom de voie
+        (?P<num>""" + NUM_TOKEN + r""")                   # numéro (710, 710A, 710/2, ...)
+        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*(?P<boite>[A-Z0-9/\.\-]+))? # boîte optionnelle
+        """,
+        flags=re.IGNORECASE | re.UNICODE | re.VERBOSE,
+    )
+    # Ajoute ce passage de collecte juste après la compile :
+    for m in RX_DOMI_CP_VILLE_PRECISION_RUE_NUM_FALLBACK.finditer(texte):
+        adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}"
+        boite = m.groupdict().get('boite')
+        if boite:
+            adr += f", boîte {boite}"
+        adr += f", à {m.group('cp')} {m.group('ville')}"
+        # harmonisation comme ailleurs
+        adresse_list.append(adr)
     # 1) "domicilié à CP VILLE, <type> <voie>, NUM"
     RX_VILLE_VOIE_VIRGULE_NUM_TY = re.compile(rf"""
         {DOMI}\s+à\s+
@@ -161,6 +190,19 @@ def extract_address(texte_html, doc_id):
         """,
         flags=re.IGNORECASE | re.VERBOSE,
     )
+    RX_CP_VILLE_PRECISION_RUE_FLEX = re.compile(
+        rf"""
+        {DOMI}\s+à\s+
+        (?P<cp>\d{{4}})\s+
+        (?P<ville>[A-ZÀ-ÿ'’\- ]+?)\s*,\s*
+        (?P<precision>(?:"[^"]+"|[^,]+?))\s*,\s*   # ← accepte "La Tramontane II" ou du texte libre
+        (?P<type>rue|avenue|Av\.|chauss[ée]e|place|boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+
+        (?P<nomvoie>[A-ZÀ-ÿa-z'’\- ]+?)\s+
+        (?P<num>\d{{1,4}})
+        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*(?P<boite>[A-Z0-9/\.\-]+))?
+        """,
+        flags=re.IGNORECASE | re.VERBOSE,
+    )
     # ⚡ Fast-path ciblé sur le texte complet (pas de segmentation)
     #for m in RX_CHAUMONT_RESIDENCE.finditer(texte):
         # adr = f"résidence {m.group('resname').strip()} {m.group('num')}, à {m.group('cp')} {m.group('ville')}, {m.group('localite').strip()}"
@@ -171,6 +213,14 @@ def extract_address(texte_html, doc_id):
         adresse_list.append(adr)
         # — Cas 3 : "4020 Liège, La Maison Heureuse, Rue Winston-Churchill 353"
     for m in RX_CP_VILLE_PRECISION_RUE.finditer(texte):
+        adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}"
+        boite = m.groupdict().get('boite')
+        if boite:
+            adr += f", boîte {boite}"
+        adr += f", à {m.group('cp')} {m.group('ville')}"
+        adresse_list.append(adr)
+
+    for m in RX_CP_VILLE_PRECISION_RUE_FLEX.finditer(texte):
         adr = f"{m.group('type').capitalize()} {m.group('nomvoie').strip()} {m.group('num')}"
         boite = m.groupdict().get('boite')
         if boite:
@@ -191,6 +241,34 @@ def extract_address(texte_html, doc_id):
             adr += f", boîte {box}"
         adr += f", à {cp} {ville}"
         adresse_list.append(adr)  # <— TU OUBLIAIS CETTE LIGNE
+
+    RX_CP_VILLE_VOIE_LOCALITE_NUM = re.compile(rf"""
+        {DOMI}\s+à\s+                                  # "domicilié à"
+        (?P<cp>\d{{4}})\s+                              # CP
+        (?P<ville>[A-ZÀ-ÖØ-öø-ÿ'’\- ]+?)\s*,\s*         # Ville
+        (?P<type>rue|avenue|av\.?|chauss[ée]e|place|
+            boulevard|impasse|chemin|square|all[ée]e|clos|voie)\s+  # type de voie
+        (?P<nomvoie>[A-ZÀ-ÖØ-öø-ÿ0-9'’\-\.\s()]+?)\s*,\s*           # nom de voie
+        (?P<localite>[A-ZÀ-ÖØ-öø-ÿ'’\- ]+?)\s+                      # ← localité (ex: Furnaux)
+        (?:(?:{NUM_LABEL})\s*)?                                     # "n°", "nr", ...
+        (?P<num>""" + NUM_TOKEN + r""")                             # numéro (83, 83A, 83/2, ...)
+        (?:\s*,?\s*(?:bo[îi]te|bte|bt|bus)\s*(?P<boite>[A-Z0-9/\.\-]+))? # boîte (optionnelle)
+    """, re.IGNORECASE | re.UNICODE | re.VERBOSE)
+
+    for m in RX_CP_VILLE_VOIE_LOCALITE_NUM.finditer(texte):
+        cp = m.group('cp')
+        ville = m.group('ville').strip()
+        voie_type = m.group('type')
+        nomvoie = m.group('nomvoie').strip()
+        localite = m.group('localite').strip()
+        num = m.group('num')
+        boite = m.group('boite')
+
+        adr = f"{(voie_type or '').capitalize()} {nomvoie} {num}"
+        if boite:
+            adr += f", boîte {boite}"
+        adr += f", à {cp} {ville}, {localite}"
+        adresse_list.append(adr)
 
     # 6) "domicilié à CP Ville, Rue NUM"
     for m in re.finditer(
@@ -316,9 +394,6 @@ def extract_address(texte_html, doc_id):
     # Si après l’adresse on tombe sur une virgule, un point-virgule, ou un mot-clé comme "B.C.E."
     END_CUT = r"(?=(?:\s*[;,]|(?:\s*B\.?C\.?E\.?)|(?:\s*TVA)|$))"
 
-    # PROX : sert à limiter des recherches contextuelles à ~80 caractères autour
-    # utile pour matcher "domicilié à ..." dans une phrase plus large
-    PROX = r"[^\.]{0,80}?"
 
     # Motifs "core" réutilisables (tes définitions)
     core_1 = rf"(\d{{4}}\s+{MOTS_NOM_VOIE},\s*{MOTS_NOM_VOIE}\s*{VOIE_ALL}\s*{NUM_TOKEN})" + END_CUT

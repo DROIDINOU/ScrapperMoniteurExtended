@@ -4,6 +4,8 @@ import pickle
 import hashlib
 import csv
 import re
+import unicodedata
+
 
 # --- Bibliothèques tierces ---
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -21,10 +23,94 @@ from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INS
 #   les dicts gardent l’ordre d’insertion).
 #   dict.fromkeys(seq) crée un dictionnaire dont les clés sont les éléments de la liste.
 
+# ----------------------------------------------------------------------------------------------------------------------
+#                                         FONCTIONS ACCES DE FICHIERS
+# ----------------------------------------------------------------------------------------------------------------------
 
+
+def _cache_path_for(csv_path: str) -> str:
+    base = os.path.splitext(os.path.basename(csv_path))[0]
+    os.makedirs(".cache", exist_ok=True)
+    return os.path.join(".cache", f"{base}.denoms.pkl")
+
+
+def _csv_mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
 # ----------------------------------------------------------------------------------------------------------------------
-#                                         FONCTIONS DE NORMALISATION
+#                                         FONCTIONS DE NETTOYAGE D'URL
 # ----------------------------------------------------------------------------------------------------------------------
+
+
+def clean_url(url):
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+
+    # Supprimer 'exp' de la query string s'il existe
+    query.pop("exp", None)
+
+    # Reconstruire l'URL sans 'exp'
+    cleaned_query = urlencode(query, doseq=True)
+    cleaned_url = urlunparse(parsed._replace(query=cleaned_query))
+    return cleaned_url
+# ----------------------------------------------------------------------------------------------------------------------
+#                                         FONCTIONS ET VARIABLE DE NORMALISATION
+# ----------------------------------------------------------------------------------------------------------------------
+# ____________________________________________________________
+    # Extrait un texte propre à partir d’un objet BeautifulSoup.
+    # Par défaut, supprime la section 'Liens :' et ses liens.
+    # Passez remove_links=False pour ne pas la supprimer.
+# ____________________________________________________________
+
+
+# --------------------------------------------------------------------------------------
+# UNICODE_SPACES_MAP : Créer un dictionnaire de correspondance Unicode
+# pour remplacer certains espaces spéciaux invisibles par un espace standard (" ").
+# _norm_spaces :
+# --------------------------------------------------------------------------------------
+UNICODE_SPACES_MAP = dict.fromkeys(map(ord, "\u00A0\u202F\u2007\u2009\u200A\u200B"), " ")
+
+
+def extract_clean_text(soup, remove_links: bool = True):
+    # ⬇️ Comportement inchangé par défaut
+    if remove_links:
+        for el in soup.select(
+                'h2.links-title, a.links-link, #link-text, .links, button#link-button, button.button'
+        ):
+            el.decompose()
+
+    output = []
+    last_was_tag = None
+
+    for elem in soup.descendants:
+        if isinstance(elem, NavigableString):
+            txt = elem.strip()
+            if txt:
+                if last_was_tag in ("font", "sup", "text"):
+                    output.append(" ")
+                output.append(txt)
+                last_was_tag = "text"
+        elif isinstance(elem, Tag):
+            tag_name = elem.name.lower()
+            if tag_name == "br":
+                output.append(" ")
+                last_was_tag = "br"
+            elif tag_name == "sup":
+                sup_text = elem.get_text(strip=True)
+                if output and output[-1].isdigit():
+                    output[-1] = output[-1] + sup_text
+                else:
+                    output.append(sup_text)
+                last_was_tag = "sup"
+            else:
+                last_was_tag = tag_name
+
+    text = "".join(output)
+    text = text.replace('\u00a0', ' ').replace('\u200b', '').replace('\ufeff', '')
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 
 # normalisation des espaces
@@ -33,9 +119,118 @@ def norm_spaces(s: str) -> str:
         return ""
     s = s.replace("\xa0", " ").replace("\u202f", " ").replace("\u2009", " ").replace("\u200a", " ")
     return re.sub(r"\s+", " ", s).strip()
+
+
+# Supprime les accents/diacritiques d'une chaîne Unicode.
+# Paramètres:
+# - s: chaîne d'entrée.
+# - compatibility: si True, utilise NFKD (décomposition de compatibilité),
+# sinon NFD (décomposition canonique).
+# - lower: si True, convertit la chaîne résultante en minuscules.
+# Retour:
+# - nouvelle chaîne avec les marques non-spacing (Mn) retirées.
+def strip_accents(s: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFD', s)
+                   if unicodedata.category(c) != 'Mn')
+
+
 # ----------------------------------------------------------------------------------------------------------------------
-#                                         FONCTIONS UTILISEES POUR LES DATES
+#                                 FONCTIONS DE NETTOYAGE D'ERREURS RECURENTES
+#   1 : normaliser_espaces_invisibles : Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
+#       (espaces insécables, espaces fines, etc.) par des espaces normaux,
+#       et en supprimant les espaces zéro largeur.
+#   2 : strip_html_tags : supprime les balises html du texte
+#   3 : fonctions suppression erreurs d'ocr (doublons)
+#       - remove_duplicate_paragraphs - remove_av_parentheses - dedupe_phrases_ocr
+#   4 : norm_er : supprimer double er pour les dates
 # ----------------------------------------------------------------------------------------------------------------------
+# 1 : Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
+def normaliser_espaces_invisibles(s: str) -> str:
+    if not s:
+        return ""
+    # Remplace les espaces invisibles par un vrai espace
+    return s.replace('\u00A0', ' ') \
+            .replace('\u202F', ' ') \
+            .replace('\u2009', ' ') \
+            .replace('\u200A', ' ') \
+            .replace('\u200B', '')  \
+            .strip()\
+            .lower()\
+
+
+# 2 : strip_html_tags : supprime les balises html du texte
+#     Supprime toutes les balises HTML d'une chaîne de texte.
+#     Utilise une expression régulière pour matcher toute séquence de type <...>
+#     (non-gourmande, pour ne pas avaler trop de contenu), puis la remplace par une chaîne vide.
+def strip_html_tags(text):
+    return re.sub('<.*?>', '', text)
+
+
+# --------------------------
+# 3 Suppressions erreurs OCR
+# --------------------------
+# Supprime paragraphes dedoublés
+def remove_duplicate_paragraphs(text: str) -> str:
+    # Découpe à chaque "Déclaration d'acceptation"
+    blocks = re.split(r'(?=Déclaration d\'acceptation)', text)
+
+    seen = set()
+    uniques = []
+    for b in blocks:
+        b = b.strip()
+        if not b:
+            continue
+        if b not in seen:
+            seen.add(b)
+            uniques.append(b)
+
+    # On recolle les blocs avec un espace (ou double saut de ligne si tu préfères)
+    return " ".join(uniques)
+
+
+# supprime tutes les parenthèses qui commencent par Av / Av.
+def remove_av_parentheses(texte: str) -> str:
+    return re.sub(r"\(Av\.?.*?\)", "", texte, flags=re.IGNORECASE)
+
+
+# Supprime des doublons OCR fréquents comme 'Succession en déshérence Succession en déshérence'
+def dedupe_phrases_ocr(texte: str) -> str:
+    # Cas 1 : duplication directe mot pour mot
+    texte = re.sub(r"(Succession en déshérence)\s+\1", r"\1", texte, flags=re.IGNORECASE)
+    # Cas 2 : tu peux prévoir d’autres séquences récurrentes
+    # (ex. "Administration générale ... Administration générale ...")
+    # texte = re.sub(r"(Administration générale de la documentation patrimoniale),?\s+\1",
+    # r"\1", texte, flags=re.IGNORECASE)
+    return texte
+
+
+# 4 Supprimer double er pour les dates
+def norm_er(x):
+    if isinstance(x, str):
+            x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
+            x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
+            return x
+    return x
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                         FONCTIONS UTILISEES POUR OU SUR LES DATES
+# ----------------------------------------------------------------------------------------------------------------------
+def _clean_dates_and_grands_nombres(s: str) -> str:
+    """Supprime les motifs de type dates + grands nombres (>6 chiffres, avec ou sans séparateur)."""
+    months = r"(janvier|février|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|décembre)"
+
+    # Dates classiques
+    s = re.sub(rf"\b\d{{1,2}}\s+{months}\s+\d{{4}}\b", "", s, flags=re.IGNORECASE)
+    s = re.sub(rf"\b{months}\s+\d{{4}}\b", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", "", s)
+    s = re.sub(r"\b(19|20)\d{2}\b", "", s)
+
+    # Suites de plus de 6 chiffres (avec ou sans séparateurs)
+    s = re.sub(r"\b\d{7,}\b", "", s)                         # 1234567
+    s = re.sub(r"\b(?:\d[\.\-]){6,}\d\b", "", s)             # 85.08.11-207.58 etc.
+
+    return s
 
 
 # Convertit une date en lettres (ex : 'trente mai deux mil vingt-trois')
@@ -65,6 +260,7 @@ def get_month_name(month_num):
     ]
     return mois[month_num] if 1 <= month_num <= 12 else ""
 
+
 # __________________________________________________
 # Fonctions utilisees dans tribunal_premiere_instance_keyword
 # --------------------------------------------------
@@ -91,6 +287,110 @@ def normalize_annees(val: str) -> int | None:
     v = (val or "").strip().lower()
     return int(v) if v.isdigit() else _WORD2INT.get(v)
 
+
+def to_list_dates(x):
+    """Normalise un champ date (None/str/list/tuple) en liste de chaînes non vides."""
+    if x is None:
+        return []
+    if isinstance(x, str):
+        return [x] if x.strip() else []
+    if isinstance(x, (list, tuple)):
+        return [s for s in x if isinstance(s, str) and s.strip()]
+    return []
+
+
+def clean_date_jugement(raw):
+    """
+    Extrait uniquement la date au format '16 juin 2025'
+    et ignore ce qui suit (points, texte...).
+    """
+    mois = (
+        "janvier|février|mars|avril|mai|juin|juillet|août|"
+        "septembre|octobre|novembre|décembre"
+    )
+    pattern_date = rf"\b\d{{1,2}}\s+(?:{mois})\s+\d{{4}}\b"
+    match = re.search(pattern_date, raw, flags=re.IGNORECASE)
+    if match:
+        return match.group(0).strip()
+    return None
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS POUR NETTOYER DOC NOM
+# ----------------------------------------------------------------------------------------------------------------------
+def filtrer_doc(doc: dict) -> dict:
+    """
+    Nettoie les champs noms d'un document :
+    - supprime les records invalides
+    - filtre les canonicals
+    - filtre les aliases_flat
+    - recalcule doc["nom"] avec le premier canonical valide
+    """
+    def est_nom_valide(nom: str) -> bool:
+        STOPWORDS = {"de", "la", "le", "et", "des", "du", "l’", "l'"}
+        EXCLUSIONWORD = {
+            "de l'intéressé", "et remplacée", "de la",
+            "l'intéressé et", "l'intéressé", "suite au", "suite aux"
+        }
+
+        if not isinstance(nom, str):
+            return False
+
+        # Normalisation basique
+        normalise = normaliser_espaces_invisibles(nom.strip().lower()).replace("’", "'")
+
+        # Mot ou expression interdite
+        if normalise in {w.replace("’", "'").lower() for w in EXCLUSIONWORD}:
+            return False
+
+        tokens = [t for t in nom.strip().split() if t]
+        if len(tokens) < 2:  # doit avoir au moins prénom + nom
+            return False
+        if len("".join(tokens)) < 3:  # trop court
+            return False
+
+        # Tous les tokens sont des stopwords
+        if all(t.lower() in STOPWORDS for t in tokens):
+            return False
+
+        return True
+
+    # --- Filtrage des records
+    if "records" in doc and isinstance(doc["records"], list):
+        new_records = []
+        for r in doc["records"]:
+            if not isinstance(r, dict):
+                continue
+            nom = r.get("canonical", "")
+            if isinstance(nom, str) and nom.strip() and est_nom_valide(nom):
+                new_records.append(r)
+        doc["records"] = new_records
+
+    # --- Filtrage des canonicals
+    if "canonicals" in doc and isinstance(doc["canonicals"], list):
+        doc["canonicals"] = [
+            c for c in doc["canonicals"]
+            if isinstance(c, str) and c.strip() and est_nom_valide(c)
+        ]
+
+    # --- Filtrage des aliases_flat
+    if "aliases_flat" in doc and isinstance(doc["aliases_flat"], list):
+        doc["aliases_flat"] = [
+            a for a in doc["aliases_flat"]
+            if isinstance(a, str) and a.strip() and est_nom_valide(a)
+        ]
+
+    # --- Met à jour doc["nom"] avec le premier canonical valide
+    if doc.get("canonicals"):
+        doc["nom"] = doc["canonicals"][0]
+    elif doc.get("records"):
+        doc["nom"] = doc["records"][0].get("canonical")
+    elif doc.get("aliases_flat"):
+        doc["nom"] = doc["aliases_flat"][0]
+    else:
+        doc["nom"] = None
+
+    return doc
 
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS RN
@@ -155,7 +455,6 @@ def extract_nrn_variants(text: str):
         nrn = f"{yy}{mm}{dd}{bloc}{suffix}"
         if is_valid_nrn(nrn):
             out.append(_norm_nrn(yy, mm, dd, bloc, suffix))
-
     # Déduplication
     return list(dict.fromkeys(out))
 
@@ -233,21 +532,46 @@ def extract_numero_tva(text: str, format_output: bool = False) -> list[str]:
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-#                                 FONCTIONS UTILISEES POUR LES SUCCESSIONS
+#                                         FONCTIONS AUTRES
 # ----------------------------------------------------------------------------------------------------------------------
+# ____________________________________________________________
+    # Retourne True si 'erratum', 'errata' ou 'ordonnance rectificative' est détecté
+    # dans les 400 premiers caractères du texte HTML. Sinon False.
+# ____________________________________________________________
+def detect_erratum(texte_html):
+
+    soup = BeautifulSoup(texte_html, 'html.parser')
+    full_text = soup.get_text(separator=" ").strip().lower()
+    snippet = full_text[:400]
+
+    if re.search(r"\berrat(?:um|a)\b", snippet):
+        return True
+
+    if re.search(r"\bordonnance\s+rectificative\b", snippet):
+        return True
+
+    return False
 
 
-def to_list_dates(x):
-    """Normalise un champ date (None/str/list/tuple) en liste de chaînes non vides."""
-    if x is None:
-        return []
-    if isinstance(x, str):
-        return [x] if x.strip() else []
-    if isinstance(x, (list, tuple)):
-        return [s for s in x if isinstance(s, str) and s.strip()]
-    return []
+def generate_doc_hash_from_html(html, date_doc):
+    soup = BeautifulSoup(html, 'html.parser')
+    for tag in soup(["script", "style", "font", "span", "mark"]):
+        tag.decompose()
+    text = soup.get_text(separator=" ", strip=True)
+    text = re.sub(r"Liens\s*:.*?(Haut de la page|Copier le lien).*?$", "", text, flags=re.DOTALL)
+    text = re.sub(r"https://www\.ejustice\.just\.fgov\.be[^\s]+", "", text)
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # 💡 Inclure la date dans le hash
+    full_string = f"{date_doc}::{text}"
+    return hashlib.sha256(full_string.encode("utf-8")).hexdigest()
 
 
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS UTILISEES POUR LES NOMS
+# ----------------------------------------------------------------------------------------------------------------------
 def names_list_from_nom(nom):
     """
     Extrait la liste des noms 'canonicals' depuis le champ nom (voir structure fournie).
@@ -277,82 +601,6 @@ def names_list_from_nom(nom):
         return [nom] if nom.strip() else []
     return []
 
-
-# ----------------------------------------------------------------------------------------------------------------------
-#                                 FONCTIONS DE NETTOYAGE D'ERREURS RECURENTES
-#   1 : normaliser_espaces_invisibles : Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
-#       (espaces insécables, espaces fines, etc.) par des espaces normaux,
-#       et en supprimant les espaces zéro largeur.
-#   2 : strip_html_tags : supprime les balises html du texte
-#   3 : fonctions suppression erreurs d'ocr (doublons)
-#       - remove_duplicate_paragraphs - remove_av_parentheses - dedupe_phrases_ocr
-#   4 : norm_er : supprimer double er pour les dates
-# ----------------------------------------------------------------------------------------------------------------------
-# 1 : Nettoie une chaîne de texte en remplaçant les espaces "invisibles"
-def normaliser_espaces_invisibles(s: str) -> str:
-    if not s:
-        return ""
-    # Remplace les espaces invisibles par un vrai espace
-    return s.replace('\u00A0', ' ') \
-            .replace('\u202F', ' ') \
-            .replace('\u2009', ' ') \
-            .replace('\u200A', ' ') \
-            .replace('\u200B', '')  # espace zéro largeur
-
-
-# 2 : strip_html_tags : supprime les balises html du texte
-#     Supprime toutes les balises HTML d'une chaîne de texte.
-#     Utilise une expression régulière pour matcher toute séquence de type <...>
-#     (non-gourmande, pour ne pas avaler trop de contenu), puis la remplace par une chaîne vide.
-def strip_html_tags(text):
-    return re.sub('<.*?>', '', text)
-
-
-# --------------------------
-# 3 Suppressions erreurs OCR
-# --------------------------
-# Supprime paragraphes dedoublés
-def remove_duplicate_paragraphs(text: str) -> str:
-    # Découpe à chaque "Déclaration d'acceptation"
-    blocks = re.split(r'(?=Déclaration d\'acceptation)', text)
-
-    seen = set()
-    uniques = []
-    for b in blocks:
-        b = b.strip()
-        if not b:
-            continue
-        if b not in seen:
-            seen.add(b)
-            uniques.append(b)
-
-    # On recolle les blocs avec un espace (ou double saut de ligne si tu préfères)
-    return " ".join(uniques)
-
-
-# supprime tutes les parenthèses qui commencent par Av / Av.
-def remove_av_parentheses(texte: str) -> str:
-    return re.sub(r"\(Av\.?.*?\)", "", texte, flags=re.IGNORECASE)
-
-
-# Supprime des doublons OCR fréquents comme 'Succession en déshérence Succession en déshérence'
-def dedupe_phrases_ocr(texte: str) -> str:
-    # Cas 1 : duplication directe mot pour mot
-    texte = re.sub(r"(Succession en déshérence)\s+\1", r"\1", texte, flags=re.IGNORECASE)
-    # Cas 2 : tu peux prévoir d’autres séquences récurrentes
-    # (ex. "Administration générale ... Administration générale ...")
-    # texte = re.sub(r"(Administration générale de la documentation patrimoniale),?\s+\1",
-    # r"\1", texte, flags=re.IGNORECASE)
-    return texte
-
-
-# 4 Supprimer double er pour les dates
-def norm_er(x):
-    if isinstance(x, str):
-            x = re.sub(r"\b(\d{1,2})\s*er\s*er\b", r"\1er", x)
-            x = re.sub(r"\b(\d{1,2})\s*er\b", r"\1", x)
-            return x
-    return x
 
 # ----------------------------------------------------------------------------------------------------------------------
 #                                        NETTOYAGE DES ADRESSES
@@ -651,6 +899,7 @@ def _window_tokens_score(texte: str, start: int, addr: str, window: int = 220) -
             first_pos = min(first_pos, j)
     return (total, first_pos)
 
+
 # ---------------------------
 # Fonction principale
 # ---------------------------
@@ -693,9 +942,8 @@ def prioriser_adresse_proche_nom_struct(
     return [a for _, a in scored]
 
 
-
 # ---------------------------------------------------------------------------------------------------------------------
-#                                             Logs
+#                                                            Logs
 #                            DETECTE SI PREMIERE ADRESSE CORRESPOND BIEN A L ADRESSE DU NOM
 # ---------------------------------------------------------------------------------------------------------------------
 # ---------------------------  Normalisation texte
@@ -712,6 +960,7 @@ def _norm(s: str) -> str:
     s = s.replace("’", "'").replace('"', " ")
     s = re.sub(r"\s+", " ", s).strip().lower()
     return s
+
 
 # ---------------------------  Localiser le nom dans le texte
 def _name_end_in_text(nom: Any, texte: str) -> int:
@@ -736,23 +985,6 @@ def _name_end_in_text(nom: Any, texte: str) -> int:
         if i >= 0:
             return i + len(c_norm)
     return 0
-
-
-def _clean_dates_and_grands_nombres(s: str) -> str:
-    """Supprime les motifs de type dates + grands nombres (>6 chiffres, avec ou sans séparateur)."""
-    MONTHS = r"(janvier|février|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|décembre)"
-
-    # Dates classiques
-    s = re.sub(rf"\b\d{{1,2}}\s+{MONTHS}\s+\d{{4}}\b", "", s, flags=re.IGNORECASE)
-    s = re.sub(rf"\b{MONTHS}\s+\d{{4}}\b", "", s, flags=re.IGNORECASE)
-    s = re.sub(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", "", s)
-    s = re.sub(r"\b(19|20)\d{2}\b", "", s)
-
-    # Suites de plus de 6 chiffres (avec ou sans séparateurs)
-    s = re.sub(r"\b\d{7,}\b", "", s)                         # 1234567
-    s = re.sub(r"\b(?:\d[\.\-]){6,}\d\b", "", s)             # 85.08.11-207.58 etc.
-
-    return s
 
 
 def _extract_house_num(addr: Optional[str]) -> Optional[str]:
@@ -812,15 +1044,6 @@ def verifier_premiere_adresse_apres_nom(nom: Any, texte: str, adresse: str, doc_
         else:
             print(msg)
 
-# --------------------------------------------------------------------------------------
-# UNICODE_SPACES_MAP : Créer un dictionnaire de correspondance Unicode
-# pour remplacer certains espaces spéciaux invisibles par un espace standard (" ").
-# _norm_spaces :
-# --------------------------------------------------------------------------------------
-
-
-UNICODE_SPACES_MAP = dict.fromkeys(map(ord, "\u00A0\u202F\u2007\u2009\u200A\u200B"), " ")
-
 
 # --------------------------------------------------------------------------------------
 # Retourne le premier non-vide (après strip).
@@ -873,94 +1096,23 @@ def _format_address(row: dict, lang: str) -> str:
     return addr
 
 
-def build_address_index(
-    csv_path: str,
-    *,
-    lang: str = "FR",                       # "FR" ou "NL" (fallback auto si champ vide)
-    allowed_types: set[str] | None = None,  # ex: {"REGO", "SEAT"} si tu veux filtrer
-    skip_public: bool = True,               # idem à ta fonction précédente
-) -> dict[str, set[str]]:
+def chemin_csv_abs(nom_fichier: str) -> str:
+    """Retourne le chemin absolu vers un fichier CSV situé dans le dossier 'Datas' (au même niveau que 'Scripts')."""
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # <- remonte 2 niveaux
+    return os.path.join(base_dir, 'Datas', nom_fichier)
+
+
+def chemin_log(nom_fichier: str = "succession.log") -> str:
     """
-    Lit address.csv en streaming et renvoie :
-      { "xxxx.xxx.xxx": {"Adresse complète 1", "Adresse complète 2", ...}, ... }
+    Retourne le chemin absolu du fichier de log, situé dans le dossier 'logs',
+    depuis la racine du projet (où est situé le dossier Utilitaire).
     """
-
-    index: dict[str, set[str]] = {}
-
-    # petit cache disque pour gros CSV (même logique : mtime uniquement)
-    pkl = _cache_path_for(csv_path)
-    csv_mtime = _csv_mtime(csv_path)
-    if os.path.exists(pkl):
-        try:
-            with open(pkl, "rb") as f:
-                payload = pickle.load(f)
-            if payload.get("mtime") == csv_mtime:
-                return payload["index"]
-        except Exception:
-            pass  # on reconstruit si échec / cache obsolète
-
-    # lecture streaming (utf-8-sig puis latin-1)
-    for enc in ("utf-8-sig", "latin-1"):
-        try:
-            with open(csv_path, newline="", encoding=enc) as f:
-                r = csv.DictReader(f)
-                for row in r:
-                    ent = (row.get("EntityNumber") or "").strip()
-                    if not ent:
-                        continue
-                    if skip_public and is_entite_publique(ent):
-                        continue
-
-                    typ = (row.get("TypeOfAddress") or "").strip()
-                    if allowed_types and typ not in allowed_types:
-                        continue
-
-                    # Adresse éventuellement "radiée" : on garde la même philosophie que ton code,
-                    # on ne filtre PAS sur DateStrikingOff (mais tu peux le faire ici si besoin).
-                    addr = _format_address(row, lang)
-                    if not addr:
-                        continue
-
-                    index.setdefault(ent, set()).add(addr)
-            break
-        except UnicodeDecodeError:
-            continue
-
-    # sauve en cache disque avec mtime du CSV
-    try:
-        with open(pkl, "wb") as f:
-            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        pass
-
-    return index
-
-
-# --------------------------------------------------------------------------------------
-# Retourne le premier non-vide (après strip).
-# Filtre public num public dans fichier bce
-# Utilise pcq les numeros publics ne seront jamais visés par decisions (attention ce ne
-# sera pas le cas si on étend a decision FSMA dans l avenir
-# --------------------------------------------------------------------------------------
-
-def is_entite_publique(entite_bce: str) -> bool:
-    s = re.sub(r"\D", "", entite_bce or "")
-    if len(s) == 9:
-        s = "0" + s
-    return s.startswith("0200")
-
-
-def _csv_mtime(path: str) -> float:
-    try:
-        return os.path.getmtime(path)
-    except OSError:
-        return 0.0
-
-
-def _cache_path_for(csv_path: str) -> str:
-    base = os.path.splitext(os.path.basename(csv_path))[0]
-    os.makedirs(".cache", exist_ok=True)
-    return os.path.join(".cache", f"{base}.denoms.pkl")
+    # Dossier du projet = 2 niveaux au-dessus de ce fichier
+    projet_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(projet_dir, "logs", nom_fichier)
+# faire comme celui en dessous pour plus de securite
+def chemin_csv(nom_fichier: str) -> str:
+    return os.path.abspath(os.path.join("Datas", nom_fichier))
 
 
 def build_denom_index(
@@ -1027,6 +1179,105 @@ def build_denom_index(
     return index
 
 
+def build_address_index(
+    csv_path: str,
+    *,
+    lang: str = "FR",                       # "FR" ou "NL" (fallback auto si champ vide)
+    allowed_types: set[str] | None = None,  # ex: {"REGO", "SEAT"} si tu veux filtrer
+    skip_public: bool = True,               # idem à ta fonction précédente
+) -> dict[str, set[str]]:
+    """
+    Lit address.csv en streaming et renvoie :
+      { "xxxx.xxx.xxx": {"Adresse complète 1", "Adresse complète 2", ...}, ... }
+    """
+
+    index: dict[str, set[str]] = {}
+
+    # petit cache disque pour gros CSV (même logique : mtime uniquement)
+    pkl = _cache_path_for(csv_path)
+    csv_mtime = _csv_mtime(csv_path)
+    if os.path.exists(pkl):
+        try:
+            with open(pkl, "rb") as f:
+                payload = pickle.load(f)
+            if payload.get("mtime") == csv_mtime:
+                return payload["index"]
+        except Exception:
+            pass  # on reconstruit si échec / cache obsolète
+
+    # lecture streaming (utf-8-sig puis latin-1)
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    ent = (row.get("EntityNumber") or "").strip()
+                    if not ent:
+                        continue
+                    if skip_public and is_entite_publique(ent):
+                        continue
+
+                    typ = (row.get("TypeOfAddress") or "").strip()
+                    if allowed_types and typ not in allowed_types:
+                        continue
+
+                    # Adresse éventuellement "radiée" : on garde la même philosophie que ton code,
+                    # on ne filtre PAS sur DateStrikingOff (mais tu peux le faire ici si besoin).
+                    addr = _format_address(row, lang)
+                    if not addr:
+                        continue
+
+                    index.setdefault(ent, set()).add(addr)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    # sauve en cache disque avec mtime du CSV
+    try:
+        with open(pkl, "wb") as f:
+            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
+
+    return index
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+#                                            CONSTANTES MAINSCRAPPER
+# ----------------------------------------------------------------------------------------------------------------------
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+# DEMOM_INDEX : pour fichier csv bce denominations
+# ADRESSES_INDEX : pour fichier csv bce adresses
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+DENOM_INDEX = build_denom_index(
+    chemin_csv("denomination.csv"),
+    allowed_types=None,   # {"001","002"} si tu veux filtrer
+    allowed_langs=None,   # {"2"} si tu veux uniquement FR
+    skip_public=True
+)
+
+ADDRESS_INDEX = build_address_index(
+    chemin_csv("address.csv"),
+    lang="FR",           # "FR" ou "NL" (fallback auto si champ vide)
+    allowed_types=None,  # ex: {"REGO","SEAT"} pour filtrer certains types d’adresse
+    skip_public=True
+)
+
+
+# --------------------------------------------------------------------------------------
+# Retourne le premier non-vide (après strip).
+# Filtre public num public dans fichier bce
+# Utilise pcq les numeros publics ne seront jamais visés par decisions (attention ce ne
+# sera pas le cas si on étend a decision FSMA dans l avenir
+# --------------------------------------------------------------------------------------
+
+def is_entite_publique(entite_bce: str) -> bool:
+    s = re.sub(r"\D", "", entite_bce or "")
+    if len(s) == 9:
+        s = "0" + s
+    return s.startswith("0200")
+
+
 def has_person_names(nom):
     if nom is None:
         return False
@@ -1039,155 +1290,8 @@ def has_person_names(nom):
     return False
 
 
-def clean_date_jugement(raw):
-    """
-    Extrait uniquement la date au format '16 juin 2025'
-    et ignore ce qui suit (points, texte...).
-    """
-    mois = (
-        "janvier|février|mars|avril|mai|juin|juillet|août|"
-        "septembre|octobre|novembre|décembre"
-    )
-    pattern_date = rf"\b\d{{1,2}}\s+(?:{mois})\s+\d{{4}}\b"
-    match = re.search(pattern_date, raw, flags=re.IGNORECASE)
-    if match:
-        return match.group(0).strip()
-    return None
-
-
-# ***********************************
-# detect_erratum
-# extract_numero_tva
-# extract_clean_text
-# ************************************
-
-
-
-# faire comme celui en dessous pour plus de securite
-def chemin_csv(nom_fichier: str) -> str:
-    return os.path.abspath(os.path.join("Datas", nom_fichier))
-
-
-def chemin_csv_abs(nom_fichier: str) -> str:
-    """Retourne le chemin absolu vers un fichier CSV situé dans le dossier 'Datas' (au même niveau que 'Scripts')."""
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # <- remonte 2 niveaux
-    return os.path.join(base_dir, 'Datas', nom_fichier)
-
-
-def chemin_log(nom_fichier: str = "succession.log") -> str:
-    """
-    Retourne le chemin absolu du fichier de log, situé dans le dossier 'logs',
-    depuis la racine du projet (où est situé le dossier Utilitaire).
-    """
-    # Dossier du projet = 2 niveaux au-dessus de ce fichier
-    projet_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    return os.path.join(projet_dir, "logs", nom_fichier)
-
-
-
-
-# ____________________________________________________________
-    # Retourne True si 'erratum', 'errata' ou 'ordonnance rectificative' est détecté
-    # dans les 400 premiers caractères du texte HTML. Sinon False.
-# ____________________________________________________________
-def detect_erratum(texte_html):
-
-    soup = BeautifulSoup(texte_html, 'html.parser')
-    full_text = soup.get_text(separator=" ").strip().lower()
-    snippet = full_text[:400]
-
-    if re.search(r"\berrat(?:um|a)\b", snippet):
-        return True
-
-    if re.search(r"\bordonnance\s+rectificative\b", snippet):
-        return True
-
-    return False
-
-
-# ____________________________________________________________
-    # Extrait un texte propre à partir d’un objet BeautifulSoup.
-    # Par défaut, supprime la section 'Liens :' et ses liens.
-    # Passez remove_links=False pour ne pas la supprimer.
-# ____________________________________________________________
-
-
-def extract_clean_text(soup, remove_links: bool = True):
-    """
-    Extrait un texte propre à partir d’un objet BeautifulSoup.
-    Par défaut, supprime la section 'Liens :' et ses liens.
-    Passez remove_links=False pour ne pas la supprimer.
-    """
-    # ⬇️ Comportement inchangé par défaut
-    if remove_links:
-        for el in soup.select(
-                'h2.links-title, a.links-link, #link-text, .links, button#link-button, button.button'
-        ):
-            el.decompose()
-
-    output = []
-    last_was_tag = None
-
-    for elem in soup.descendants:
-        if isinstance(elem, NavigableString):
-            txt = elem.strip()
-            if txt:
-                if last_was_tag in ("font", "sup", "text"):
-                    output.append(" ")
-                output.append(txt)
-                last_was_tag = "text"
-        elif isinstance(elem, Tag):
-            tag_name = elem.name.lower()
-            if tag_name == "br":
-                output.append(" ")
-                last_was_tag = "br"
-            elif tag_name == "sup":
-                sup_text = elem.get_text(strip=True)
-                if output and output[-1].isdigit():
-                    output[-1] = output[-1] + sup_text
-                else:
-                    output.append(sup_text)
-                last_was_tag = "sup"
-            else:
-                last_was_tag = tag_name
-
-    text = "".join(output)
-    text = text.replace('\u00a0', ' ').replace('\u200b', '').replace('\ufeff', '')
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
-
-
-def clean_url(url):
-    parsed = urlparse(url)
-    query = parse_qs(parsed.query)
-
-    # Supprimer 'exp' de la query string s'il existe
-    query.pop("exp", None)
-
-    # Reconstruire l'URL sans 'exp'
-    cleaned_query = urlencode(query, doseq=True)
-    cleaned_url = urlunparse(parsed._replace(query=cleaned_query))
-    return cleaned_url
-
-
-def generate_doc_hash_from_html(html, date_doc):
-    soup = BeautifulSoup(html, 'html.parser')
-    for tag in soup(["script", "style", "font", "span", "mark"]):
-        tag.decompose()
-    text = soup.get_text(separator=" ", strip=True)
-    text = re.sub(r"Liens\s*:.*?(Haut de la page|Copier le lien).*?$", "", text, flags=re.DOTALL)
-    text = re.sub(r"https://www\.ejustice\.just\.fgov\.be[^\s]+", "", text)
-    text = text.lower()
-    text = re.sub(r"[^\w\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-
-    # 💡 Inclure la date dans le hash
-    full_string = f"{date_doc}::{text}"
-    return hashlib.sha256(full_string.encode("utf-8")).hexdigest()
-
-
 # ----------------------------------------------------------------------------------------------------------------------
-#                                 FONCTIONS UTILISEES POUR NETTOYAGE DES NOMS
+#                                 FONCTIONS UTILISEES POUR NETTOYAGE DES NOMS D ENTREPRISES
 # ----------------------------------------------------------------------------------------------------------------------
 # Supprime de la liste les noms qui correspondent exactement à 'en cause de' (espaces ignorés, insensible à la casse).
 def clean_nom_trib_entreprise(noms: list[str]) -> list[str]:

@@ -2,12 +2,14 @@ import re
 import unicodedata
 import logging
 
+# --- Modules internes au projet ---
+from Utilitaire.outils.MesOutils import strip_accents
+
 # ______________________________________________________________________________________________
 #                                          VARIABLES GLOBALES
 # -----------------------------------------------------------------------------------------------
 # logger + set pour eviter les doublons de log (doc_id +adresses)
-loggernomspersonnes = logging.getLogger("nomspersonnes_logger")
-logged_nomspersonnes = set()
+seen_nomspersonnes = set()
 
 # logger + set pour eviter les doublons de log (doc_id +adresses)
 loggernomdouble = logging.getLogger("nomsdouble_logger")
@@ -17,7 +19,7 @@ logged_nomdouble = set()
 # ++++++++++++++++++++++++++++++++++++++
 # ⟶ Détecte la formule “il est demandé(e) de déclarer l’absence de ”
 ABS_PREF = r"(?:il\s+est\s+)?demand[ée]?\s+de\s+déclarer\s+l'absence\s+de"
-# ⟶ “modifié(e) les mesures de protection à l’égard de la personne et des biens de l’intéressé…”
+# ⟶ “modifié(e) les mesures de protection à l’égard de la personne et des biens de l’intéressé”
 PROT_PREF = r"modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
 # ⟶ Variante : queue seule “à l’égard de la personne et des biens de l’intéressé…”
 INT_PREF_FULL = r"à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
@@ -31,7 +33,7 @@ PREFIXES = (
     r"|succession\s+(?:en\s+d[ée]sh[ée]rence|vacante)\s+de"
     r"|en qualité de curateur à la succession vacante de"
     r"|la succession vacante de"
-    r"le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+Visé\s+a\s+désigné\s+(?:à\s+)?"
+    r"|le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+(?:\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+)*\s+a\s+désigné\s+(?:à\s+)?" 
     r"|"
     + ABS_PREF +
     r"|"
@@ -44,7 +46,9 @@ PREFIXES = (
     r")"
 )
 
-# groupe non-capturant (?: … ) qui matche l’un des “déclencheurs” suivants (séparés par |).
+# Groupe non-capturant (?: … ) qui matche l’un des “déclencheurs” suivants (séparés par |).
+# Ces déclencheurs sont utilisés pour couper / segmenter le contexte (ex: fin d’un nom ou début d’une
+# info administrative).
 CONTEXT_CUT = (
     r"(?:\bné(?:e)?\b|\bRN\b|\bNRN\b|\(RN|\(RRN|\bRRN\b|,?\s+inscrit[e]?\b|,?\s+domicili[é]e?\b|,?\s+décédé[e]?\b)"
 )
@@ -441,7 +445,6 @@ def clean_doublons_debut_fin(s: str) -> str:
     return " ".join(parts)
 
 
-
 def extract_name_from_text(text, keyword, doc_id):
     return extract_name_before_birth(text, keyword, doc_id)
 
@@ -453,34 +456,56 @@ def invert_if_comma(s: str) -> str:
             return f"{right} {left}"
     return s
 
-# Supprime les accents des caractères en décomposant les lettres accentuées
-# (ex. "é" → "e", "ç" → "c", "Éléonore" → "Eleonore").
-# Utilise la normalisation Unicode (NFD) pour séparer lettre + diacritique,
-# puis filtre les marques diacritiques (catégorie 'Mn' = Mark, Nonspacing).
-def _strip_accents(s: str) -> str:
-    import unicodedata
-    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
 
 def _norm_spaces(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
+
+#Supprime les initiales isolées d’une chaîne (ex: "J. Dupont", "A B. Martin").
+# - Découpe la chaîne en tokens (mots séparés par des espaces).
+# - Filtre tous les tokens qui sont une seule lettre (maj/min) optionnellement suivie d’un point.
+#   Regex : r"[A-Za-z]\.?" → une lettre entre A–Z ou a–z suivie éventuellement d’un ".".
+#   - Rejoint les tokens restants avec des espaces.
+#   - Si tout a été supprimé, retourne la chaîne originale pour éviter de renvoyer vide.
 def _drop_single_letter_initials(s: str) -> str:
+
     tokens = s.split()
     keep = [t for t in tokens if not re.fullmatch(r"[A-Za-z]\.?", t)]
     return " ".join(keep) if keep else s
 
+
 def _norm_key_loose(s: str) -> str:
     # clé de regroupement “souple”: minuscule, sans accents, sans initiales d’1 lettre
-    s = _strip_accents(s).lower()
+    s = strip_accents(s).lower()
     s = _drop_single_letter_initials(s)
     return _norm_spaces(s)
 
+
 def _choose_canonical(variants: list[str]) -> str:
-    # on préfère la variante avec le + de mots “utiles” (sans initiales d’1 lettre)
+    """
+    Sélectionne la meilleure variante d’un nom parmi plusieurs possibilités.
+
+    ⚙️ Stratégie :
+    - On préfère les variantes avec le plus de "mots utiles"
+      (c’est-à-dire en ignorant les initiales d’une seule lettre).
+    - En cas d’égalité, on départage par la longueur totale de la chaîne.
+
+    Exemple :
+        ["J. Dupont", "Jean Dupont", "Dupont"]
+        ➝ "Jean Dupont" (car 2 mots utiles contre 1 pour les autres)
+    """
+
+    # Fonction interne qui calcule un "score" pour chaque variante
     def score(v: str):
-        no_init = _drop_single_letter_initials(v)
-        return (len(no_init.split()), len(v))  # nb mots utiles puis longueur
+        no_init = _drop_single_letter_initials(v)   # Supprime les initiales isolées
+        return (
+            len(no_init.split()),  # 1️⃣ Priorité au nombre de mots "utiles"
+            len(v)                 # 2️⃣ Puis la longueur totale de la chaîne
+        )
+
+    # Trie toutes les variantes par score décroissant et prend la meilleure
     return sorted(variants, key=score, reverse=True)[0]
+
 
 def group_names_for_meili(noms_nettoyes: list[str]):
     """
@@ -514,8 +539,6 @@ def group_names_for_meili(noms_nettoyes: list[str]):
         all_aliases.update(variants)
 
     return {"records": records, "canonicals": canonicals, "aliases_flat": list(all_aliases)}
-
-
 
 
 def nettoyer_noms_avances(noms, longueur_max=80):
@@ -603,11 +626,6 @@ def nettoyer_noms_avances(noms, longueur_max=80):
 
 
     def nettoyer_et_normaliser(nom):
-        # extraction initiale
-        if nom.lower().startswith("le juge de paix du canton de visé a désigné à".lower()):
-            nom = re.sub(r"le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+Visé\s+a\s+désigné\s+à\s+", "", nom,
-                         flags=re.IGNORECASE)
-
         # 👉 extraire un éventuel nom après "succession de ..."
         extrait = extraire_nom_depuis_phrase(nom)
         if extrait != nom:  # éviter récursion infinie
@@ -1389,9 +1407,6 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     for nom_complet, _ in match_noms_complets:
         nom_list.append(nom_complet.strip())
 
-
-
-
     # --- En cause de : bloc + items (liste 1., 2., …) ---
     for mb in RX_EN_CAUSE_BLOCK.finditer(full_text):
         bloc = mb.group("bloc")
@@ -1400,29 +1415,26 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         for m in RX_EN_CAUSE_ITEM_PN.finditer(bloc):
             nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
 
+
+# _______________________________________________________________________________________________________________________
+#                          NETTOYAGE DES NOMS + EMPECHER DES NOMS EN DOUBLE
+# _______________________________________________________________________________________________________________________
     noms_nettoyes = nettoyer_noms_avances(nom_list)
     # 1) Calcule la liste locale des nouveaux noms (pas besoin d’être global)
     nouveaux_noms = []
     for nom in noms_nettoyes:
         key = (doc_id, nom.strip().lower())
-        if key not in logged_nomspersonnes:
+        if key not in seen_nomspersonnes:
             nouveaux_noms.append(nom)
 
     # 2) Si rien de nouveau, on sort vite
     if not nouveaux_noms:
         return group_names_for_meili(noms_nettoyes)
 
-    # 3) Un seul log pour tous les nouveaux noms
-    loggernomspersonnes.warning(
-        "DOC ID: '%s'\nNoms : %s\nKeyword : %s\nTexte : %s",
-        doc_id,
-        ", ".join(f"'{n}'" for n in nouveaux_noms),
-        keyword,
-        full_text
-    )
+
 
     # 4) Mise à jour de l’état externe (persistant en mémoire)
-    logged_nomspersonnes.update(
+    seen_nomspersonnes.update(
         (doc_id, n.strip().lower()) for n in nouveaux_noms
     )
 

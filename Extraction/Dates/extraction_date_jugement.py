@@ -3,19 +3,16 @@ import re
 
 # --- Modules internes au projet ---
 from Utilitaire.outils.MesOutils import get_month_name, convert_french_text_date_to_numeric
-from Constante.mesconstantes import VILLES, JOURMAP, MOISMAP, ANNEMAP
+from Constante.mesconstantes import VILLES
 
 
-# ATTENTION A RETRAVAILLER PAS COMPLET
+# Extrait une date de jugement depuis un texte.
+#    Priorité :
+#   1. "passe en force de chose jugée le ..."
+#    2. Date 100 caractères avant "le greffier"
+#    3. Date après "division [ville]"
+#    4. Autres formulations classiques
 def extract_jugement_date(text):
-    """
-    Extrait une date de jugement depuis un texte.
-    Priorité :
-    1. "passe en force de chose jugée le ..."
-    2. Date 100 caractères avant "le greffier"
-    3. Date après "division [ville]"
-    4. Autres formulations classiques
-    """
 
     text = text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
     # Sécurité en cas de texte mal nettoyé

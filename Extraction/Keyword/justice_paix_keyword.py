@@ -3,6 +3,7 @@ import re
 # Remarques : trois pattern détecte absence d'adresse + va falloir harmoniser
 # interpretation des keywords
 # A vérifier : tous utiles ?
+APOST = r"[’']"  # apostrophe droite ou typographique
 # =====================================================================================
 #                                        COMPIL REGEX
 # =====================================================================================
@@ -17,16 +18,20 @@ radie_office_re = re.compile(
 sans_adresse_domicile_connu_re = re.compile(
     r"""
     \b(
-        sans\s+(adresse|domicile)\s+connue?            # ex: sans adresse connue / sans domicile connu
+        sans\s+(adresse|domicile)\s+connue?                # ex: sans adresse connue / sans domicile connu
         |
-        (adresse|domicile)\s+(inconnue?|ignor[ée]e?)   # ex: adresse inconnue / domicile ignorée
+        (adresse|domicile)\s+(inconnue?|ignor[ée]e?)       # ex: adresse inconnue / domicile ignorée
         |
         ne\s+(dispose|poss[èe]de)\s+pas\s+d['’]?(une|aucune)?\s+(adresse|domicile)\s+(connue|fixe)
         |
         dont\s+(le\s+)?(domicile|adresse)\s+est\s+(inconnue?|ignor[ée]e?)
+        |
+        sans\s+(adresse|domicile)\s+fixe                   # ex: sans domicile fixe / sans adresse fixe
+        |
+        (sans\s+domicile)                              
     )\b
     """,
-    re.IGNORECASE | re.VERBOSE
+    re.IGNORECASE | re.VERBOSE,
 )
 # ----------------------------
 # Avec adresse résidence
@@ -35,6 +40,19 @@ residence_re = re.compile(
     r"\b(ayant\s+sa\s+résidence\s+à|résidant(?:\s+à)?)\b",
     re.IGNORECASE
 )
+# ----------------------------
+# Présomption d'absence
+# ----------------------------
+absence = re.compile(rf"""
+    (?:
+        # "est présumé absent", "présumée d’absence"
+        (?P<presum>\bprésum[ée]?\b.{0,15}?(?:absent(?:e|es|s)?|d{APOST}?absence)\b)
+
+      | # "présomption d'absence"
+        (?P<presomp>\bprésomption\s+d{APOST}?absence\b)
+
+    )
+""", re.IGNORECASE | re.VERBOSE)
 
 # ----------------------------
 # Type décision
@@ -53,6 +71,27 @@ article_492_1_re = re.compile(
 # ++++++
 # pattern récurrents
 # ++++++
+# Formes verbales : "désigne / désigner / a été désigné(e)(s)" + (en qualité de|comme) + personne(s) de confiance [supplémentaire]
+personne_confiance_verbe_re = re.compile(r"""
+    \b
+    désign(?:e|er|é(?:e|s)?|ent)                 # désigne / désigner / désigné(e)(s) / désignent
+    (?:\s+(?:en\s+qualité\s+de|comme))?          # optionnel : "en qualité de" ou "comme"
+    \s+(?:une?\s+|la\s+|des\s+)?                 # optionnel : article
+    personne(?:s)?\s+de\s+confiance              # personne(s) de confiance
+    (?:\s+supplémentaire|s)?                     # optionnel : "supplémentaire" ou pluriel
+    \b
+""", re.IGNORECASE | re.VERBOSE)
+
+# Formes nominales : "désignation (d'/de la/des) personne(s) de confiance"
+personne_confiance_nom_re = re.compile(r"""
+    \b
+    désignation(?:s)?\s+
+    (?:d['’]|de\s+(?:la|l[’'])|des\s+)?          # d'/de la/des (optionnel)
+    personne(?:s)?\s+de\s+confiance
+    (?:\s+supplémentaire|s)?                      # optionnel
+    \b
+""", re.IGNORECASE | re.VERBOSE)
+
 regime_representation_re = re.compile(
     r"\bplac[ée]e?\s+sous\s+(un\s+)?r[ée]gime\s+de\s+repr[ée]sentation\b.*?\bjuge\s+de\s+paix\b",
     re.IGNORECASE | re.DOTALL
@@ -120,3 +159,9 @@ def detect_justice_paix_keywords(texte_brut, extra_keywords):
         extra_keywords.append("sans_adresse_connue_justice_de_paix")
     if residence_re.search(texte_brut):
         extra_keywords.append("residence_detectee_justice_de_paix")
+    if personne_confiance_verbe_re.search(texte_brut) or personne_confiance_nom_re.search(texte_brut):
+        extra_keywords.append("designation_personne_de_confiance_justice_de_paix")
+    if absence.search(texte_brut):
+        extra_keywords.append("absence_justice_de_paix")
+
+

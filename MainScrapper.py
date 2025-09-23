@@ -4,17 +4,15 @@ import json
 import locale
 import logging
 import os
-import unicodedata
 import re
 import sys
 from collections import defaultdict
-from datetime import date, datetime
-from typing import List, Tuple
+from datetime import date
+from typing import List
 
 from urllib.parse import urlencode, urljoin
 
 # --- Bibliothèques tierces ---
-import fitz  # PyMuPDF
 import meilisearch
 import psycopg2
 import pytesseract
@@ -24,8 +22,8 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 # --- Modules internes au projet ---
-from logger_config import setup_logger, setup_fallback3_logger, setup_dynamic_logger
-from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
+from logger_config import setup_logger, setup_dynamic_logger
+from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET, POSTAL_RE, BCE_RE
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
 from Extraction.NomPrenom.extraction_nom_terrorisme_bis import extraire_personnes_terrorisme
@@ -47,11 +45,12 @@ from Utilitaire.ConvertDateToMeili import convertir_date
 from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     extract_clean_text, clean_url, generate_doc_hash_from_html, \
     clean_date_jugement, extract_nrn_variants, has_person_names, norm_er, \
-    clean_nom_trib_entreprise, build_denom_index, format_bce, chemin_csv, \
-    build_address_index, norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
+    clean_nom_trib_entreprise, format_bce, chemin_csv, \
+    norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
     extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
     verifier_premiere_adresse_apres_nom, remove_av_parentheses, to_list_dates, names_list_from_nom, \
-    remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse
+    remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, DENOM_INDEX, \
+    ADDRESS_INDEX, normaliser_espaces_invisibles
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
@@ -60,26 +59,30 @@ keyword = sys.argv[1]
 # ---------------------------------------------------------------------------------------------------------------------
 #                                    CONFIGURATION DES LOGGERS
 # ----------------------------------------------------------------------------------------------------------------------
+# **** LOGGER GENERAL
 logger = setup_logger("extraction", level=logging.DEBUG)
 logger.debug("✅ Logger initialisé dans le script principal.")
 
-loggerfallback3 = setup_fallback3_logger("fallback3", level=logging.DEBUG)
-loggerfallback3.debug("✅ Logger initialisé dans le script principal.")
-
-# Par exemple pour la catégorie "succession"
+# *** LOGGERS SPECIFIQUES PAR MOTS CLEFS
+# CHAMP ADRESSES : adresses
 logger_adresses = setup_dynamic_logger(name="adresses_logger", keyword=keyword, level=logging.DEBUG)
 logger_adresses.debug("🔍 Logger 'adresses_logger' initialisé pour les adresses.")
 
-# Par exemple pour la catégorie "succession"
+# CHAMP NOM : nom : log si le champ nom est null
 logger_nomspersonnes = setup_dynamic_logger(name="nomspersonnes_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomspersonnes.debug("🔍 Logger 'nomspersonnes_logger' initialisé pour les noms.")
+# CHAMP DATE NAISSANCE : date_naissance
+logger_datenaissance = setup_dynamic_logger(name="datenaissance_logger", keyword=keyword, level=logging.DEBUG)
+logger_datenaissance.debug("🔍 Logger 'datenaissance_logger' initialisé pour les noms.")
 
 logger_nomsdouble = setup_dynamic_logger(name="nomsdouble_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsdouble.debug("🔍 Logger 'nomsdouble_logger' initialisé pour les noms.")
 
+# va falloir faire ca que pour cas de succession
 logger_nomsvsdates = setup_dynamic_logger(name="nomsvsdates_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsvsdates.debug("🔍 Logger 'nomsvsdates_logger' initialisé pour les noms et dates.")
 
+# CHAMP NOM TERRORISME : identifiant_terrorisme
 logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
 print(">>> CODE À JOUR")
@@ -94,32 +97,10 @@ MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
+
 # ---------------------------------------------------------------------------------------------------------------------
-#                                            CONSTANTES MAINSCRAPPER
+#                                          FONCTIONS INTERNES
 # ----------------------------------------------------------------------------------------------------------------------
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-# DEMOM_INDEX : pour fichier csv bce denominations
-# ADRESSES_INDEX : pour fichier csv bce adresses
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-DENOM_INDEX = build_denom_index(
-    chemin_csv("denomination.csv"),
-    allowed_types=None,   # {"001","002"} si tu veux filtrer
-    allowed_langs=None,   # {"2"} si tu veux uniquement FR
-    skip_public=True
-)
-
-ADDRESS_INDEX = build_address_index(
-    chemin_csv("address.csv"),
-    lang="FR",           # "FR" ou "NL" (fallback auto si champ vide)
-    allowed_types=None,  # ex: {"REGO","SEAT"} pour filtrer certains types d’adresse
-    skip_public=True
-)
-
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-#  REGEX COMPILES: Code postal - Numéro BCE
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-POSTAL_RE = re.compile(r"\b[1-9]\d{3}\s+[A-Za-zÀ-ÿ'’\- ]{2,}\b")
-BCE_RE = re.compile(r"\b\d{3}\.\d{3}\.\d{3}\b")
 
 
 def _log_len_mismatch(doc, date_naissance, date_deces, nom):
@@ -144,10 +125,6 @@ def _log_len_mismatch(doc, date_naissance, date_deces, nom):
             f"noms={names} | naiss={births} | deces={deaths}"
         )
 
-
-def _strip_accents(s: str) -> str:
-    return ''.join(c for c in unicodedata.normalize('NFD', s)
-                   if unicodedata.category(c) != 'Mn')
 
 def _first_token_from_nom_field(nom_field: dict | str) -> str | None:
     """
@@ -193,11 +170,11 @@ def _log_nom_repetition_locale_first_token(doc, window=80):
         return
 
     # normalisation accent-insensible
-    token_key = _strip_accents(token).lower()
+    token_key = strip_accents(token).lower()
     if not token_key:
         return
 
-    texte_norm = _strip_accents(texte).lower()
+    texte_norm = strip_accents(texte).lower()
 
     # mot entier
     pat = re.compile(rf"\b{re.escape(token_key)}\b", re.IGNORECASE)
@@ -223,6 +200,7 @@ def _log_nom_repetition_locale_first_token(doc, window=80):
                     f"token='{token}' | fenêtre={window} | extrait=…{fen}…"
                 )
             break  # un log par doc suffit
+
 
 # ---------------------------------------------------------------------------------------------------------------------
 #                               FONCTIONS PRINCIPALES D EXTRACTION
@@ -333,7 +311,9 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
         encoded = keyword.replace(" ", "+")
         today = date.today()
         url = f'{BASE_URL}list.pl?language=fr&sum_date={today}&page={page}&pdd={start_date}&pdf={end_date}&choix1=et&choix2=et&exp={encoded}&fr=f&trier=promulgation'
-        response = retry(url, session)
+        # NEW: crée une session locale dans ce thread (ne PAS réutiliser celle passée en argument)
+        with requests.Session() as s:  # NEW
+            response = retry(url, s)  # CHANGED (session -> s)
         soup = BeautifulSoup(response.text, 'html.parser')
         class_list = soup.find("div", class_="list")
         if not class_list:
@@ -409,8 +389,9 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
     return link_list
 
 
-def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, title, subtitle):
-    EVENT_RX = re.compile(
+def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, subtitle):
+    with requests.Session() as s:
+        EVENT_RX = re.compile(
         r"\b(?:"
         r"dissolution\s+judiciaire"
         r"|faillites?"
@@ -419,220 +400,222 @@ def scrap_informations_from_url(session, url, numac, date_doc, langue, keyword, 
         r"|PRJ"
         r")\b",
         re.IGNORECASE
-    )
-    response = retry(url, session)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    extra_keywords = []
-    extra_links = []
+        )
+        response = retry(url, session)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        extra_keywords = []
+        extra_links = []
 
-    main = soup.find("main", class_="page__inner page__inner--content article-text")
-    if not main:
-        return (
-            numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None)
-    # si terrorisme on a besoin de garder les liens pour acceder aux pdf où certains noms devront etre recherchés
-    if keyword != "terrorisme":
-        texte_brut = extract_clean_text(main)
-    else:
-        texte_brut = extract_clean_text(main, remove_links=False)
+        main = soup.find("main", class_="page__inner page__inner--content article-text")
+        if not main:
+           return (
+               numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
+               None, None, None, None, None, None, None, None)
+        # si terrorisme on a besoin de garder les liens pour acceder aux pdf où certains noms devront etre recherchés
+        if keyword != "terrorisme":
+           texte_brut = extract_clean_text(main)
+        else:
+           texte_brut = extract_clean_text(main, remove_links=False)
 
-    date_jugement = None
-    administrateur = None
-    nom = None
-    nom_trib_entreprise = None
-    date_deces = None
-    nom_interdit = None
-    identifiants_terrorisme = None
-    doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
-    if detect_erratum(texte_brut):
-        extra_keywords.append("erratum")
+        date_jugement = None
+        administrateur = None
+        nom = None
+        nom_trib_entreprise = None
+        date_deces = None
+        nom_interdit = None
+        identifiants_terrorisme = None
+        doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
+        if detect_erratum(texte_brut):
+            extra_keywords.append("erratum")
 
-    # Cas spécial : TERRORISME
-    if re.search(r"terrorisme", keyword, flags=re.IGNORECASE):
-        add_tag_personnes_a_supprimer(texte_brut, extra_keywords)
-        matches = extraire_personnes_terrorisme(texte_brut, doc_id=doc_id)  # [(num, nom, nrn), ...]
-        seen = set()
-        noms_paires: List[List[str]] = []
+        # Cas spécial : TERRORISME
+        if re.search(r"terrorisme", keyword, flags=re.IGNORECASE):
+            add_tag_personnes_a_supprimer(texte_brut, extra_keywords)
+            matches = extraire_personnes_terrorisme(texte_brut, doc_id=doc_id)  # [(num, nom, nrn), ...]
+            seen = set()
+            noms_paires: List[List[str]] = []
 
-        for _, name, nn in matches:
-            key = (name.upper(), nn)  # même logique de dédup que dans la fonction
-            if key in seen:
-                continue
-            seen.add(key)
-            noms_paires.append([name, nn])
+            for _, name, nn in matches:
+                key = (name.upper(), nn)  # même logique de dédup que dans la fonction
+                if key in seen:
+                    continue
+                seen.add(key)
+                noms_paires.append([name, nn])
 
-        # Si trouvé dans le HTML → pas besoin d'OCR
-        if noms_paires:
-            return (
-                numac, date_doc, langue, texte_brut, url, keyword,
-                None, title, subtitle, None, extra_keywords, None, None, None, None, None, None,
-                None, None, None, None, noms_paires, None, None
-            )
-
-        # Sinon, OCR fallback
-        main_pdf_links = soup.find_all("a", class_="links-link")
-        if len(main_pdf_links) >= 2:
-            pdf_href = main_pdf_links[-2]['href']
-            full_pdf_url = urljoin("https://www.ejustice.just.fgov.be", pdf_href)
-            print(f"📄 Téléchargement du PDF: {full_pdf_url}")
-            page_index = extract_page_index_from_url(full_pdf_url)
-            if page_index is None:
-                print(f"[⚠️] Pas de numéro de page dans l’URL: {full_pdf_url} — on commence à la page 0")
-                page_index = 0
-
-            ocr_text = convert_pdf_pages_to_text_range(full_pdf_url, page_index, page_count=6)
-            pattern = r"(\d+)[,\.]\s*([A-Za-z\s]+)\s*\(NRN:\s*(\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2})\)"
-            if ocr_text:
-                ocr_matches = re.findall(pattern, ocr_text)
-                noms_ocr = [(name.strip(), nn.strip()) for _, name, nn in ocr_matches]
+            # Si trouvé dans le HTML → pas besoin d'OCR
+            if noms_paires:
                 return (
                     numac, date_doc, langue, texte_brut, url, keyword,
-                    None, title, subtitle, None, extra_keywords, None, None, None, None, nom_trib_entreprise, None, None,
-                    None, None, None, noms_ocr, None, None
+                    None, title, subtitle, None, extra_keywords, None, None, None, None, None, None,
+                    None, None, None, None, noms_paires, None, None
                 )
+
+            # Sinon, OCR fallback
+            main_pdf_links = soup.find_all("a", class_="links-link")
+            if len(main_pdf_links) >= 2:
+                pdf_href = main_pdf_links[-2]['href']
+                full_pdf_url = urljoin("https://www.ejustice.just.fgov.be", pdf_href)
+                print(f"📄 Téléchargement du PDF: {full_pdf_url}")
+                page_index = extract_page_index_from_url(full_pdf_url)
+                if page_index is None:
+                    print(f"[⚠️] Pas de numéro de page dans l’URL: {full_pdf_url} — on commence à la page 0")
+                    page_index = 0
+
+                ocr_text = convert_pdf_pages_to_text_range(full_pdf_url, page_index, page_count=6)
+                pattern = r"(\d+)[,\.]\s*([A-Za-z\s]+)\s*\(NRN:\s*(\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2})\)"
+                if ocr_text:
+                    ocr_matches = re.findall(pattern, ocr_text)
+                    noms_ocr = [(name.strip(), nn.strip()) for _, name, nn in ocr_matches]
+                    return (
+                        numac, date_doc, langue, texte_brut, url, keyword,
+                        None, title, subtitle, None, extra_keywords, None, None, None, None, nom_trib_entreprise, None,
+                        None,
+                        None, None, None, noms_ocr, None, None
+                    )
+                else:
+                    print("⚠️ Texte OCR vide.")
+                    return None
             else:
-                print("⚠️ Texte OCR vide.")
+                print("⚠️ Aucun lien PDF trouvé pour l’OCR.")
                 return None
-        else:
-            print("⚠️ Aucun lien PDF trouvé pour l’OCR.")
-            return None
 
-    # Cas normal
-    # on va devoir deplacer nom
+        # Cas normal
+        # on va devoir deplacer nom
 
-    texte_date_naissance = remove_av_parentheses(texte_brut)  # 🚨 on nettoie ici
-    texte_date_naissance_sansdup = remove_duplicate_paragraphs(texte_date_naissance)
-    texte_date_naissance_deces = dedupe_phrases_ocr(texte_date_naissance_sansdup)
-    raw_naissance = extract_date_after_birthday(str(texte_date_naissance_deces))  # liste ou str
-    nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
+        texte_date_naissance = remove_av_parentheses(texte_brut)  # 🚨 on nettoie ici
+        texte_date_naissance_sansdup = remove_duplicate_paragraphs(texte_date_naissance)
+        texte_date_naissance_deces = dedupe_phrases_ocr(texte_date_naissance_sansdup)
+        raw_naissance = extract_date_after_birthday(str(texte_date_naissance_deces))  # liste ou str
+        nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
 
-    if isinstance(raw_naissance, list):
-        raw_naissance = [norm_er(s) for s in raw_naissance]
-    elif isinstance(raw_naissance, str):
-        raw_naissance = norm_er(raw_naissance)
-    date_naissance = convertir_date(raw_naissance)  # liste ISO ou None
+        if isinstance(raw_naissance, list):
+            raw_naissance = [norm_er(s) for s in raw_naissance]
+        elif isinstance(raw_naissance, str):
+            raw_naissance = norm_er(raw_naissance)
+        date_naissance = convertir_date(raw_naissance)  # liste ISO ou None
 
-    adresse = extract_address(str(texte_brut), doc_id=doc_id)
-    if not date_jugement:
-        date_jugement = extract_jugement_date(str(texte_brut))
-
-    if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
-        raw_deces = extract_dates_after_decede(str(texte_date_naissance_deces), first_only=False)  # liste ou str
-
-        if isinstance(raw_deces, list):
-            raw_deces = [norm_er(s) for s in raw_deces]
-        elif isinstance(raw_deces, str):
-            raw_deces = norm_er(raw_deces)
-        # 🚨 Ajoute ce filtre ici
-            # 🚨 Applique le filtre contre les dates parasites (Av, Avenue, parenthèses)
-        date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
         adresse = extract_address(str(texte_brut), doc_id=doc_id)
-        detect_succession_keywords(texte_brut, extra_keywords)
+        if not date_jugement:
+            date_jugement = extract_jugement_date(str(texte_brut))
 
-    if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
-        if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
-            raw_deces = extract_dates_after_decede(str(main))
+        if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
+            raw_deces = extract_dates_after_decede(str(texte_date_naissance_deces), first_only=False)  # liste ou str
 
+            if isinstance(raw_deces, list):
+                raw_deces = [norm_er(s) for s in raw_deces]
+            elif isinstance(raw_deces, str):
+                raw_deces = norm_er(raw_deces)
+            # 🚨 Ajoute ce filtre ici
+            # 🚨 Applique le filtre contre les dates parasites (Av, Avenue, parenthèses)
+            date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
+            adresse = extract_address(str(texte_brut), doc_id=doc_id)
+            detect_succession_keywords(texte_brut, extra_keywords)
 
+        if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
+            if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
+                raw_deces = extract_dates_after_decede(str(main))
+
+                if isinstance(raw_deces, list):
+                    raw_deces = [norm_er(s) for s in raw_deces]
+                elif isinstance(raw_deces, str):
+                    raw_deces = norm_er(raw_deces)
+
+                date_deces = convertir_date(raw_deces)
+
+            administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
+                                                         ["avocate", "avocat", "Maître", "bureaux", "cabinet",
+                                                          "curateur"])
+            if not administrateur:
+                administrateur = extract_administrateur(texte_brut)
+                nom_trib_entreprise = extract_noms_entreprises(texte_brut)
+            detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
+            if all("delai de contact" not in element for element in extra_keywords):
+                detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
+
+            # Petit pré-nettoyage pour espaces insécables éventuels
+            def _norm_txt(s: str) -> str:
+                return re.sub(r"[\u00A0\u202F]+", " ", s)
+
+            if not has_person_names(nom) and EVENT_RX.search(_norm_txt(texte_brut)):
+                nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
+
+        if re.search(r"justice\s+de\s+paix", keyword.replace("+", " "), flags=re.IGNORECASE):
+            administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
+                                                         ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
+            detect_justice_paix_keywords(texte_brut, extra_keywords)
+
+        if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
+            # verifier a quoi sert id ici
+            nom_interdit = extraire_personnes_interdites(texte_brut)  # va falloir deplacer dans fonction ?
+            nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
+            administrateur = extract_administrateur(texte_brut)
+            adresse = extract_add_entreprises(texte_brut, doc_id=doc_id)
+            detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
+
+        if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
+
+            nom_interdit = extraire_personnes_interdites(texte_brut)
+            nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
+            detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
+            detect_courappel_keywords(texte_brut, extra_keywords)
+            detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
+            nom = extract_name_from_text(texte_brut)
+
+            def clean(n):
+                return re.sub(r"\s+", " ", n.strip().lower())
+
+            # On nettoie tous les noms d'entreprise à exclure
+            noms_entreprise_exclues = {clean(n) for n in nom_trib_entreprise}
+
+            # 1. Nettoyer "records"
+            filtered_records = [
+                r for r in nom.get("records", [])
+                if clean(r.get("canonical", "")) not in noms_entreprise_exclues
+            ]
+
+            # 2. Nettoyer "canonicals"
+            filtered_canonicals = [
+                c for c in nom.get("canonicals", [])
+                if clean(c) not in noms_entreprise_exclues
+            ]
+
+            # 3. Nettoyer "aliases_flat"
+            filtered_aliases_flat = [
+                a for a in nom.get("aliases_flat", [])
+                if clean(a) not in noms_entreprise_exclues
+            ]
+
+            # 4. Mettre à jour l'objet `nom`
+            nom["records"] = filtered_records
+            nom["canonicals"] = filtered_canonicals
+            nom["aliases_flat"] = filtered_aliases_flat
+            # administrateur me semble inutile pour cour d appel
+            # administrateur = extract_administrateur(texte_brut)
+            # refactoriser et faire qu en cas de succession?
+            raw_deces = extract_dates_after_decede(str(main))  # liste ou str
+            nom_trib_entreprise = clean_nom_trib_entreprise(nom_trib_entreprise)
 
             if isinstance(raw_deces, list):
                 raw_deces = [norm_er(s) for s in raw_deces]
             elif isinstance(raw_deces, str):
                 raw_deces = norm_er(raw_deces)
 
-            date_deces = convertir_date(raw_deces)
+            date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
 
-        administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
-                                                     ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur"])
-        if not administrateur:
-            administrateur = extract_administrateur(texte_brut)
-            nom_trib_entreprise = extract_noms_entreprises(texte_brut)
-        detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
-        if all("delai de contact" not in element for element in extra_keywords):
-               detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
-        # Petit pré-nettoyage pour espaces insécables éventuels
-        def _norm_txt(s: str) -> str:
-            return re.sub(r"[\u00A0\u202F]+", " ", s)
-
-        if not has_person_names(nom) and EVENT_RX.search(_norm_txt(texte_brut)):
-            nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
-
-    if re.search(r"justice\s+de\s+paix", keyword.replace("+", " "), flags=re.IGNORECASE):
-        administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
-                                                     ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
-        detect_justice_paix_keywords(texte_brut, extra_keywords)
-
-    if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
-
-        # verifier a quoi sert id ici
-        nom_interdit = extraire_personnes_interdites(texte_brut) # va falloir deplacer dans fonction ?
-        nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
-        administrateur = extract_administrateur(texte_brut)
-        adresse = extract_add_entreprises(texte_brut, doc_id=doc_id)
-        detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
-
-    if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
-
-        nom_interdit = extraire_personnes_interdites(texte_brut)
-        nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
-        detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
-        detect_courappel_keywords(texte_brut, extra_keywords)
-        detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
-        nom = extract_name_from_text(texte_brut)
-
-        def clean(n):
-            return re.sub(r"\s+", " ", n.strip().lower())
-
-        # On nettoie tous les noms d'entreprise à exclure
-        noms_entreprise_exclues = {clean(n) for n in nom_trib_entreprise}
-
-        # 1. Nettoyer "records"
-        filtered_records = [
-            r for r in nom.get("records", [])
-            if clean(r.get("canonical", "")) not in noms_entreprise_exclues
-        ]
-
-        # 2. Nettoyer "canonicals"
-        filtered_canonicals = [
-            c for c in nom.get("canonicals", [])
-            if clean(c) not in noms_entreprise_exclues
-        ]
-
-        # 3. Nettoyer "aliases_flat"
-        filtered_aliases_flat = [
-            a for a in nom.get("aliases_flat", [])
-            if clean(a) not in noms_entreprise_exclues
-        ]
-
-        # 4. Mettre à jour l'objet `nom`
-        nom["records"] = filtered_records
-        nom["canonicals"] = filtered_canonicals
-        nom["aliases_flat"] = filtered_aliases_flat
-        # administrateur me semble inutile pour cour d appel
-        # administrateur = extract_administrateur(texte_brut)
-        # refactoriser et faire qu en cas de succession?
-        raw_deces = extract_dates_after_decede(str(main))  # liste ou str
-        nom_trib_entreprise = clean_nom_trib_entreprise(nom_trib_entreprise)
-
-        if isinstance(raw_deces, list):
-            raw_deces = [norm_er(s) for s in raw_deces]
-        elif isinstance(raw_deces, str):
-            raw_deces = norm_er(raw_deces)
-
-        date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
-
-    tvas = extract_numero_tva(texte_brut)
-    tvas_valides = [t for t in tvas if format_bce(t)]
-    denoms_by_bce = tvas_valides  # temporaire, juste le formaté
-    adresses_by_bce = tvas_valides
-    match_nn_all = extract_nrn_variants(texte_brut)
-    nns = match_nn_all
-    doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
-    return (
-        numac, date_doc, langue, texte_brut, url, keyword,
-        tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement, nom_trib_entreprise,
-        date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce, adresses_by_bce
-    )
+        tvas = extract_numero_tva(texte_brut)
+        tvas_valides = [t for t in tvas if format_bce(t)]
+        denoms_by_bce = tvas_valides  # temporaire, juste le formaté
+        adresses_by_bce = tvas_valides
+        match_nn_all = extract_nrn_variants(texte_brut)
+        nns = match_nn_all
+        doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
+        return (
+            numac, date_doc, langue, texte_brut, url, keyword,
+            tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
+            nom_trib_entreprise,
+            date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce,
+            adresses_by_bce
+        )
 
 
 # MAIN
@@ -645,8 +628,7 @@ with requests.Session() as session:
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
         futures = [
             executor.submit(
-                scrap_informations_from_url,
-                session, url, numac, date_doc, langue, keyword, title, subtitle
+                scrap_informations_from_url, url, numac, date_doc, langue, keyword, title, subtitle
             )
             for (url, numac, date_doc, langue, keyword, title, subtitle) in link_list
         ]
@@ -682,7 +664,7 @@ print("✅ Index recréé avec clé primaire :", index.primary_key)
 # ✅ Ajoute ces lignes ici (et non dans le try)
 index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
-    "id", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
+    "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
     "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce", "adresses_by_bce"
 ])
@@ -842,39 +824,105 @@ for doc in documents:
         return result or []
 
 
-    # ✅ Vérif nom valide
-    def est_nom_valide(nom: str) -> bool:
+    # ✅ Vérif + nettoyage nom
+    def est_nom_valide(nom: str) -> str | None:
+        STOPWORDS = {"de", "la", "le", "et", "des", "du", "l’", "l'", "conformément", "à"}
+        EXCLUSIONWORD = [
+            "de l'intéressé",
+            "et remplacée",
+            "de la",
+            "l'intéressé et",
+            "l'intéressé",
+            "suite au",
+            "suite aux",
+            "en sa qualité d'administrateur des biens de",
+            "qualité d'administrateur des biens de",
+            "l'égard des biens concernant",
+            "à l'égard des biens concernant",
+            "conformément à",
+            "modifié les mesures de protection à l'égard des biens de",
+            "l'égard des biens de",
+            "à l'égard des biens de",
+            "des biens de",
+            "désigné par ordonnance",
+            "a désigné par ordonnance",
+            "d'administrateur"
+        ]
+
         if not isinstance(nom, str):
-            return False
-        tokens = [t for t in nom.strip().split() if t]
-        if len(tokens) < 2:  # doit avoir au moins prénom + nom
-            return False
+            return None
+
+        # 🔹 Normaliser
+        normalise = normaliser_espaces_invisibles(nom).replace("’", "'")
+
+        # 🔹 Supprimer toutes les phrases interdites
+        for bad in EXCLUSIONWORD:
+            normalise = normalise.replace(bad, "")
+
+        # 🔹 Nettoyage des espaces
+        normalise = " ".join(normalise.split()).strip()
+
+        # 🚫 Si plus rien → invalide
+        if not normalise:
+            return None
+
+        tokens = normalise.split()
+        # 🚫 Supprimer uniquement les tokens "et"
+        tokens = [t for t in tokens if t.lower() != "et"]
+
+        if len(tokens) < 2:  # prénom + nom min
+            return None
         if len("".join(tokens)) < 3:  # trop court
-             return False
-        STOPWORDS = {"de", "la", "le", "et", "des", "du", "l’", "l'"}
+            return None
+        # 🚫 cas spécial : exactement 2 mots dont un est un stopword
+        if len(tokens) == 2 and any(t.lower() in STOPWORDS for t in tokens):
+                return None
         if all(t.lower() in STOPWORDS for t in tokens):
-            return False
-        return True
+            return None
+
+        return normalise
 
 
-    canon_name = extraire_nom_canonique(nom)
+    if isinstance(nom, dict):
+        # canonicals
+        cleaned = []
+        for c in (nom.get("canonicals") or []):
+            c_clean = est_nom_valide(c)
+            if c_clean:
+                cleaned.append(c_clean)
+        nom["canonicals"] = cleaned
 
-    noms_valides = [n for n in canon_name if est_nom_valide(n)]
+        # records
+        new_records = []
+        for r in nom.get("records", []):
+            c_clean = est_nom_valide(r.get("canonical", ""))
+            if c_clean:
+                r["canonical"] = c_clean
+                new_records.append(r)
+        nom["records"] = new_records
 
-    if not noms_valides:
-        # Log standard si aucun nom exploitable
-        logger_nomspersonnes.info(
-            f"[Nom invalide] DOC={doc.get('doc_hash')} | NOMS bruts='{nom}'"
-        )
-        # Log spécifique si plusieurs propositions invalides
-        if len(canon_name) > 1:
+        # aliases_flat
+        cleaned = []
+        for a in (nom.get("aliases_flat") or []):
+            a_clean = est_nom_valide(a)
+            if a_clean:
+                cleaned.append(a_clean)
+        nom["aliases_flat"] = cleaned
+
+
+    elif isinstance(nom, list):
+        doc["nom"] = [s for s in nom if est_nom_valide(s)]
+
+    elif isinstance(nom, str):
+        if not est_nom_valide(nom):
+            doc["nom"] = None
+
+    # 🔔 Vérifier si aucun nom exploitable après nettoyage
+    if not doc.get("nom"):  # None, [] ou dict vide
             logger_nomspersonnes.warning(
-                f"[Tous les noms invalides] DOC={doc.get('doc_hash')} | "
-                f"NOMS candidats={canon_name}"
+                f"[AUCUN NOM] DOC={doc.get('doc_hash')} | Nom brut avant nettoyage='{nom}'"
             )
-        doc["nom"] = None  # 🚫 aucun nom exploitable
-    else:
-        doc["nom"] = noms_valides  # ✅ liste de noms valides
+
     _log_len_mismatch(doc, date_naissance, date_deces, nom)
     _log_nom_repetition_locale_first_token(doc, window=80)  # 👈 ajout ici
     # Si c’est une chaîne → transforme en liste

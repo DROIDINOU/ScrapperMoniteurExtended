@@ -1,16 +1,35 @@
 import re
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Url de base du site scrappé : Le moniteur belge
+# ----------------------------------------------------------------------------------------------------------------------
 BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+#  REGEX COMPILES MAINSCRAPPER: Code postal - Numéro BCE
+# +++++++++++++++++++++++++++++++++++++++++++++++++
+POSTAL_RE = re.compile(r"\b[1-9]\d{3}\s+[A-Za-zÀ-ÿ'’\- ]{2,}\b")
+BCE_RE = re.compile(r"\b\d{3}\.\d{3}\.\d{3}\b")
 
 # faire une verif pour succession egalité date naissance et deces
 # INDEX_NAME=mon_document_pft_11082025 contient succession et successions
-# CONSTANTE VILLES UTILISEE DANS FONCTION extract_date_after_rendu_par
+# _____________________________________________________________________________________________________________________
+#              CONSTRUCTION CONSTANTE VILLES UTILISEE DANS FONCTION extract_date_after_rendu_par
+# ______________________________________________________________________________________________________________________
+# Chefs lieux des tribunaux de wallonnie (à vérifier)
 VILLE_TRIBUNAUX = [
     "Bruxelles", "Charleroi", "Mons", "Namur", "Liège", "Huy",
     "Tournai", "Neufchâteau", "Marche-en-Famenne", "Arlon", "Dinant", "Eupen", "Nivelles", "Verviers"
 ]
+escaped_villes = [re.escape(v) for v in VILLE_TRIBUNAUX]
 
-TVA_INSTITUTIONS = ["0308.357.159", "0206.731.645"]
+VILLES = "|".join(escaped_villes)
+
+# _____________________________________________________________________________________________________________________
+#        NUMEROS DE TVA ET ADRESSES INSTITUTIONS PUBLIQUES ET AUTRES ORGANISMES NON CONCERNES PAR DECISIONS
+# _____________________________________________________________________________________________________________________
+TVA_INSTITUTIONS = ["0308.357.159", "0206.731.645"]  # SPF FINANCES, ONSS
 
 ADRESSES_INSTITUTIONS = ["1000 BRUXELLES place Poelart 1", "1000 BRUXELLES place Poelaert 1"]
 ADRESSES_INSTITUTIONS_SET = {a.strip() for a in ADRESSES_INSTITUTIONS}
@@ -43,9 +62,7 @@ NETTOIE_ADRESSE = [
 
 NETTOIE_ADRESSE_SET = {t.lower() for t in NETTOIE_ADRESSE}
 
-escaped_villes = [re.escape(v) for v in VILLE_TRIBUNAUX]
-VILLES = "|".join(escaped_villes)
-
+# MAP DES JOURS DU MOIS → nombre
 JOURMAP = {
         'premier': 1, 'un': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5, 'six': 6,
         'sept': 7, 'huit': 8, 'neuf': 9, 'dix': 10, 'onze': 11, 'douze': 12, 'treize': 13,
@@ -55,6 +72,8 @@ JOURMAP = {
         'vingt-huit': 28, 'vingt-neuf': 29, 'trente': 30, 'trente-et-un': 31
     }
 
+
+# MAP MOIS → numéro du mois
 MOISMAP = {
         'janvier': '01', 'février': '02', 'mars': '03', 'avril': '04',
         'mai': '05', 'juin': '06', 'juillet': '07', 'août': '08',
@@ -62,6 +81,7 @@ MOISMAP = {
     }
 
 
+# MAP ANNEE → année en chiffres
 ANNEMAP = {
         'deux mille vingt': '2020',
         'deux mille vingt et un': '2021',
@@ -168,8 +188,8 @@ EXCLUDEDSOURCES = {
 }
 
 # UTILISE PAR detect_societe_title
-
 SOCIETESABRV = {"SA", "SRL", "SE", "SPRL", "SIIC", "SC", "SNC", "SCS", "COMMV", "SCRL", "SAS", "ASBL", "SCA"}
+
 SOCIETESFORMELLES = [
         "société anonyme", "société à responsabilité limitée", "société coopérative",
         "société européenne", "société en commandite", "société civile"
@@ -234,5 +254,7 @@ MOISMAP_NORM = {
     # decembre
     "decembre": "12", "dec": "12", "decebre": "12", "decemre": "12", "decrmbre": "12",
 }
+
+
 
 
