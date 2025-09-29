@@ -33,6 +33,7 @@ PREFIXES = (
     r"|succession\s+(?:en\s+d[ée]sh[ée]rence|vacante)\s+de"
     r"|en qualité de curateur à la succession vacante de"
     r"|la succession vacante de"
+    r"|feu[e]?"   # 👈 ajouté ici
     r"|le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+(?:\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+)*\s+a\s+désigné\s+(?:à\s+)?" 
     r"|"
     + ABS_PREF +
@@ -67,8 +68,7 @@ UPWORD = r"[A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ][A-ZÉÈÀÂÊÎÔÛÇÄËÏÖÜŸ
 # Bloc NOM (un ou plusieurs "UPWORD" séparés par espaces) :
 # - 1 mot majuscule minimum, jusqu'à 5 mots (0..4 supplémentaires)
 #   → LUYTEN | VAN DER MEER | D’ALMEIDA | VAN DEN BROECK
-NOM_BLOCK = rf"{UPWORD}(?: \s+{UPWORD}){{0, 4}}"
-
+NOM_BLOCK   = rf"{UPWORD}(?:\s+{UPWORD}){{0,4}}"
 # Mot prénom en "Casse Nom-Propre" :
 # - 1ère lettre majuscule (accents inclus), puis minuscules/accents/apostrophes/tirets
 #   → Jean, Liliane, André-Marie, D’Artagnan (le D’ est géré côté NOM_BLOCK, mais un prénom
@@ -77,8 +77,7 @@ PRENOM_WORD = r"[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{1,}"
 
 # Bloc PRÉNOMS (1 à 6 prénoms séparés par espaces)
 #   → Liliane Louise Victorine, Jean Pierre Michel, etc.
-PRENOMS_BLK = rf"{PRENOM_WORD}(?: \s+{PRENOM_WORD}){{0, 5}}"
-
+PRENOMS_BLK = rf"{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,5}}"
 # Token RN élargi (RN / RRN / NRN / NN — avec ou sans points/espaces)
 RN_TOKEN = r"(?:(?:R\.?\s*){1,2}N\.?|N\.?\s*R\.?\s*N\.?|N\.?\s*N\.?)"
 RN_TOKEN_ANY = RN_TOKEN # on utilisera RN_TOKEN_STRICT PAR APRES SI NECESSAIRE
@@ -142,6 +141,11 @@ RX_PROTECTION_INTERESSE_NE = re.compile(rf"""
 # ==============================
 # NOMS PRENOMS GENERAL
 # ==============================
+RX_NOM_VIRGULE = re.compile(
+    rf"\b(?P<nom>{UPWORD}),\s+(?P<prenoms>{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,3}})\b"
+)
+
+
 RX_PRENOM_NOM_NE_A = re.compile(rf"""
     (?P<prenoms>{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,5}})   # 1 à 6 prénoms
     \s+
@@ -174,10 +178,13 @@ RX_NR_NP = re.compile(rf"""
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
     (?=\s*,?\s*(?:né|née|né\(e\)|RR?N|NRN|\(|$))
 """, re.IGNORECASE | re.VERBOSE)
-RX_ABSENCE = re.compile(
-    r"présomption\s+d['’]absence\s+à\s+l[’']égard\s+de\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s'\-]+)",
-    flags=re.IGNORECASE
-)
+RX_ABSENCE = re.compile(rf"""
+    présomption\s+d['’]absence
+    (?:\s+à\s+l[’']égard\s+de)?
+    \s+
+    (?:(?:Monsieur|Madame|M(?:me|r)?\.?)\s+)?
+    (?P<nom>{NOM_BLOCK}),\s+(?P<prenoms>{PRENOMS_BLK})
+""", re.IGNORECASE | re.VERBOSE)
 # 3) générique “NOM, Prénoms, né …”
 RX_NP_NE = re.compile(rf"""
     (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
@@ -210,18 +217,6 @@ RX_REL_PERSONNE_DE = re.compile(rf"""
 # ==============================
 #      NOMS PRENOMS GENERAL
 # ==============================
-RX_CURATEUR_SV_NP = re.compile(rf"""
-    curateur
-    \s+à\s+la?\s+succession
-    \s+(?:
-        (?:r[ée]put[ée]e?\s+)?vacante
-      | en\s+d[ée]sh[ée]rence
-    )
-    \s+de\s*:?\s*
-    (?:feu[e]?\s+)?(?:M(?:onsieur|me|adame)?\.?\s+)? 
-    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
-    (?=\s*(?:\(|,|;|\.|$))
-""", re.IGNORECASE | re.VERBOSE)
 
 # ==============================
 #      CAPABLE
@@ -239,6 +234,16 @@ RX_CAPABLE_BIENS = re.compile(rf"""
 # =======================
 #         SUCCESSIONS
 # =======================
+RX_SV_PN_NN = re.compile(rf"""
+    succession
+    \s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)
+    \s+de\s+
+    (?:(?:feu[e]?\s+)?(?:Monsieur|Madame|M(?:me|r)?\.?)\s+)?   # civilité optionnelle
+    (?P<prenoms>{PRENOMS_BLK})
+    \s+(?P<nom>{NOM_BLOCK})
+    \s*\(NN\s+\d{{2}}\.\d{{2}}\.\d{{2}}-\d{{3}}\.\d{{2}}\)
+""", re.IGNORECASE | re.VERBOSE)
+
 # — Personne visée par "succession vacante / en déshérence de ..."
 RX_SV_PN = re.compile(rf"""
     succession\s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)\s+de\s+
@@ -246,51 +251,96 @@ RX_SV_PN = re.compile(rf"""
     (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
     (?=\s*(?:\(|,|;|\.|$))                         # stop avant (RN...), virgule, point, etc.
 """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
+RX_QUALITE_CURATEUR_SV_PN_NN = re.compile(rf"""
+    (?:à\s+)?succession                     # accepte "succession" ou "à succession"
+    \s+(?:réput[ée]e?\s+)?vacante
+    (?:\s+de\s*:?\s*)?                      # "de" ou "de :" optionnels
+    (?:(?:feu[e]?\s+)?(?:Monsieur|Madame|M(?:me|r)?\.?)\s+)?   # civilité optionnelle
+    (?P<prenoms>{PRENOM_WORD}(?:\s+{PRENOM_WORD})*)           
+    \s+
+    (?P<nom>{UPWORD}(?:\s+{UPWORD})*)                         
+    \s*\(NN\s+\d{{2}}\.\d{{2}}\.\d{{2}}-\d{{3}}\.\d{{2}}\)    
+""", re.IGNORECASE | re.VERBOSE)
 
-RX_SV_NP = re.compile(rf"""
-    succession\s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)\s+de\s+
-    (?:feu[e]?\s+)?(?:M(?:me|adame|onsieur)?\.?\s+)? 
-    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
-    (?=\s*(?:\(|,|;|\.|$))
+RX_QUALITE_CURATEUR_SV_PN = re.compile(rf"""
+    (?:désign[ée]e?.{{0,300}}?)?                 # 'désigné(e)' … (tampon optionnel)
+    \b(?:en\s+)?qualité\s+de\s+(?:curateur|curatrice)\s+
+    (?:a|à)\s+(?:la\s+)?succession\s+            # 'à' ou 'a' (robuste), 'la' optionnelle
+    (?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)
+    (?:\s+de\s*:?\s*)?
+    (?:feu[e]?\s+)?(?:(?:Monsieur|Madame|M(?:me|r)?\.?)\s+)?   
+    (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
+    (?=\s*(?:,|;|\.|\)|$|\s+né|\s+née|\s+né\(e\)|\s+domicili[ée]|\\s+décéd[ée]))  # fin propre
 """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
+
+
+RX_CURATEUR_SV_NP_NN = re.compile(rf"""
+    curateur
+    \s+à\s+(?:la\s+)?succession
+    \s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)
+    (?:\s+de\s*:?\s*)?
+    (?:feu[e]?\s+)?(?:M(?:onsieur|me|adame)?\.?\s+)? 
+    (?P<nom>{NOM_BLOCK})                               # NOM en premier
+    \s*,\s*
+    (?P<prenoms>
+        (?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s*){1,6}      # 1 à 6 prénoms
+    )
+    \s*\(NN\s+\d{{2}}\.\d{{2}}\.\d{{2}}-\d{{3}}\.\d{{2}}\)   # 👈 Bloc (NN …) obligatoire
+    (?=\s*(?:\(|,|;|\.|\)|$|\s+né|\s+née|\s+domicilié|\s+décédé))
+""", re.IGNORECASE | re.VERBOSE)
+
+RX_CURATEUR_SV_NP = re.compile(rf"""
+    curateur
+    \s+à\s+(?:la\s+)?succession
+    \s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)
+    (?:\s+de\s*:?\s*)?
+    (?:feu[e]?\s+)?(?:M(?:onsieur|me|adame)?\.?\s+)? 
+    (?P<nom>{NOM_BLOCK})                               # NOM en premier
+    \s*,\s*
+    (?P<prenoms>
+        (?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s*){1,6}      # 1 à 6 prénoms
+    )
+    (?=\s*(?:\(|,|;|\.|\)|$|\s+né|\s+née|\s+domicilié|\s+décédé))
+""", re.IGNORECASE | re.VERBOSE)
 
 RX_CURATEUR_SV_PN = re.compile(rf"""
         curateur            # le terme curateur
-        \s+à\s+la?\s+succession
+        \s+à\s+(?:la\s+)?succession
         \s+(?:
             (?:r[ée]put[ée]e?\s+)?vacante
           | en\s+d[ée]sh[ée]rence
         )
-        \s+de\s*:?\s*
+        (?:\s+de\s*:?\s*)?
         (?:feu[e]?\s+)?(?:M(?:onsieur|me|adame)?\.?\s+)?   # civilité/feu optionnels
         (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
-        (?=\s*(?:\(|,|;|\.|$))                         # s'arrêter avant (RN..., , née..., ;, fin)
+        (?=\s*(?:\(|,|;|\.|\)|$|\s+né|\s+née|\s+né\(e\)|\s+domicilié|\s+décédé|\s+[A-ZÉÈÊÀÂ]))
     """, re.IGNORECASE | re.VERBOSE)
 
-RX_SV_ANY = re.compile(
-    r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)\s+de\s+((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+){1,4}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
-    re.IGNORECASE,
-)
+# Cas 2 : "succession vacante de NOM, Prénoms"
+RX_SV_NP = re.compile(rf"""
+    succession
+    \s+(?:(?:r[ée]put[ée]e?\s+)?vacante|en\s+d[ée]sh[ée]rence)
+    \s+de\s+
+    (?:feu[e]?\s+)?(?:M(?:onsieur|me|adame)?\.?\s+)? 
+    (?P<nom>{NOM_BLOCK})\s*,\s*(?P<prenoms>{PRENOMS_BLK})
+    (?=\s*(?:\(|,|;|\.|\)|$|\s+né|\s+née|\s+né\(e\)|\s+[A-ZÉÈÊÀÂ]))
+""", re.IGNORECASE | re.VERBOSE)
 
-RX_SV_NOM_COMPLET_VIRG = re.compile(
-    r"succession\s+(?:en\s+d[ée]sh[ée]rence|vacante)?\s+de\s+((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+){1,4}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
-    re.IGNORECASE,
-)
+# Cas 3 : fallback générique (attrape-tout)
+RX_SV_ANY = re.compile(rf"""
+    succession
+    \s+(?:vacante|en\s+d[ée]sh[ée]rence)
+    \s+de\s+
+    (?:M(?:me|adame|onsieur)?\.?\s+)?      # civilité optionnelle
+    (?P<full>
+        (?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+)+
+        [A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+
+    )
+    (?=\s*(?:\(|,|;|\.|\)|$|\s+né|\s+née|\s+domicilié|\s+décédé|\s+[A-ZÉÈÊÀÂ]))
 
-RX_SRV_SIMPLE = re.compile(
-    r"succession\s+réputée\s+vacante\s+de\s+(?:Madame|Monsieur)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
-    re.IGNORECASE,
-)
+""", re.IGNORECASE | re.VERBOSE)
 
-RX_SRV_NP = re.compile(
-    r"succession\s+réputée\s+vacante\s+de\s+(?:M(?:onsieur)?|Madame)?\.?\s*([A-ZÉÈÊÀÂ\-']+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\- ]{2,})",
-    re.IGNORECASE,
-)
 
-RX_SV_NOM_VIRG_PRENOMS = re.compile(
-    r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-\s]+)",
-    re.IGNORECASE,
-)
 
 RX_SV_FEU_PAIRE = re.compile(
     r"(?:succession\s+de\s+feu|à\s+la\s+succession\s+de\s+feu).{0,30}?(?:M(?:onsieur)?|Madame)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)[,\s]+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
@@ -327,6 +377,8 @@ RX_SV_NE_LE = re.compile(
     re.IGNORECASE,
 )
 
+
+
 RX_SV_DESHERENCE_SIMPLE = re.compile(
     r"succession?\s+(?:en\s+d[ée]sh[ée]rence\s+)?de\s+"
     r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s'’\-,]+?)"
@@ -335,19 +387,27 @@ RX_SV_DESHERENCE_SIMPLE = re.compile(
 )
 
 RX_ADMIN_PROV_SUCC_DE = re.compile(
-    r"administrateur\s+provisoire\s+à\s+la\s+succession\s+de\s*:?\s*(?:M(?:onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,5})",
+    r"administrateur\s+provisoire\s+à\s+la\s+succession\s+de\s*:?\s*"
+    r"(?:M(?:onsieur)?\.?\s+)?"
+    r"(?:de\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,5})",
     re.IGNORECASE,
 )
+
 
 RX_SRV_NOMPRENOM = re.compile(
-    r"succession\s+réputée\s+vacante\s+de\s+(?:M(?:onsieur)?\.?|Madame)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
+    r"succession\s+réputée\s+vacante\s+de\s+(?:M(?:onsieur)?\.?|Madame)?\s*"
+    r"(?:de\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
     re.IGNORECASE,
 )
 
+
 RX_SV_MONSIEUR_PN = re.compile(
-    r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+Monsieur\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)*)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
+    r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+Monsieur\s+"
+    r"(?:de\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)*)\s+"
+    r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
     re.IGNORECASE,
 )
+
 
 # =======================
 #      EN CAUSE DE
@@ -424,6 +484,28 @@ RX_CONDAMNE_LE_NOMME_PN = re.compile(rf"""
 """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
 
 
+
+def format_nom_prenom(nom: str, prenoms: str) -> str:
+    """
+    Formate un couple (nom, prenoms) en "Prénom(s) Nom".
+    Nettoie civilités et espaces.
+    """
+    if not nom or not prenoms:
+        return None
+
+    # Supprimer civilités et titres éventuels
+    civilites = r"^(Madame|Monsieur|M(?:me|r)?|Maître|Me|M\.|Mme\.)\s+"
+    nom = re.sub(civilites, "", nom, flags=re.IGNORECASE).strip()
+    prenoms = re.sub(civilites, "", prenoms, flags=re.IGNORECASE).strip()
+
+
+    # Normalisation espaces
+    nom = " ".join(nom.split())
+    prenoms = " ".join(prenoms.split())
+
+    return f"{prenoms} {nom}".strip()
+
+
 # Supprime un doublon exact au tout début ou à la toute fin de la chaîne.
 # Exemple 'Jean Jean Dupont' -> 'Jean Dupont' ; 'Dupont Marc Marc' -> 'Dupont Marc'
 # Ne touche pas aux prénoms composés type 'Jean-Baptiste'
@@ -452,10 +534,9 @@ def extract_name_from_text(text, keyword, doc_id):
 def invert_if_comma(s: str) -> str:
     if "," in s:
         left, right = [p.strip() for p in s.split(",", 1)]
-        if left and right:
+        if re.fullmatch(UPWORD, left):  # NOM en majuscules
             return f"{right} {left}"
     return s
-
 
 def _norm_spaces(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
@@ -506,6 +587,17 @@ def _choose_canonical(variants: list[str]) -> str:
     # Trie toutes les variantes par score décroissant et prend la meilleure
     return sorted(variants, key=score, reverse=True)[0]
 
+def _prefer_uppercase_variant(variants: list[str]) -> str | None:
+    """
+    Choisit une variante où au moins un token est en FULL CAPS (patronyme).
+    """
+    for v in variants:
+        tokens = v.split()
+        if any(tok.isupper() and len(tok) > 2 for tok in tokens):
+            return v
+    return None
+
+
 
 def group_names_for_meili(noms_nettoyes: list[str]):
     """
@@ -513,12 +605,16 @@ def group_names_for_meili(noms_nettoyes: list[str]):
     et prépare des champs prêts pour Meili/Postgre.
     """
     groups = {}  # key_loose -> set(variants)
+    prefix_regex = re.compile(rf"^\s*{PREFIXES}\s+", flags=re.IGNORECASE)  # 👈 tu dois le définir ici
+
     for n in noms_nettoyes:
+        original = n.strip()
+
         # --- pré-nettoyage anti "né ..." / "pour la succession de ..." ---
-        prefix_regex = re.compile(rf"^\s*{PREFIXES}\s+", flags=re.IGNORECASE)
         n = prefix_regex.sub("", n)
         n = re.split(CONTEXT_CUT, n, 1, flags=re.IGNORECASE)[0]
         n = n.replace("|", " ").replace(";", " ").replace(":", " ")
+        # 👇 nettoyage des mots parasites
         n = invert_if_comma(n)
         n = clean_doublons_debut_fin(n)
         n = re.sub(r"\b([A-Za-zÀ-ÿ'-]+)\s+\1\b$", r"\1", n, flags=re.IGNORECASE)
@@ -527,12 +623,17 @@ def group_names_for_meili(noms_nettoyes: list[str]):
         key = _norm_key_loose(n)
         if not key:
             continue
-        groups.setdefault(key, set()).add(n)
+        groups.setdefault(key, set()).add(original)
 
     records, canonicals, all_aliases = [], [], set()
     for key, variants in groups.items():
         variants = list(dict.fromkeys(_norm_spaces(v) for v in variants))
-        canonical = _choose_canonical(variants)
+
+        # 👇 check d'abord si une version FULL CAPS existe
+        canonical = _prefer_uppercase_variant(variants)
+        if not canonical:
+            canonical = _choose_canonical(variants)
+
         aliases = [v for v in variants if v != canonical]
         records.append({"canonical": canonical, "aliases": aliases})
         canonicals.append(canonical)
@@ -642,6 +743,7 @@ def nettoyer_noms_avances(noms, longueur_max=80):
             nom = rx.sub(" ", nom)
 
         # suppression préfixes "né ..." etc.
+        nom = re.sub(r"^\s*de\s+(?=[A-Z][a-z])", "", nom)
         nom = re.sub(rf"^\s*{PREFIXES}\s+", "", nom, flags=re.IGNORECASE)
 
         # suppression titres
@@ -672,8 +774,7 @@ def nettoyer_noms_avances(noms, longueur_max=80):
         nom_normalise = re.sub(r'\s+', ' ', nom_normalise)
         nom = re.sub(r'\s+', ' ', nom).strip()
 
-        return nom, nom_normalise
-
+        return nom.strip(), nom_normalise  # 🔹 nom garde sa casse originale
     noms_nettoyes = []
     noms_normalises = []
 
@@ -695,7 +796,7 @@ def nettoyer_noms_avances(noms, longueur_max=80):
     for nom in noms:
 
         nom_nettoye, norm = nettoyer_et_normaliser(nom)
-        # 👉 étape anti-répétition OCR
+        print(f"DEBUG NOM: brut='{nom}' → nettoyé='{nom_nettoye}' (norm='{norm}')")# 👉 étape anti-répétition OCR
         nom_nettoye_dedup = _dedupe_tokens(nom_nettoye)
         nom_nettoye_dedup = _dedupe_blocks(nom_nettoye_dedup)
         nom_nettoye = nom_nettoye_dedup
@@ -704,7 +805,8 @@ def nettoyer_noms_avances(noms, longueur_max=80):
             continue
         if len(nom_nettoye) > longueur_max:
             continue
-
+        if len(nom_nettoye.split()) > 6:
+            continue
         # Accepte un token unique s'il ressemble à un NOM en majuscules (UPWORD)
         if len(nom_nettoye.split()) < 2 and not re.fullmatch(UPWORD, nom_nettoye):
             continue
@@ -728,15 +830,15 @@ def nettoyer_noms_avances(noms, longueur_max=80):
         noms_nettoyes.append(nom_nettoye)
         noms_normalises.append(norm)
     # ⚠️ avant le return, applique le filtre
-    filtrés_nettoyes = []
+    filtres_nettoyes = []
     filtrés_normalises = []
 
     for nom_nettoye, norm in zip(noms_nettoyes, noms_normalises):
         if "greffier" not in nom_nettoye.lower() and "greffier" not in norm.lower():
-            filtrés_nettoyes.append(nom_nettoye)
+            filtres_nettoyes.append(nom_nettoye)
             filtrés_normalises.append(norm)
 
-    return filtrés_nettoyes
+    return filtres_nettoyes
 
 
 def extract_name_before_birth(texte_html, keyword, doc_id):
@@ -747,18 +849,41 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     full_text = soup.get_text(separator=" ").strip()
 
     nom_list = LoggedList(full_text, doc_id, logger=dyn_log)
+    for m in RX_ABSENCE.finditer(full_text):
+        nom = m.group("nom").strip()
+        prenoms = m.group("prenoms").strip()
+        nom_complet = f"{nom}, {prenoms}"
+        nom_list.append(nom_complet, regex_name="RX_ABSENCE", m=m)
 
-    absence = RX_ABSENCE.search(full_text)
-    if absence:
-        nom_list.append(absence.group(1).strip(), regex_name="RX_ABSENCE", m=absence)
+    for m in RX_QUALITE_CURATEUR_SV_PN_NN.finditer(full_text):
+        nom_list.append(
+            f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+            regex_name="RX_QUALITE_CURATEUR_SV_PN_NN",
+            m=m
+        )
+    # … plus loin dans l’extraction :
+    for m in RX_QUALITE_CURATEUR_SV_PN.finditer(full_text):
+        nom_list.append(
+            f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+            regex_name="RX_QUALITE_CURATEUR_SV_PN",
+            m=m
+        )
 
-    for interdit_a in RX_INTERDIT_A.finditer(full_text):
-        nom = (interdit_a.group('nom') or interdit_a.group('nom2')).strip()
-        prenoms = (interdit_a.group('prenoms') or interdit_a.group('prenoms2')).strip()
-        nom_list.append(f"{nom}, {prenoms}", regex_name="RX_INTERDIT_A", m=interdit_a)
+    for m in re.finditer(
+                r"administrateur\s+des\s+biens\s+de.{0,30}?(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
+                full_text,
+                flags=re.IGNORECASE
+        ):
+            nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+            nom_list.append(nom_complet, regex_name="match_admin_biens", m=m)
+
+    for m in RX_INTERDIT_A.finditer(full_text):
+        nom = (m.group('nom') or m.group('nom2')).strip()
+        prenoms = (m.group('prenoms') or m.group('prenoms2')).strip()
+        nom_list.append(f"{nom}, {prenoms}", regex_name="RX_INTERDIT_A", m=m)
 
     for lenomme in RX_LE_NOMME_NP.finditer(full_text):
-        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}", regex_name="RX_LE_NOMME_NP", m=lenomme)
+        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}", regex_name="RX_LE_NOMME_NP", m=m)
 
     for rxnrnp in RX_NR_NP.finditer(full_text):
         nom_list.append(f"{rxnrnp.group('nom').strip()}, {rxnrnp.group('prenoms').strip()}")
@@ -766,98 +891,100 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     for rxnpne in RX_NP_NE.finditer(full_text):
         nom_list.append(f"{rxnpne.group('nom').strip()}, {rxnpne.group('prenoms').strip()}")
 
-    for succession_any in RX_SV_ANY.finditer(full_text):
-        nom_list.append(succession_any.group(1).strip(), regex_name="RX_SV_ANY", m=succession_any)
+    # ✅ Corrigé avec groupe nommé "full"
+    for m in RX_SV_ANY.finditer(full_text):
+        nom_list.append(m.group("full").strip(), regex_name="RX_SV_ANY", m=m)
 
-    for rxsvnomcomplet in RX_SV_NOM_COMPLET_VIRG.finditer(full_text):
-        nom_list.append(f"{rxsvnomcomplet.group(1).strip()}, {rxsvnomcomplet.group(2).strip()}", regex_name="RX_SV_NOM_COMPLET_VIRG", m=rxsvnomcomplet)
+    # ✅ Corrigé
+    for m in RX_SV_NP.finditer(full_text):
+        nom_list.append(
+            f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+            regex_name="RX_SV_NP", m=m
+        )
+    for m in RX_SV_PN_NN.finditer(full_text):
+        nom_list.append(
+            f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+            regex_name="RX_SV_PN_NN", m=m
+        )
+    # ✅ Corrigé
+    for m in RX_SV_PN.finditer(full_text):
+        nom_list.append(
+            f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+            regex_name="RX_SV_PN", m=m
+        )
 
-    for rxsrvsimple in RX_SRV_SIMPLE.finditer(full_text):
-        nom_list.append(rxsrvsimple.group(1).strip(), regex_name="RX_SRV_SIMPLE", m=rxsrvsimple)
+    for m in RX_CURATEUR_SV_PN.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()} {m.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_PN", m=m)
 
-    for rxsrvnp in RX_SRV_NP.finditer(full_text):
-        nom_list.append(f"{rxsrvnp.group(1).strip()}, {rxsrvnp.group(2).strip()}", regex_name="RX_SRV_NP", m=rxsrvnp)
+    for m in RX_CURATEUR_SV_NP_NN.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()} {m.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_NP_NN", m=m)
+    for m in RX_CURATEUR_SV_NP.finditer(full_text):
+        nom_list.append(f"{m.group('nom').strip()} {m.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_NP", m=m)
 
-    # (déjà précompilés ailleurs) — personnes visées par la succession / curateur
-    for rxsvpn in RX_SV_PN.finditer(full_text):
-        nom_list.append(f"{rxsvpn.group('nom').strip()}, {rxsvpn.group('prenoms').strip()}", regex_name="RX_SV_PN", m=rxsvpn)
-
-    for rxsvnp in RX_SV_NP.finditer(full_text):
-        nom_list.append(f"{rxsvnp.group('nom').strip()}, {rxsvnp.group('prenoms').strip()}", regex_name="RX_SV_NP", m=rxsvnp)
-
-    for rxcurateursvpn in RX_CURATEUR_SV_PN.finditer(full_text):
-        nom_list.append(f"{rxcurateursvpn.group('nom').strip()}, {rxcurateursvpn.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_PN", m=rxcurateursvpn)
-
-    for rxcurateursvnp in RX_CURATEUR_SV_NP.finditer(full_text):
-        nom_list.append(f"{rxcurateursvnp.group('nom').strip()}, {rxcurateursvnp.group('prenoms').strip()}", regex_name="RX_CURATEUR_SV_NP", m=rxcurateursvnp)
-
-    # variantes supplémentaires
-    for rxsvnomvirgprenoms in RX_SV_NOM_VIRG_PRENOMS.finditer(full_text):
-        nom_list.append(f"{rxsvnomvirgprenoms.group(1).strip()}, {rxsvnomvirgprenoms.group(2).strip()}", regex_name="RX_SV_NOM_VIRG_PRENOMS", m=rxsvnomvirgprenoms)
-
-    for rxsvfeupaire in RX_SV_FEU_PAIRE.finditer(full_text):
-        nom_list.append(f"{rxsvfeupaire.group(1).strip()}, {rxsvfeupaire.group(2).strip()}", regex_name="RX_SV_FEU_PAIRE", m=rxsvfeupaire)
+    for m in RX_SV_FEU_PAIRE.finditer(full_text):
+        nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}", regex_name="RX_SV_FEU_PAIRE", m=m)
 
     # 🔹 Ajout spécifique pour : "mesures de protection à l’égard de la personne et des biens de l’intéressé Prénom Nom, né à ..."
     for rxprotectioninteressene in RX_PROTECTION_INTERESSE_NE.finditer(full_text):
-        nom_list.append(f"{rxprotectioninteressene.group('nom').strip()}, {rxprotectioninteressene.group('prenoms').strip()}", regex_name="RX_PROTECTION_INTERESSE_NE", m= rxprotectioninteressene)
+        nom_list.append(f"{rxprotectioninteressene.group('nom').strip()}, {rxprotectioninteressene.group('prenoms').strip()}", regex_name="RX_PROTECTION_INTERESSE_NE", m= m)
 
-    for rxsvfeuvariantes in RX_SV_FEU_VARIANTES.finditer(full_text):
-        nom_list.append(rxsvfeuvariantes.group(1).strip(), regex_name="RX_SV_FEU_VARIANTES", m=rxsvfeuvariantes)
+    for m in RX_SV_FEU_VARIANTES.finditer(full_text):
+        nom_list.append(m.group(1).strip(), regex_name="RX_SV_FEU_VARIANTES", m=m)
 
     for rxsrvmrn in RX_SRV_M_RN.finditer(full_text):
-        nom_list.append(rxsrvmrn.group(1).strip(), regex_name="RX_SRV_M_RN", m=rxsrvmrn)
+        nom_list.append(rxsrvmrn.group(1).strip(), regex_name="RX_SRV_M_RN", m=m)
 
-    for rxadminsvspec in RX_ADMIN_SV_SPEC.finditer(full_text):
-        parts = rxadminsvspec.group(1).strip().split()
+    for m in RX_ADMIN_SV_SPEC.finditer(full_text):
+        parts = m.group(1).strip().split()
         if len(parts) >= 2:
-            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_ADMIN_SV_SPEC", m=rxadminsvspec)
+            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_ADMIN_SV_SPEC", m=m)
 
-    for rxsvpartvac in RX_SV_PART_VAC.finditer(full_text):
-        parts = rxsvpartvac.group(1).strip().split()
+    for m in RX_SV_PART_VAC.finditer(full_text):
+        parts = m.group(1).strip().split()
         if len(parts) >= 2:
-            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_SV_PART_VAC", m=rxsvpartvac)
+            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_SV_PART_VAC", m=m)
 
-    for rxadminsvvacalt in RX_ADMIN_SV_VAC_ALT.finditer(full_text):
-        parts = rxadminsvvacalt.group(1).strip().split()
+    for m in RX_ADMIN_SV_VAC_ALT.finditer(full_text):
+        parts = m.group(1).strip().split()
         if len(parts) >= 2:
-            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_ADMIN_SV_VAC_ALT", m=rxadminsvvacalt)
+            nom_list.append(f"{parts[-1]}, {' '.join(parts[:-1])}", regex_name="RX_ADMIN_SV_VAC_ALT", m=m)
+        # "administrateur des biens de Monsieur/Madame NOM, Prénom"
 
-    for rxsvnele in RX_SV_NE_LE.finditer(full_text):
-        nom_list.append(rxsvnele.group(1).strip(), regex_name="RX_SV_NE_LE", m=rxsvnele)
 
-    for rxsvdesherencesimple in RX_SV_DESHERENCE_SIMPLE.finditer(full_text):
-        nom_list.append(rxsvdesherencesimple.group(1).strip(), regex_name="RX_SV_DESHERENCE_SIMPLE", m=rxsvdesherencesimple)
+    for m in RX_SV_NE_LE.finditer(full_text):
+        nom_list.append(m.group(1).strip(), regex_name="RX_SV_NE_LE", m=m)
+    for m in RX_SV_DESHERENCE_SIMPLE.finditer(full_text):
+        nom_list.append(m.group(1).strip(), regex_name="RX_SV_DESHERENCE_SIMPLE", m=m)
 
-    for rxadminprovsuccde in RX_ADMIN_PROV_SUCC_DE.finditer(full_text):
-        nom_list.append(rxadminprovsuccde.group(1).strip(), regex_name="RX_ADMIN_PROV_SUCC_DE", m=rxadminprovsuccde)
+    for m in RX_ADMIN_PROV_SUCC_DE.finditer(full_text):
+        nom_list.append(m.group(1).strip(), regex_name="RX_ADMIN_PROV_SUCC_DE", m=m)
 
     for m in RX_SRV_NOMPRENOM.finditer(full_text):
-        nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
+        nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}", regex_name="RX_SRV_NOMPRENOM", m=m)
 
     for m in RX_PROTECTION_INTERESSE_NOM_SEUL.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_PROTECTION_INTERESSE_NOM_SEUL", m=m)
 
     for m in RX_SV_MONSIEUR_PN.finditer(full_text):
         nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
 
     for m in RX_EN_CAUSE_DE_NOM.finditer(full_text):
-        nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
+        nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}", regex_name="RX_EN_CAUSE_DE_NOM", m=RX_EN_CAUSE_DE_NOM)
 
     for m in RX_EN_CAUSE_PN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}", regex_name="RX_EN_CAUSE_PN", m=RX_EN_CAUSE_PN)
 
     for m in RX_EN_CAUSE_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_EN_CAUSE_NP", m=RX_EN_CAUSE_NP)
 
     for m in RX_CONDAMNE_LE_NOMME_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_CONDAMNE_LE_NOMME_NP", m=RX_CONDAMNE_LE_NOMME_NP)
 
     for m in RX_CONDAMNE_LE_NOMME_PN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}", regex_name="RX_CONDAMNE_LE_NOMME_PN", m=RX_CONDAMNE_LE_NOMME_PN)
     # (A) Civilité + Prénoms + NOM suivi d’un (RN …)
     for m in RX_CIVILITE_PN_RN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}")
 
     # (B) “appel interjeté par …” (ou “appel de …”), civilité + Prénoms + NOM (RN optionnel)
     for m in RX_APPEL_PAR_CIVILITE.finditer(full_text):
@@ -866,6 +993,12 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     # (C) “relativement à la personne de …”, civilité + Prénoms + NOM (RN optionnel)
     for m in RX_REL_PERSONNE_DE.finditer(full_text):
         nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+
+    for m in RX_NOM_VIRGULE.finditer(full_text):
+        patronyme = m.group("nom").strip()
+        prenoms = m.group("prenoms").strip()
+        nom_complet = f"{patronyme} {prenoms}"
+        nom_list.append(nom_complet)
 
     # ==============================
     #      NOMS AVEC RN
@@ -895,13 +1028,15 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 0.ter : Cas "Madame/Monsieur NOM, Prénom, né(e) à ..."
     match_mp = re.findall(
-        r"(?:Madame|Monsieur)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+?),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+?),\s+(né|née|né\(e\))\s+à",
+        r"(?:Madame|Monsieur)\s+"
+        r"(?P<prenom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"  # vrai prénom
+        r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)"  # vrai nom
+        r"\s*,\s*(né|née|né\(e\))\s+à",
         full_text,
         re.IGNORECASE
     )
-    for nom_famille, prenoms, _ in match_mp:
-        nom_complet = f"{nom_famille.strip()}, {prenoms.strip()}"
-        nom_list.append(nom_complet)
+    for prenom, nom, _ in match_mp:
+        nom_list.append(f"{nom}, {prenom}")
 
     # 🔹 0.ter.a : Cas "… concernant NOM, Prénom :"
     match_concernant = re.findall(
@@ -913,13 +1048,11 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(f"{nom.strip()}, {prenoms.strip()}")
 
     # 🔹 0.ter.b : Cas "Madame/Monsieur/Me NOM, Prénom, née/né …"
+    # Cas : administrateur avec prénom + nom
     match_admin_nomprenom = re.findall(
-        r"\b(?:Madame|Monsieur|M(?:me|lle)?|Mme|Mlle|Ma(?:ître|itre)|Me)\s+"
-        r"([A-ZÀ-Ÿ][A-ZÀ-Ÿ\-']+)\s*,\s*"
-        r"([A-ZÀ-ÿ][A-Za-zÀ-ÿ\-'\s]+?)"
-        r"(?=,\s*n[ée]e|\s+n[ée]\b|,\s*domicili|,\s*à\b|\s+a\s+été\b|\s+ayant\b|\s+dont\b|$)",
+        rf"(?:Madame|Monsieur|M(?:me|lle)?|Mme|Mlle|Ma(?:ître|itre)|Me)\s+(?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK}),?\s*(?:domicilié|demeurant|ayant|résidant)",
         full_text,
-        re.IGNORECASE
+        flags=re.IGNORECASE
     )
     for nom, prenoms in match_admin_nomprenom:
         nom_list.append(f"{nom.strip()}, {prenoms.strip()}")
@@ -945,312 +1078,294 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
                 # dernière partie = nom de famille, le reste = prénoms
                 nom_complet = f"{nom_parts[-1]}, {' '.join(nom_parts[:-1])}"
                 nom_list.append(nom_complet.strip())
-    match_structured_nom_prenom = re.findall(
-        r"\b\d\)\s*Nom\s+et\s+prénoms\s*:\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,4})",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenoms in match_structured_nom_prenom:
-        nom_complet = f"{nom.strip()}, {prenoms.strip()}"
-        nom_list.append(nom_complet)
-    match_le_nommer_nrn = re.findall(
-        r"le nommé\s*:?\s*\S*\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,5}),?\s+NRN",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenoms in match_le_nommer_nrn:
-        nom_complet = f"{nom.strip()}, {prenoms.strip()}"
-        nom_list.append(nom_complet)
+    # 🔹 Cas : "1) Nom et prénoms : NOM, Prénom(s)"
+    for m in re.finditer(
+            r"\b\d\)\s*Nom\s+et\s+prénoms\s*:\s*(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*(?P<prenoms>(?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,4})",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_structured_nom_prenom", m=m)
 
+    # 🔹 Cas : "le nommé <code> NOM, Prénom(s), NRN ..."
+    for m in re.finditer(
+            r"le nommé\s*:?\s*\S*\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*(?P<prenoms>(?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,5}),?\s+NRN",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_le_nommer_nrn", m=m)
 
     # 🔹 1. "NOM, né(e) le jj/mm/aaaa à VILLE"
-    match1 = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(né\(e\)?|né|née)\s*le\s*\d{2}/\d{2}/\d{4}\s*à\s*[A-Za-z\s\-']+",
-        full_text,
-        re.IGNORECASE
-    )
-    for m in match1:
-        nom_list.append(m[0].strip())
+    for m in re.finditer(
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)\s*le\s*\d{2}/\d{2}/\d{4}\s*à\s*[A-Za-z\s\-']+",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match1", m=m)
 
     # 🔹 2. "NOM, né(e) le aaaa-mm-jj à VILLE"
-    match2 = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(né\(e\)?|né|née)\s*le\s*\d{4}-\d{2}-\d{2}\s*à\s*[A-Za-z\s\-']+",
-        full_text,
-        re.IGNORECASE
-    )
-    for m in match2:
-        nom_list.append(m[0].strip())
+    for m in re.finditer(
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)\s*le\s*\d{4}-\d{2}-\d{2}\s*à\s*[A-Za-z\s\-']+",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match2", m=m)
 
     # 🔹 3. "NOM, né(e) le jj mois aaaa à VILLE"
-    match3 = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(né\(e\)?|né|née)\s*le\s*\d{1,2}\s+\w+\s+\d{4}\s*à\s*[A-Za-z\s\-']+",
-        full_text,
-        re.IGNORECASE
-    )
-    for m in match3:
-        nom_list.append(m[0].strip())
+    for m in re.finditer(
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)\s*le\s*\d{1,2}\s+\w+\s+\d{4}\s*à\s*[A-Za-z\s\-']+",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match3", m=m)
 
     # 🔹 4. Cas léger : "NOM né à"
-    match4 = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+?)\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for m in match4:
-        nom_list.append(m[0].strip())
+    for m in re.finditer(
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+)\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match4", m=m)
 
     # 🔹 5. "NOM, né(e) à VILLE le jj mois aaaa"
-    match5 = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(né\(e\)?|né|née)\s+à\s+[A-Za-z\s\-']+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
-        full_text,
-        re.IGNORECASE
-    )
-    for m in match5:
-        nom_list.append(m[0].strip())
+    for m in re.finditer(
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)\s+à\s+[A-Za-z\s\-']+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match5", m=m)
 
-    match6 = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(né\(e\)?|né|née)\s+à\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
-        full_text,
-        re.IGNORECASE
-    )
-    for m in match6:
-        nom_list.append(m[0].strip())
-    # va falloir autoriser plus de prenoms
-    match7 = re.findall(
-        r"(Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for titre, prenom, nom, _ in match7:
-        nom_complet = f"{nom}, {prenom}"
-        nom_list.append(nom_complet.strip())
-    # ✅ Supprimer doublons tout en gardant l’ordre
-    match7b = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for prenom, nom, _ in match7b:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-    # 🔹 Cas : "Monsieur Prénom NOM; né à ..."
-    match7d = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);?\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for prenom, nom, _ in match7d:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-    match7c = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+né\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for prenom, nom in match7c:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
+    # Variante
+    for m in re.finditer(
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)\s+à\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match6", m=m)
+
+    # 🔹 7. "Monsieur|Madame Prénom NOM, né à"
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match7", m=m)
+
+    # 🔹 7b. Variante sans civilité
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match7b", m=m)
+
+    # 🔹 7d. Cas : "Monsieur Prénom NOM; né à ..."
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);?\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match7d", m=m)
+
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+né\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match7c", m=m)
 
     # 🔹 Cas : "Monsieur NOM, Prénom; né à ..."
-    match_special_semicolon = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom, _ in match_special_semicolon:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    match_semicolon = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\- ]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);?\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom, _ in match_semicolon:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-    # 🔹 Cas : "Monsieur NOM, Prénom; né à <ville> le <date>"
-    match_semi = re.findall(
-        r"(Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née)\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for civ, nom, prenom, _ in match_semi:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    match_condamne = re.findall(
-        r"a\s+condamné\s*:?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom in match_condamne:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    # 🔹 Cas spécial : "Monsieur NOM, Prénom; né à ..."
-    match_pg_semicolon = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom, _ in match_pg_semicolon:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-    # 🔹 Cas : "Monsieur NOM, Prénom; né à ..."
-    match_pg = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom, _ in match_pg:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    matches = re.findall(
-        r"administrateur\s+des\s+biens\s+de.{0,30}?(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for nom, prenom in matches:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    matches = re.findall(
-        r"(?:des\s+biens\s+et\s+de\s+la\s+personne|de\s+la\s+personne\s+et\s+des\s+biens|des\s+biens\s+de|de\s+la\s+personne\s+de)\s+.{0,30}?(?:M(?:onsieur|me)?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for prenom, nom in matches:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    # 🔹 Cas : "1) Nom et prénoms : Prénom NOM NOM2 ..."
-    match_structured_numbered = re.findall(
-        r"\d\)\s*Nom\s+et\s+prénoms?\s*:\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)*)",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for nom_complet in match_structured_numbered:
-        nom_list.append(nom_complet.strip())
-    # 🔹 0.quater : Cas "[Prénom NOM], né(e) à ..."
-    match8 = re.findall(
-        r"\b([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom in match8:
-        nom_list.append(nom[0].strip())
-
-    # 🔹 8. Cas : "Prénom NOM, né(e) le <date>" (sans 'à' ensuite)
-    match9 = re.findall(
-        r"\b([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(né|née|né\(e\))\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom in match9:
-        nom_list.append(nom[0].strip())
-
-    # 🔹 9. Cas : "Monsieur/Madame NOM Prénom, inscrit au registre national..."
-    match10 = re.findall(
-        r"(Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+inscrit(?:e)?\s+au\s+registre\s+national",
-        full_text,
-        re.IGNORECASE
-    )
-    for civ, nom, prenom in match10:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    match11 = re.findall(
-        r"\b([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{5,15},?\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom in match11:
-        nom_list.append(nom[0].strip())
-
-    match12 = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,300}personne\s+(?:à\s+protéger|protégée)",
-        full_text,
-        re.IGNORECASE
-    )
-    for prenom, nom in match12:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    # 🔹 13. Cas : "Prénom NOM, ayant pour numéro de registre national ..., né à ..., personne à protéger"
-    match13 = re.findall(
-        r"\b([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+ayant\s+pour\s+numéro\s+de\s+registre\s+national\s+\d{11,12},\s+(né|née|né\(e\))\s+à\s",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom in match13:
-        nom_list.append(nom[0].strip())
-
-    # 🔹 10. Cas : "Prénom NOM, RN <numéro>, né(e) à ..."
-    match14 = re.findall(
-        r"\b([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{9,15},?\s+(né|née|né\(e\))\s+à",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom in match14:
-        nom_list.append(nom[0].strip())
-    # 🔹 11. Cas : "Monsieur/Madame Prénom NOM, registre national numéro ..."
-    match15 = re.findall(
-        r"(Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+registre\s+national\s+numéro\s+\d{9,15}",
-        full_text,
-        re.IGNORECASE
-    )
-    for civ, prenom, nom in match15:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-    match16 = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,200}?(?:placé|placée)\s+sous\s+un\s+régime\s+de\s+représentation",
-        full_text,
-        re.IGNORECASE
-    )
-    for prenom, nom in match16:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    match_fixed = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*né\s+à\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
-        full_text,
-        re.IGNORECASE
-    )
-    for prenom, nom in match_fixed:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-    # 🔹 Cas : "Monsieur NOM, Prénom, né le <date>"
-    match_mn_nomprenom = re.findall(
-        r"(?:Monsieur|Madame)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-\s]+?),\s+(né|née|né\(e\))\s+le\s+\d{2}/\d{2}/\d{4}",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom, _ in match_mn_nomprenom:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-    # 🔹 Cas : "le nommé <code> - NOM Prénom, NRN ..."
-    match_nom_nr_flexible = re.findall(
-        r"le nommé\s+\S+\s*[-–]\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+NRN",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom, prenom in match_nom_nr_flexible:
-        nom_complet = f"{nom.strip()}, {prenom.strip()}"
-        nom_list.append(nom_complet)
-
-
-    match_absence = re.findall(
-        r"(?:déclare|a\s+déclaré)\s+l'absence\s+de\s*:?\s*.{0,30}?(?:Monsieur|Madame|M\.|Mme)?\s*([A-ZÉÈÊÀÂ'\-]+),?\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\- ]+)",
-        full_text,
-        flags=re.IGNORECASE
-    )
-    for nom, prenoms in match_absence:
+    for m in re.finditer(
+            rf"(?:Monsieur|Madame)\s+(?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK});",
+            full_text,
+            flags=re.IGNORECASE
+    ):
+        prenoms = m.group("prenoms")
+        nom = m.group("nom")
         nom_complet = f"{nom.strip()}, {prenoms.strip()}"
         nom_list.append(nom_complet)
 
+    for m in re.finditer(
+            rf"(?:Monsieur|Madame)\s+(?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK});?\s+(né|née|né\(e\))\s+à",
+            full_text,
+            flags=re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_semicolon", m=m)
+
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née)\s+à",
+            full_text,
+            flags=re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_semi", m=m)
+
+    for m in re.finditer(
+            r"a\s+condamné\s*:?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom, prenom = m.group(1), m.group(2)
+        nom_complet = f"{nom.strip()}, {prenom.strip()}"
+        nom_list.append(nom_complet, regex_name="match_condamne", m=m)
+    # 🔹 Cas spécial : "Monsieur NOM Prénom; né à ..."
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_pg_semicolon", m=m)
+
+    # 🔹 Cas : "Monsieur NOM, Prénom; présent"
+    for m in re.finditer(
+            rf"(?:Monsieur|Madame)\s+(?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK}),\s+présent",
+            full_text,
+            flags=re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_pg", m=m)
+
+
+
+    # "des biens/personne de Monsieur/Madame ..."
+    for m in re.finditer(
+            r"(?:des\s+biens\s+et\s+de\s+la\s+personne|de\s+la\s+personne\s+et\s+des\s+biens|des\s+biens\s+de|de\s+la\s+personne\s+de)\s+.{0,30}?(?:M(?:onsieur|me)?\s+)?(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
+            full_text,
+            flags=re.IGNORECASE
+    ):
+        nom_complet = f"{m.group('nom').strip()}, {m.group('prenoms').strip()}"
+        nom_list.append(nom_complet, regex_name="match_biens_personne", m=m)
+
+    # 🔹 Cas : "1) Nom et prénoms : Prénom NOM ..."
+    for m in re.finditer(
+            r"""\d\)\s*Nom\s+et\s+prénoms?\s*:\s*
+            (?P<nomcomplet>
+                (?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+){0,6}   # jusqu'à 7 tokens (6 + 1 final)
+                [A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+
+            )
+            (?=\s*(?:\.|,|;|\d\)|$))                     # stop avant . , ; 2) ou fin
+            """,
+            full_text,
+            flags=re.IGNORECASE | re.VERBOSE
+    ):
+        nom_list.append(
+            m.group("nomcomplet").strip(),
+            regex_name="match_structured_numbered",
+            m=m
+        )
+
+    # 🔹 0.quater : "[Prénom NOM], né(e) à ..."
+    for m in re.finditer(
+            r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nomcomplet").strip(), regex_name="match8", m=m)
+
+    # 🔹 8. "Prénom NOM, né(e) le <date>"
+    for m in re.finditer(
+            r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nomcomplet").strip(), regex_name="match9", m=m)
+
+    # 🔹 9. "Monsieur/Madame NOM Prénom, inscrit ..."
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+inscrit(?:e)?\s+au\s+registre\s+national",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match10", m=m)
+
+    # "NOM Prénom, RN ..., né à"
+    for m in re.finditer(
+            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{5,15},?\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match11", m=m)
+
+    # "Monsieur/Madame Prénom NOM, ... personne à protéger"
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,300}personne\s+(?:à\s+protéger|protégée)",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match12", m=m)
+
+    # 🔹 13. "Prénom NOM, ayant pour numéro RN ..., né à ..."
+    for m in re.finditer(
+            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+ayant\s+pour\s+numéro\s+de\s+registre\s+national\s+\d{11,12},\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match13", m=m)
+
+    # 🔹 10. "Prénom NOM, RN <numéro>, né(e) à ..."
+    for m in re.finditer(
+            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{9,15},?\s+(?P<civilite>né|née|né\(e\))\s+à",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(m.group("nom").strip(), regex_name="match14", m=m)
+
+    # 🔹 11. "Monsieur/Madame Prénom NOM, registre national numéro ..."
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+registre\s+national\s+numéro\s+\d{9,15}",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match15", m=m)
+
+    # "Monsieur/Madame Prénom NOM ... placé sous un régime ..."
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,200}?(?:placé|placée)\s+sous\s+un\s+régime\s+de\s+représentation",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match16", m=m)
+
+    # Variante avec "né à ... le ..."
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*né\s+à\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match_fixed", m=m)
+
+    # "Monsieur NOM, Prénom, né le <date>"
+    for m in re.finditer(
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-\s]+?),\s+(?P<civilite>né|née|né\(e\))\s+le\s+\d{2}/\d{2}/\d{4}",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match_mn_nomprenom", m=m)
+
+    # "le nommé <code> - NOM Prénom, NRN ..."
+    for m in re.finditer(
+            r"le nommé\s+\S+\s*[-–]\s*(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+NRN",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match_nom_nr_flexible",
+                        m=m)
+
+    # ✅ Cas : "déclare l'absence de Monsieur NOM, Prénoms"
+    for m in re.finditer(
+            r"(?:déclare|a\s+déclaré)\s+l'absence\s+de\s*:?\s*.{0,30}?"
+            r"(?:Monsieur|Madame|M\.|Mme)?\s*"
+            r"(?:de\s+)?([A-ZÉÈÊÀÂ'\-]+),?\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\- ]+)",
+            full_text,
+            flags=re.IGNORECASE
+    ):
+        nom, prenoms = m.group(1), m.group(2)
+        nom_complet = f"{nom.strip()}, {prenoms.strip()}"
+        nom_list.append(nom_complet, regex_name="match_absence", m=m)
 
     # 🔹 Cas : "Monsieur Prénom NOM NOM2 NOM3 (RN ...)"
     match_rn_nom = re.findall(
@@ -1281,23 +1396,23 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
             nom_list.append(f"{nom}, {prenom}")
 
     # ✅ Cas : "succession vacante de M./Mme/Monsieur/Madame Prénom NOM [Nom2 Nom3...]"
-    match_sv_flexible = re.findall(
-        r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom_complet in match_sv_flexible:
-        nom_list.append(nom_complet.strip())
+    # ✅ Cas : "succession vacante de M./Mme/Monsieur/Madame Prénom NOM [Nom2 Nom3...]"
+    for m in re.finditer(
+            r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_complet = m.group(1)
+        nom_list.append(nom_complet.strip(), regex_name="match_sv_flexible", m=m)
 
     # ✅ Cas : "à la succession de M./Mme NOM [NOM2...]"
-    match_succession_simple = re.findall(
-        r"(?:à\s+la\s+succession\s+de|succession\s+de)\s+(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
-        full_text,
-        re.IGNORECASE
-    )
-    for nom_complet in match_succession_simple:
-        nom_list.append(nom_complet.strip())
-
+    for m in re.finditer(
+            r"(?:à\s+la\s+succession\s+de|succession\s+de)\s+(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
+            full_text,
+            re.IGNORECASE
+    ):
+        nom_complet = m.group(1)
+        nom_list.append(nom_complet.strip(), regex_name="match_succession_simple", m=m)
 
     # 🔹 Cas : "le nommé : 1492 C 2025 NOM, Prénom, NRN ..."
     match_nom_nr = re.findall(
@@ -1385,10 +1500,10 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(nom.strip())
 
     for m in RX_DECL_NP_RRN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match_sv_flexible", m=m)
 
     for m in RX_DECL_CIVILITE_NP_RRN.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match_sv_flexible", m=m)
 
     for m in RX_NOM_ET_PRENOM_LABEL.finditer(full_text):
         nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip().replace(',', ' ')}")
@@ -1407,15 +1522,17 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     for mb in RX_EN_CAUSE_BLOCK.finditer(full_text):
         bloc = mb.group("bloc")
         for m in RX_EN_CAUSE_ITEM_NP.finditer(bloc):
-            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_EN_CAUSE_ITEM_NP", m=m)
         for m in RX_EN_CAUSE_ITEM_PN.finditer(bloc):
-            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}")
+            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_EN_CAUSE_ITEM_NP", m=m)
 
 
 # _______________________________________________________________________________________________________________________
 #                          NETTOYAGE DES NOMS + EMPECHER DES NOMS EN DOUBLE
 # _______________________________________________________________________________________________________________________
     noms_nettoyes = nettoyer_noms_avances(nom_list)
+    print("DEBUG sortie nettoyer_noms_avances =", noms_nettoyes)
+
     # 1) Calcule la liste locale des nouveaux noms (pas besoin d’être global)
     nouveaux_noms = []
     for nom in noms_nettoyes:

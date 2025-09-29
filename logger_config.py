@@ -55,11 +55,11 @@ PRIORITY_REGEXES = {
     "RX_LE_NOMME_NP",
     "RX_NR_NP",
     "RX_SV_ANY",
-    "RX_SV_NOM_COMPLET_VIRG",
-    "RX_SRV_SIMPLE",
-    "RX_SRV_NP",
     "RX_SV_PN",
-    "RX_ADMIN_SV_SPEC"
+    "RX_SV_NP",
+    "RX_SV_ANY",
+    "RX_SV_PN",
+    "RX_ADMIN_SV_SPEC",
     "RX_SV_NP",
     "RX_CURATEUR_SV_PN",
     "RX_SV_NE_LE",
@@ -70,27 +70,42 @@ PRIORITY_REGEXES = {
     "RX_ADMIN_SV_VAC_ALT",
     "RX_SV_DESHERENCE_SIMPLE",
     "RX_CURATEUR_SV_NP",
-    "RX_SV_NOM_VIRG_PRENOMS",
+    "RX_CURATEUR_SV_NP_NN",
     "match12_personne_protegee",
     "match16_regime_representation",
     "match_incapable_nom",
     "match_observation_protectrice",
     "regex_ne_a",
     "regex_ne_le",
+    "RX_ADMIN_PROV_SUCC_DE",
+    "RX_CONDAMNE_LE_NOMME_NP",
+    "RX_CONDAMNE_LE_NOMME_PN",
+    "RX_EN_CAUSE_NP",
+    "RX_EN_CAUSE_PN",
+    "RX_SV_PN_NN",
+    "RX_QUALITE_CURATEUR_SV_PN_NN",
+    "RX_QUALITE_CURATEUR_SV_PN",
+    "RX_EN_CAUSE_DE_NOM",
+    "RX_EN_CAUSE_ITEM_NP",
+    "RX_EN_CAUSE_ITEM_NP",
+    "match_condamne",
+    "RX_SRV_NOMPRENOM",
+    "RX_DECL_CIVILITE_NP_RRN",
+    "match_succession_simple"
 }
 
 
 class LoggedList(list):
+    _logged_docs = set()  # évite de logger deux fois le même doc_id
+
     def __init__(self, full_text, doc_id, logger=None):
         super().__init__()
         self.full_text = full_text
         self.doc_id = doc_id
         self._first_regex = None
-        self._events = []
-        self._buffer = []
-        self.logger = logger  # None par défaut => aucun log
-
-        # Si un logger est fourni, on évite toute remontée vers le root
+        self._buffer = []  # tuples (tag, item, regex_name, contexte, start, order)
+        self._order_counter = 0
+        self.logger = logger
         if self.logger:
             self.logger.propagate = False
 
@@ -99,36 +114,60 @@ class LoggedList(list):
             self._first_regex = regex_name
 
         tag = "PRIORITAIRE" if regex_name in PRIORITY_REGEXES else "SECONDAIRE"
-        contexte = ""
-        start = end = None
-        if m:
+
+        contexte, start = "", None
+        if m is not None:
             try:
+                # m doit être un match (finditer), pas la liste renvoyée par findall
                 start, end = m.start(), m.end()
                 contexte = self.full_text[max(0, start-50): end+50]
             except Exception:
                 pass
 
-        # ⚠️ On ne log pas ici : on bufferise seulement
-        self._buffer.append((tag, item, regex_name, contexte))
-        self._events.append((regex_name, item, start, end))
+        self._buffer.append((tag, item, regex_name, contexte, start, self._order_counter))
+        self._order_counter += 1
 
-        # La liste reste une simple liste de chaînes
         super().append(item)
 
     def first_is_priority(self):
         return self._first_regex in PRIORITY_REGEXES
 
     def flush(self):
-        """Écrit les logs uniquement si:
-           - un logger a été fourni
-           - le 1er match n'est PAS prioritaire
-        """
-        if not self.logger or self.first_is_priority():
+        if not self.logger:
             self._buffer.clear()
             return
 
-        for tag, item, regex_name, contexte in self._buffer:
-            self.logger.info(
-                f"[{self.doc_id}] {tag}: {item} (regex={regex_name}) | …{contexte}…"
-            )
+        # Déjà loggé pour ce doc ?
+        if self.doc_id in LoggedList._logged_docs:
+            self._buffer.clear()
+            return
+
+        # S'il y a un prioritaire quelque part, on ne log rien (comme voulu)
+        if any(tag == "PRIORITAIRE" for tag, *_ in self._buffer):
+            self._buffer.clear()
+            return
+
+        # Candidats secondaires uniquement
+        secondaires = [t for t in self._buffer if t[0] == "SECONDAIRE"]
+        if not secondaires:
+            self._buffer.clear()
+            return
+
+        # Choisir le "meilleur" secondaire :
+        # 1) regex spécifique d'abord (regex_name != "GENERIC")
+        # 2) item le plus long (souvent plus informatif)
+        # 3) premier dans l'ordre d’apparition
+        def key(t):
+            tag, item, regex_name, contexte, start, order = t
+            return (regex_name == "GENERIC", -len(item), order)
+
+        best = sorted(secondaires, key=key)[0]
+        _, item, regex_name, contexte, _, _ = best
+
+        # Logger une seule ligne pour ce doc_id
+        self.logger.info(
+            f"[{self.doc_id}] SECONDAIRE: {item} (regex={regex_name}) | …{contexte}…"
+        )
+        LoggedList._logged_docs.add(self.doc_id)
+
         self._buffer.clear()

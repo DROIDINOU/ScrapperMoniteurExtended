@@ -812,15 +812,14 @@ for doc in documents:
         elif isinstance(nom_field, str):
             noms.append(nom_field.strip())
 
-        # 🔄 déduplication case-insensitive
+        # 🔄 déduplication case-insensitive mais en gardant la casse originale
         seen = set()
         result = []
         for n in noms:
             key = n.lower()
             if key not in seen:
-                result.append(n)
+                result.append(n)  # 👈 garde la version telle qu’elle est
                 seen.add(key)
-
         return result or []
 
 
@@ -846,43 +845,42 @@ for doc in documents:
             "des biens de",
             "désigné par ordonnance",
             "a désigné par ordonnance",
-            "d'administrateur"
+            "d'administrateur",
+            "la succession réputée vacante de",
+            "division", "décision", "avenue", "rue", "suppléant",
+            "tribunal", "parquet", "qualité", "curateur", "jugement"
         ]
+
+        NOISE_TOKENS = {"alias", "dit", "époux", "épouse", "conjoint", "veuve", "veuf", "succession de"}
 
         if not isinstance(nom, str):
             return None
 
-        # 🔹 Normaliser
-        normalise = normaliser_espaces_invisibles(nom).replace("’", "'")
+            # On conserve l’original pour la sortie
+        original = nom.strip()
 
-        # 🔹 Supprimer toutes les phrases interdites
+        # version normalisée uniquement pour les tests
+        norm = normaliser_espaces_invisibles(nom).replace("’", "'").lower()
+
         for bad in EXCLUSIONWORD:
-            normalise = normalise.replace(bad, "")
-
-        # 🔹 Nettoyage des espaces
-        normalise = " ".join(normalise.split()).strip()
-
-        # 🚫 Si plus rien → invalide
-        if not normalise:
-            return None
-
-        tokens = normalise.split()
-        # 🚫 Supprimer uniquement les tokens "et"
-        tokens = [t for t in tokens if t.lower() != "et"]
-
-        if len(tokens) < 2:  # prénom + nom min
-            return None
-        if len("".join(tokens)) < 3:  # trop court
-            return None
-        # 🚫 cas spécial : exactement 2 mots dont un est un stopword
-        if len(tokens) == 2 and any(t.lower() in STOPWORDS for t in tokens):
+            if bad.lower() in norm:
                 return None
-        if all(t.lower() in STOPWORDS for t in tokens):
+
+        tokens = norm.split()
+        print(tokens)
+        # 🔹 Découpage en tokens pour filtrer les parasites
+
+        if len(tokens) < 2 or len("".join(tokens)) < 3:
             return None
-
-        return normalise
-
-
+        if len(tokens) == 2 and any(t in STOPWORDS for t in tokens):
+            return None
+        if all(t in STOPWORDS for t in tokens):
+            return None
+        # --- nettoyage des NOISE_TOKENS dans original
+        pattern_noise = r"\b(" + "|".join(map(re.escape, NOISE_TOKENS)) + r")\b"
+        cleaned = re.sub(pattern_noise, " ", original, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned if cleaned else None
     if isinstance(nom, dict):
         # canonicals
         cleaned = []

@@ -419,6 +419,38 @@ print_docs_avec_date_naissance(docs_avec_date_naissance)
 print_docs_avec_nom_trib_entreprise(docs_avec_nom_trib_entreprise)
 print_docs_sans_nom_trib_entreprise(docs_sans_nom_trib_entreprise)
 
+st.subheader("📋 Liste des noms extraits des documents AVEC nom")
+
+for doc in docs_avec_nom:
+    nom = doc.get("nom")
+
+    # ancien format : string ou liste
+    if isinstance(nom, str):
+        st.write(f"- {nom.strip()}")
+    elif isinstance(nom, list):
+        for n in nom:
+            if isinstance(n, str) and n.strip():
+                st.write(f"- {n.strip()}")
+
+    # nouveau format : dict avec canonicals / records / aliases
+    elif isinstance(nom, dict):
+        canonicals = nom.get("canonicals", [])
+        records = nom.get("records", [])
+        aliases = nom.get("aliases_flat", [])
+
+        for c in canonicals:
+            if isinstance(c, str) and c.strip():
+                st.write(f"- {c.strip()}")
+
+        for r in records:
+            if isinstance(r, dict):
+                can = r.get("canonical", "")
+                if isinstance(can, str) and can.strip():
+                    st.write(f"- {can.strip()}")
+
+        for a in aliases:
+            if isinstance(a, str) and a.strip():
+                st.write(f"- {a.strip()}")
 
 
 
