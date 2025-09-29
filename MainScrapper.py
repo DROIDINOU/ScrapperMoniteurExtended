@@ -559,7 +559,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
             detect_courappel_keywords(texte_brut, extra_keywords)
             detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
-            nom = extract_name_from_text(texte_brut)
+            nom = extract_name_from_text(texte_brut, keyword, doc_id=doc_id)
 
             def clean(n):
                 return re.sub(r"\s+", " ", n.strip().lower())
@@ -851,7 +851,7 @@ for doc in documents:
             "tribunal", "parquet", "qualité", "curateur", "jugement"
         ]
 
-        NOISE_TOKENS = {"alias", "dit", "époux", "épouse", "conjoint", "veuve", "veuf", "succession de"}
+        NOISE_TOKENS = {"alias", "dit", "époux", "épouse", "conjoint", "veuve", "veuf", "succession de", "domicilié", "domicilié,"}
 
         if not isinstance(nom, str):
             return None

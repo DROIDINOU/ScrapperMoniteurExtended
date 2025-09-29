@@ -78,6 +78,8 @@ PRENOM_WORD = r"[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]{1,}"
 # Bloc PRÉNOMS (1 à 6 prénoms séparés par espaces)
 #   → Liliane Louise Victorine, Jean Pierre Michel, etc.
 PRENOMS_BLK = rf"{PRENOM_WORD}(?:\s+{PRENOM_WORD}){{0,5}}"
+# version bis : tolère mélange MAJ + minuscule après une majuscule initiale
+PRENOMS_BLK_BIS = r"(?:[A-ZÉÈÊÀÂ][A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){0,6})"
 # Token RN élargi (RN / RRN / NRN / NN — avec ou sans points/espaces)
 RN_TOKEN = r"(?:(?:R\.?\s*){1,2}N\.?|N\.?\s*R\.?\s*N\.?|N\.?\s*N\.?)"
 RN_TOKEN_ANY = RN_TOKEN # on utilisera RN_TOKEN_STRICT PAR APRES SI NECESSAIRE
@@ -435,6 +437,11 @@ RX_EN_CAUSE_ITEM_PN = re.compile(rf"""
     (?:\s*\(\s*{RN_TOKEN_ANY}\b[^)]*\))?
 """, re.IGNORECASE | re.VERBOSE)
 
+RX_NOM_MAJ_COMMA_PRENOMS = re.compile(rf"""
+    (?P<nom>{UPWORD})\s*,\s*
+    (?P<prenoms>{PRENOMS_BLK_BIS})
+""", re.VERBOSE)
+
 
 RX_EN_CAUSE_DE_NOM = re.compile(
     r"""
@@ -555,91 +562,35 @@ def _drop_single_letter_initials(s: str) -> str:
     return " ".join(keep) if keep else s
 
 
-def _norm_key_loose(s: str) -> str:
-    # clé de regroupement “souple”: minuscule, sans accents, sans initiales d’1 lettre
-    s = strip_accents(s).lower()
-    s = _drop_single_letter_initials(s)
-    return _norm_spaces(s)
-
-
-def _choose_canonical(variants: list[str]) -> str:
-    """
-    Sélectionne la meilleure variante d’un nom parmi plusieurs possibilités.
-
-    ⚙️ Stratégie :
-    - On préfère les variantes avec le plus de "mots utiles"
-      (c’est-à-dire en ignorant les initiales d’une seule lettre).
-    - En cas d’égalité, on départage par la longueur totale de la chaîne.
-
-    Exemple :
-        ["J. Dupont", "Jean Dupont", "Dupont"]
-        ➝ "Jean Dupont" (car 2 mots utiles contre 1 pour les autres)
-    """
-
-    # Fonction interne qui calcule un "score" pour chaque variante
-    def score(v: str):
-        no_init = _drop_single_letter_initials(v)   # Supprime les initiales isolées
-        return (
-            len(no_init.split()),  # 1️⃣ Priorité au nombre de mots "utiles"
-            len(v)                 # 2️⃣ Puis la longueur totale de la chaîne
-        )
-
-    # Trie toutes les variantes par score décroissant et prend la meilleure
-    return sorted(variants, key=score, reverse=True)[0]
-
-def _prefer_uppercase_variant(variants: list[str]) -> str | None:
-    """
-    Choisit une variante où au moins un token est en FULL CAPS (patronyme).
-    """
-    for v in variants:
-        tokens = v.split()
-        if any(tok.isupper() and len(tok) > 2 for tok in tokens):
-            return v
-    return None
-
-
-
 def group_names_for_meili(noms_nettoyes: list[str]):
     """
-    Regroupe les variantes d’un même nom en {canonical, aliases}
-    et prépare des champs prêts pour Meili/Postgre.
+    Regroupe les variantes d’un même nom en {canonical, aliases},
+    en respectant l’ordre d’apparition dans nom_list.
     """
-    groups = {}  # key_loose -> set(variants)
-    prefix_regex = re.compile(rf"^\s*{PREFIXES}\s+", flags=re.IGNORECASE)  # 👈 tu dois le définir ici
+    if not noms_nettoyes:
+        return {"records": [], "canonicals": [], "aliases_flat": []}
 
+    # 🔄 Déduplication simple en gardant l’ordre
+    seen = set()
+    ordered = []
     for n in noms_nettoyes:
-        original = n.strip()
-
-        # --- pré-nettoyage anti "né ..." / "pour la succession de ..." ---
-        n = prefix_regex.sub("", n)
-        n = re.split(CONTEXT_CUT, n, 1, flags=re.IGNORECASE)[0]
-        n = n.replace("|", " ").replace(";", " ").replace(":", " ")
-        # 👇 nettoyage des mots parasites
-        n = invert_if_comma(n)
-        n = clean_doublons_debut_fin(n)
-        n = re.sub(r"\b([A-Za-zÀ-ÿ'-]+)\s+\1\b$", r"\1", n, flags=re.IGNORECASE)
-        n = _norm_spaces(n)
-
-        key = _norm_key_loose(n)
-        if not key:
+        norm = n.strip()
+        if not norm:
             continue
-        groups.setdefault(key, set()).add(original)
+        key = norm.lower()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(norm)
 
-    records, canonicals, all_aliases = [], [], set()
-    for key, variants in groups.items():
-        variants = list(dict.fromkeys(_norm_spaces(v) for v in variants))
+    # 👑 Canonical = premier élément, Aliases = le reste
+    canonical = ordered[0]
+    aliases = ordered[1:]
 
-        # 👇 check d'abord si une version FULL CAPS existe
-        canonical = _prefer_uppercase_variant(variants)
-        if not canonical:
-            canonical = _choose_canonical(variants)
-
-        aliases = [v for v in variants if v != canonical]
-        records.append({"canonical": canonical, "aliases": aliases})
-        canonicals.append(canonical)
-        all_aliases.update(variants)
-
-    return {"records": records, "canonicals": canonicals, "aliases_flat": list(all_aliases)}
+    return {
+        "records": [{"canonical": canonical, "aliases": aliases}],
+        "canonicals": [canonical],
+        "aliases_flat": ordered,
+    }
 
 
 def nettoyer_noms_avances(noms, longueur_max=80):
@@ -849,12 +800,14 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     full_text = soup.get_text(separator=" ").strip()
 
     nom_list = LoggedList(full_text, doc_id, logger=dyn_log)
+    # ----- présomption d'absence à l'égard de
     for m in RX_ABSENCE.finditer(full_text):
         nom = m.group("nom").strip()
         prenoms = m.group("prenoms").strip()
         nom_complet = f"{nom}, {prenoms}"
         nom_list.append(nom_complet, regex_name="RX_ABSENCE", m=m)
 
+    # ----- curateurs a succession vacante de
     for m in RX_QUALITE_CURATEUR_SV_PN_NN.finditer(full_text):
         nom_list.append(
             f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
@@ -868,6 +821,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
             regex_name="RX_QUALITE_CURATEUR_SV_PN",
             m=m
         )
+
+    # ------- administrateur des biens de
 
     for m in re.finditer(
                 r"administrateur\s+des\s+biens\s+de.{0,30}?(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
@@ -1257,8 +1212,14 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
             regex_name="match_structured_numbered",
             m=m
         )
-
+    # 🔹 Cas spécial : "NOM, Prénom(s)" (NOM en majuscules suivi d'une virgule)
+    for m in RX_NOM_MAJ_COMMA_PRENOMS.finditer(full_text):
+        nom = m.group("nom").strip()
+        prenoms = m.group("prenoms").strip()
+        nom_complet = f"{nom}, {prenoms}"
+        nom_list.append(nom_complet, regex_name="RX_NOM_MAJ_COMMA_PRENOMS", m=m)
     # 🔹 0.quater : "[Prénom NOM], né(e) à ..."
+
     for m in re.finditer(
             r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
