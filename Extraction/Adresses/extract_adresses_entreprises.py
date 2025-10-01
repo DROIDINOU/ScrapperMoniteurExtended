@@ -4,7 +4,7 @@ import re
 import csv
 import unicodedata
 from Utilitaire.outils.MesOutils import chemin_csv
-from Constante.mesconstantes import ADRESSES_INSTITUTIONS, ADRESSES_INSTITUTIONS_SET
+from Constante.mesconstantes import ADRESSES_INSTITUTIONS_SET
 
 # --- Bibliothèques tierces ---
 # --- Configuration du logger ---
@@ -162,6 +162,7 @@ def nettoyer_adresse(adresse):
 # 🔍 Extraction
 # =========================
 def extract_add_entreprises(texte, doc_id=None):
+
     texte = re.sub(r'\s+', ' ', texte).strip().upper()
     # 0) Capture dédiée après déclencheurs “… À <CP> <VILLE>, …”
     for mt in RE_TRIGGERS_A.finditer(texte):

@@ -36,7 +36,6 @@ from Extraction.Keyword.justice_paix_keyword import detect_justice_paix_keywords
 from Extraction.Keyword.tribunal_premiere_instance_keyword import detect_tribunal_premiere_instance_keywords
 from Extraction.Keyword.cour_appel_keyword import detect_courappel_keywords
 from Extraction.Keyword.terrorisme_keyword import add_tag_personnes_a_supprimer
-from Extraction.Keyword.succession_keyword import detect_succession_keywords
 from Extraction.MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte
 from Extraction.Dates.extractionDateNaissanceDeces import extract_date_after_birthday, \
     extract_dates_after_decede
@@ -78,9 +77,6 @@ logger_datenaissance.debug("🔍 Logger 'datenaissance_logger' initialisé pour 
 logger_nomsdouble = setup_dynamic_logger(name="nomsdouble_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsdouble.debug("🔍 Logger 'nomsdouble_logger' initialisé pour les noms.")
 
-# va falloir faire ca que pour cas de succession
-logger_nomsvsdates = setup_dynamic_logger(name="nomsvsdates_logger", keyword=keyword, level=logging.DEBUG)
-logger_nomsvsdates.debug("🔍 Logger 'nomsvsdates_logger' initialisé pour les noms et dates.")
 
 # CHAMP NOM TERRORISME : identifiant_terrorisme
 logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
@@ -88,7 +84,7 @@ logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pou
 
 # CHAMP NOM ENTREPRISE : nom_entreprise
 logger_nomsentreprises = setup_dynamic_logger(name="nomsentreprises_logger", keyword=keyword, level=logging.DEBUG)
-logger_nomsentreprises.debug("🔍 Logger 'nomsentreprises_logger' initialisé pour les noms entreprises.")
+logger_nomsentreprises.debug("🔍 Logger 'nomsentreprises_logger' initialisé pour les noms terrorisme.")
 
 logged_adresses: set[tuple[str, str]] = set()
 print(">>> CODE À JOUR")
@@ -114,20 +110,6 @@ def _log_len_mismatch(doc, date_naissance, date_deces, nom):
 
     nb, nd, nn = len(births), len(deaths), len(names)
     doc_hash = doc.get("doc_hash")
-
-    # 1) naissance vs décès
-    if nb != nd:
-        logger_nomsvsdates.warning(
-            f"[LEN_MISMATCH naissance≠décès] DOC={doc_hash} | n_naiss={nb} n_deces={nd} | "
-            f"naiss={births} | deces={deaths}"
-        )
-
-    # 2) dates vs nombre de noms (si on a au moins un nom)
-    if nn > 0 and (nb != nn or nd != nn):
-        logger_nomsvsdates.warning(
-            f"[LEN_MISMATCH dates≠noms] DOC={doc_hash} | n_noms={nn} n_naiss={nb} n_deces={nd} | "
-            f"noms={names} | naiss={births} | deces={deaths}"
-        )
 
 
 def _first_token_from_nom_field(nom_field: dict | str) -> str | None:
@@ -342,15 +324,6 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
                 else:
                     print(f"[❌] Ignoré (terrorisme mais pas SPF Finances): {title}")
 
-            elif keyword in ("succession", "successions"):
-
-                cleaned_title = title.strip().lower()
-
-                # Vérifie si le titre correspond exactement à ce que tu recherches
-                if cleaned_title == "administration générale de la documentation patrimoniale" or cleaned_title.startswith(
-                        "les créanciers et les légataires sont invités à "):
-                    print(f"[🪦] Document succession détecté: {title}")
-                    find_linklist_in_items(item, keyword, link_list)
             elif keyword in ("tribunal+de+premiere+instance"):
                 if title.lower().startswith("tribunal de première instance"):
                     find_linklist_in_items(item, keyword, link_list)
@@ -501,20 +474,6 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         if not date_jugement:
             date_jugement = extract_jugement_date(str(texte_brut))
 
-        if re.search(r"succession[s]?", keyword, flags=re.IGNORECASE):
-            raw_deces = extract_dates_after_decede(str(texte_date_naissance_deces), first_only=False)  # liste ou str
-
-            if isinstance(raw_deces, list):
-                raw_deces = [norm_er(s) for s in raw_deces]
-            elif isinstance(raw_deces, str):
-                raw_deces = norm_er(raw_deces)
-            # 🚨 Ajoute ce filtre ici
-            # 🚨 Applique le filtre contre les dates parasites (Av, Avenue, parenthèses)
-            date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
-            adresse = extract_address(str(texte_brut), doc_id=doc_id)
-            detect_succession_keywords(texte_brut, extra_keywords)
-            nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
-
         if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
             nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
             if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
@@ -548,6 +507,10 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
                                                          ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
             detect_justice_paix_keywords(texte_brut, extra_keywords)
             nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
+
+        # -----------------------------
+        # TRIB ENTREPRISE
+        # -----------------------------
         if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
             # verifier à quoi sert id ici mais pense que peut etre utile
             nom_interdit = extraire_personnes_interdites(texte_brut)  # va falloir deplacer dans fonction ?
@@ -556,6 +519,9 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             adresse = extract_add_entreprises(texte_brut, doc_id=doc_id)
             detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
 
+        # -----------------------------
+        # COUR D'APPEL
+        # -----------------------------
         if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
 
             nom_interdit = extraire_personnes_interdites(texte_brut)

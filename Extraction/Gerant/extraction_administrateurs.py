@@ -40,6 +40,9 @@ def clean_admin_list(admins):
         "PLACE", "CHEMIN", "QUAI", "IMPASSE", "SQUARE"
     }
 
+    bruit_keywords = {"DROIT", "plein droit", "juridiction", "tribunal", "justice", "instance"}
+
+
     cleaned = []
     for a in admins:
         if not a:
@@ -56,6 +59,9 @@ def clean_admin_list(admins):
         # Contient un mot d'adresse (début OU intérieur)
         if any(k in upper_val.split() for k in adresse_keywords):
             continue
+        if any(k in upper_val.split() for k in bruit_keywords):
+            continue
+
 
         cleaned.append(val)
 
@@ -85,7 +91,7 @@ def extract_administrateur(text):
 
     # --- A. "a déchargé Me X Y de sa mission de curateur/curatrice"
     pattern_decharge = (
-        r"(?:a\s+)?d[ée]charg[ée]?\s+"  # "a déchargé" / "déchargé(e)"
+        r"(?:a\s+)?d[ée]charg[ée]?\s+"  
         r"(?:Me|Ma(?:ître)?|M(?:\.|onsieur)?|Mme|Madame)?\s*"
         r"([A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÀ-ÖØ-öø-ÿ\-']+(?:\s+[A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÀ-ÖØ-öø-ÿ\-']+){0,4})"
         r"\s+de\s+sa\s+mission\s+de\s+curateur(?:rice)?\b"
@@ -102,7 +108,8 @@ def extract_administrateur(text):
     )
     for nom in re.findall(pattern_suffix, text, flags=re.IGNORECASE):
         administrateurs.append(nom.strip())
-    # 0. Multi-liquidateurs (liste numérotée avec tiret avant adresse)
+
+    # --- 0. Multi-liquidateurs (liste numérotée avec tiret avant adresse)
     pattern_multi = (
         r"(?:liquidateur(?:s)?(?:\s+désigné\(s\))?\s*:?\s*)"
         r"((?:\d+\.\s*(?:monsieur|madame|me|ma[iî]tre)?\s*[A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+?\s*-\s*)+)"
@@ -117,7 +124,7 @@ def extract_administrateur(text):
         )
         administrateurs.extend([n.strip() for n in noms_trouves if n.strip()])
 
-    # 1. Société (SRL, SA...) avant l'adresse → priorité
+    # --- 1. Société (SRL, SA...) avant l'adresse → priorité
     pattern_societe = (
         r"(?:liquidateur|curateur)(?:\(s\))?\s*(?:désigné\(s\))?\s*:?\s*"
         r"((?:[A-ZÉÈÀÂÊÎÔÛÇ]{2,5}\s+)?[A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÉÈÀÂÊÎÔÛÇ\-\&\.\s']+?)"
@@ -127,13 +134,13 @@ def extract_administrateur(text):
     if match_societe:
         administrateurs.append(match_societe.group(1).strip())
 
-    # 2. Curateur avec 2 à 4 blocs en majuscules
+    # --- 2. Curateur avec 2 à 4 blocs en majuscules
     pattern1 = r"curateur\s*:?\s*([A-ZÉÈÀÂÊÎÔÛÇ]+(?:\s+[A-ZÉÈÀÂÊÎÔÛÇ]+){1,4})"
     match = re.search(pattern1, text, flags=re.IGNORECASE)
     if match:
         administrateurs.append(match.group(1).strip())
 
-    # 3. Liquidateur avec Prénom + NOM
+    # --- 3. Liquidateur avec Prénom + NOM
     pattern2 = (
         r"liquidateur(?:\(s\))?\s*(?:désigné\(s\))?\s*:?\s*"
         r"(\d+\.\s*)?"
@@ -145,7 +152,7 @@ def extract_administrateur(text):
     if match2:
         administrateurs.append(f"{match2.group(2)} {match2.group(3)}")
 
-    # 4. Liquidateur avec 1 à 5 blocs majuscules
+    # --- 4. Liquidateur avec 1 à 5 blocs majuscules
     pattern3 = (
         r"liquidateur(?:\(s\))?\s*(?:désigné\(s\))?\s*:?\s*"
         r"(?:Me|M(?:onsieur)?|Mme|Madame|Mr|M\.|Maître)?\.?\s*"
@@ -157,7 +164,7 @@ def extract_administrateur(text):
         if 1 <= len(mots) <= 5:
             administrateurs.append(" ".join(mots))
 
-    # 5. Format initiale + NOM
+    # --- 5. Format initiale + NOM
     pattern4 = r"""
         liquidateur(?:\(s\))?
         \s*:?\s*
@@ -169,10 +176,24 @@ def extract_administrateur(text):
     if match4:
         administrateurs.append(match4.group("nom").strip())
 
-    # Fallback
+    # --- 6. Cas "est considéré/désigné comme liquidateur (de plein droit)"
+    pattern5_6 = (
+            r"(?:Monsieur|Madame|Me|Maître|M\.|Mr|Mme)\s+"  # civilité obligatoire
+            r"([A-Z][a-zéèêàîç\-']+(?:\s+[A-Z][a-zéèêàîç\-']+)*)"  # prénom(s)
+            r"\s+([A-ZÉÈÀÂÊÎÔÛÇ][a-zA-Zéèêàîôûç\-']+)"  # nom (MAJ ou minuscule)
+            r"\s*,\s*né"  # suivi de ", né"
+            r".{0,200}?est\s+(?:considéré|désigné)\s+comme\s+liquidateur"  # jusqu'à "est ... liquidateur"
+            r"(?:\s+de\s+plein\s+droit)?"  # optionnel "de plein droit"
+        )
+
+    match5_6 = re.search(pattern5_6, text, flags=re.IGNORECASE | re.DOTALL)
+    if match5_6:
+            administrateurs.append(f"{match5_6.group(1)} {match5_6.group(2)}")
+
+    # --- Fallback
     fallback = fallback_nom(text)
     if fallback:
         administrateurs.append(fallback)
 
-    # ✅ Supprimer doublons et retourner liste
+    # ✅ Nettoyage et retour
     return clean_admin_list(administrateurs)

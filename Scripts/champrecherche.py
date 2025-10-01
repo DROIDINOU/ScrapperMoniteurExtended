@@ -106,6 +106,18 @@ def is_valid_nom_interdit(nom_interdit):
     return isinstance(nom_interdit, str) and nom_interdit.strip()
 
 
+def is_valid_adresses_by_bce(adrs):
+    """
+    Vérifie si 'adresses_by_bce' contient au moins une adresse non vide.
+    Peut être str ou liste de str.
+    """
+    if isinstance(adrs, str):
+        return bool(adrs.strip())
+    if isinstance(adrs, list):
+        return any(isinstance(a, str) and a.strip() for a in adrs)
+    return False
+
+
 def is_valid_admin(administrateur):
     return isinstance(administrateur, str) and administrateur.strip() or (isinstance(administrateur, list) and any(isinstance(ad, str) and ad.strip() for ad in administrateur))
 
@@ -169,6 +181,8 @@ docs_avec_date_deces = []
 docs_sans_date_deces = []
 docs_avec_nom_interdit = []
 docs_sans_nom_interdit = []
+docs_avec_adresses_by_bce = []
+docs_sans_adresses_by_bce = []
 
 for doc in all_docs:
     adresse = doc.get("adresse")
@@ -181,7 +195,12 @@ for doc in all_docs:
     nom_trib_entreprise = doc.get("nom_trib_entreprise")
     date_deces = doc.get("date_deces")
     nom_interdit = doc.get("nom_interdit")
+    adrs_bce = doc.get("adresses_by_bce")
 
+    if is_valid_adresses_by_bce(adrs_bce):
+        docs_avec_adresses_by_bce.append(doc)
+    else:
+        docs_sans_adresses_by_bce.append(doc)
     # Vérifications sur les différents champs
     if is_valid_adresse(adresse):
         docs_avec_adresse.append(doc)
@@ -265,7 +284,8 @@ st.markdown(f"Documents avec date de décès : {len(docs_avec_date_deces)} <span
 st.markdown(f"Documents sans date de décès : {len(docs_sans_date_deces)} <span style='color: green;'>  S  -</span>", unsafe_allow_html=True)
 st.markdown(f"Documents avec nom interdit : {len(docs_avec_nom_interdit)} <span style='color: green;'>  -  ?</span>", unsafe_allow_html=True)
 st.markdown(f"Documents sans nom interdit : {len(docs_sans_nom_interdit)} <span style='color: green;'>  -  ?</span>", unsafe_allow_html=True)
-
+st.markdown(f"Documents avec adresses_by_bce : {len(docs_avec_adresses_by_bce)} <span style='color: green;'>✔️</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans adresses_by_bce : {len(docs_sans_adresses_by_bce)} <span style='color: red;'>✖️</span>", unsafe_allow_html=True)
 # --- Documents sans adresse MAIS contenant "domicilié" ---
 docs_sans_adresse_avec_domicilie = [
     doc for doc in docs_sans_adresse
@@ -339,6 +359,13 @@ def print_docs_avec_nom(docs):
     for doc in docs:
         st.write(f"- ID: {doc.get('id')} | nom: {doc.get('nom')}")
 
+
+def print_docs_sans_date_jugement(docs):
+    st.subheader("📋 Liste des documents SANS date de jugement :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
+
+
 def print_docs_sans_nom(docs):
     st.subheader("📋 Liste des documents SANS nom:")
     for doc in docs:
@@ -391,6 +418,18 @@ def print_docs_sans_date_deces(docs):
     for doc in docs:
         st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
 
+
+def print_docs_avec_adresses_by_bce(docs):
+    st.subheader("📋 Liste des documents AVEC adresses_by_bce :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | adresses_by_bce: {doc.get('adresses_by_bce')}")
+
+def print_docs_sans_adresses_by_bce(docs):
+    st.subheader("📋 Liste des documents SANS adresses_by_bce :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
+
+
 def print_docs_avec_date_naissance(docs):
     st.subheader("📋 Liste des documents AVEC date de naissance :")
     for doc in docs:
@@ -428,6 +467,11 @@ print_docs_sans_nom(docs_sans_nom)
 print_docs_avec_date_naissance(docs_avec_date_naissance)
 print_docs_avec_nom_trib_entreprise(docs_avec_nom_trib_entreprise)
 print_docs_sans_nom_trib_entreprise(docs_sans_nom_trib_entreprise)
+print_docs_sans_date_jugement(docs_sans_date_jugement)
+print_docs_avec_adresses_by_bce(docs_avec_adresses_by_bce)
+print_docs_sans_adresses_by_bce(docs_sans_adresses_by_bce)
+
+
 
 st.subheader("📋 Liste des noms extraits des documents AVEC nom")
 
