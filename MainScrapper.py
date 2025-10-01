@@ -255,7 +255,7 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     return []
 
 
-from_date = date.fromisoformat("2025-07-26")
+from_date = date.fromisoformat("2025-04-26")
 to_date = "2025-07-30"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
@@ -401,6 +401,12 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         date_deces = None
         nom_interdit = None
         identifiants_terrorisme = None
+        tvas = extract_numero_tva(texte_brut)
+        tvas_valides = [t for t in tvas if format_bce(t)]
+        denoms_by_bce = tvas_valides  # temporaire, juste le formaté
+        adresses_by_bce = tvas_valides
+        match_nn_all = extract_nrn_variants(texte_brut)
+        nns = match_nn_all
         doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
         if detect_erratum(texte_brut):
             extra_keywords.append("erratum")
@@ -475,6 +481,10 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             date_jugement = extract_jugement_date(str(texte_brut))
 
         if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
+            if not tvas_valides:
+                return None
+            print(f"⚠ TVA trouvée pour {doc_id} → document ignoré")
+
             nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
             if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
                 raw_deces = extract_dates_after_decede(str(main))
@@ -572,13 +582,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
 
             date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
 
-        tvas = extract_numero_tva(texte_brut)
-        tvas_valides = [t for t in tvas if format_bce(t)]
-        denoms_by_bce = tvas_valides  # temporaire, juste le formaté
-        adresses_by_bce = tvas_valides
-        match_nn_all = extract_nrn_variants(texte_brut)
-        nns = match_nn_all
-        doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
+
         return (
             numac, date_doc, langue, texte_brut, url, keyword,
             tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
@@ -606,8 +610,8 @@ with requests.Session() as session:
             result = future.result()
             if result is not None and isinstance(result, tuple) and len(result) >= 5:
                 scrapped_data.append(result)
-            else:
-                print("[⚠️] Résultat invalide ignoré.")
+            #else:
+              #print("[⚠️] Résultat invalide ignoré.")
 
 # ✅ Supprime les None avant de les envoyer à Meilisearch
 final.extend(scrapped_data)  # ou final = [r for r in scrapped_data if r is not None]

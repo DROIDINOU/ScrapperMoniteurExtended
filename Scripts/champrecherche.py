@@ -71,6 +71,7 @@ def is_valid_date(date):
                 return False
     return False
 
+
 def check_date(date):
     if isinstance(date, list):
         for d in date:
@@ -86,6 +87,19 @@ def is_valid_adresse(adresse):
 def is_valid_extra_keyword(extra_keyword):
     return isinstance(extra_keyword, str) and extra_keyword.strip() or (isinstance(extra_keyword, list) and any(isinstance(k, str) and k.strip() for k in extra_keyword))
 
+
+def is_valid_tva(tva):
+    """
+    Vérifie si le champ TVA contient une valeur non vide.
+    Peut être str ou liste de str.
+    """
+    if isinstance(tva, str):
+        return bool(tva.strip())
+    if isinstance(tva, list):
+        return any(isinstance(v, str) and v.strip() for v in tva)
+    return False
+
+
 def is_valid_nom_trib_entreprise(nom_trib_entreprise):
     if isinstance(nom_trib_entreprise, str):
         return bool(nom_trib_entreprise.strip())
@@ -98,6 +112,8 @@ def is_valid_nom_trib_entreprise(nom_trib_entreprise):
             any(_nonempty_str(alias) for alias in nom_trib_entreprise.get("aliases", []))
         ])
     return False
+
+
 # --- Fonction de validation pour le nom interdit ---
 def is_valid_nom_interdit(nom_interdit):
     """
@@ -183,6 +199,9 @@ docs_avec_nom_interdit = []
 docs_sans_nom_interdit = []
 docs_avec_adresses_by_bce = []
 docs_sans_adresses_by_bce = []
+docs_avec_tva = []
+docs_sans_tva = []
+
 
 for doc in all_docs:
     adresse = doc.get("adresse")
@@ -196,6 +215,12 @@ for doc in all_docs:
     date_deces = doc.get("date_deces")
     nom_interdit = doc.get("nom_interdit")
     adrs_bce = doc.get("adresses_by_bce")
+    tva = doc.get("TVA")
+
+    if is_valid_tva(tva):
+        docs_avec_tva.append(doc)
+    else:
+        docs_sans_tva.append(doc)
 
     if is_valid_adresses_by_bce(adrs_bce):
         docs_avec_adresses_by_bce.append(doc)
@@ -286,6 +311,9 @@ st.markdown(f"Documents avec nom interdit : {len(docs_avec_nom_interdit)} <span 
 st.markdown(f"Documents sans nom interdit : {len(docs_sans_nom_interdit)} <span style='color: green;'>  -  ?</span>", unsafe_allow_html=True)
 st.markdown(f"Documents avec adresses_by_bce : {len(docs_avec_adresses_by_bce)} <span style='color: green;'>✔️</span>", unsafe_allow_html=True)
 st.markdown(f"Documents sans adresses_by_bce : {len(docs_sans_adresses_by_bce)} <span style='color: red;'>✖️</span>", unsafe_allow_html=True)
+st.markdown(f"Documents avec TVA : {len(docs_avec_tva)} <span style='color: green;'>✔️</span>", unsafe_allow_html=True)
+st.markdown(f"Documents sans TVA : {len(docs_sans_tva)} <span style='color: red;'>✖️</span>", unsafe_allow_html=True)
+
 # --- Documents sans adresse MAIS contenant "domicilié" ---
 docs_sans_adresse_avec_domicilie = [
     doc for doc in docs_sans_adresse
@@ -451,6 +479,18 @@ def print_docs_sans_adresse(docs):
     for doc in docs:
         st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
 
+
+def print_docs_avec_tva(docs):
+    st.subheader("📋 Liste des documents AVEC TVA :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | TVA: {doc.get('TVA')}")
+
+def print_docs_sans_tva(docs):
+    st.subheader("📋 Liste des documents SANS TVA :")
+    for doc in docs:
+        st.write(f"- ID: {doc.get('id')} | Texte: {repr(doc.get('text'))[:600]}...")
+
+
 # Affichage des exemples des documents SANS date de naissance et SANS date de décès
 print_docs_sans_date_deces(docs_sans_date_deces)
 print_docs_avec_administrateur_et_nom(docs_avec_admin)
@@ -470,7 +510,8 @@ print_docs_sans_nom_trib_entreprise(docs_sans_nom_trib_entreprise)
 print_docs_sans_date_jugement(docs_sans_date_jugement)
 print_docs_avec_adresses_by_bce(docs_avec_adresses_by_bce)
 print_docs_sans_adresses_by_bce(docs_sans_adresses_by_bce)
-
+print_docs_avec_tva(docs_avec_tva)
+print_docs_sans_tva(docs_sans_tva)
 
 
 st.subheader("📋 Liste des noms extraits des documents AVEC nom")
