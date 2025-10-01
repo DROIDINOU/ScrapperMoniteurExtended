@@ -6,12 +6,102 @@ import unicodedata
 # ─────────────────────────────────────────────────────────────
 # CONSTANTES
 # ─────────────────────────────────────────────────────────────
-logger = logging.getLogger("extraction")  # 👈 on réutilise le même nom
+logger = logging.getLogger("nomsentreprises")
 
 # noms / abreviations debuts d'adresse pour FR et NL et DE
-ADRESSE_REGEX = r"(RUE|R\.|AVENUE|AV\.|CHEE|CHAUSS[ÉE]E|ROUTE|RTE|PLACE|PL\.?|BOULEVARD|BD|CHEMIN|CH\.?|GALERIE|IMPASSE|SQUARE|ALL[ÉE]E|CLOS|VOIE|RY|PASSAGE|QUAI|PARC|Z\.I\.?|ZONE|SITE|PROMENADE|FAUBOURG|FBG|QUARTIER|CITE|HAMEAU|LOTISSEMENT|ENTRE LES GHETES(Z.-L.)|BELLEVAUX|LES PATURAGES)"
-FLAMAND_ADRESSE_REGEX = r"(STRAAT|STRAATJE|LAAN|DREEF|STEENWEG|WEG|PLEIN|LEI|BAAN|HOF|KAAI|DRIES|MARKT|KANAAL|BERG|ZUID|NOORD|OOST|WEST|DOORN|VELD|NIEUWBUITENSTRAAT|VOORSTAD|BUITENWIJK|DORP|GEDEELTE|WIJK)"
-GERMAN_ADRESSE_REGEX = r"(STRASSE|STR\.?|PLATZ|ALLEE|WEG|RING|GASSE|DORF|BERG|TOR|WALD|STEIG|MARKT|HOF|GARTENVORSTADT|STADTTEIL|STADTRAND|ORTSTEIL|DORF|AUSSENBEREICH)"
+
+ADRESSE_REGEX = re.compile(r"""
+    (RUE
+    |R\.
+    |AVENUE
+    |AV\.
+    |CHEE
+    |CHAUSS[ÉE]E
+    |ROUTE
+    |RTE
+    |PLACE
+    |PL\.?
+    |BOULEVARD
+    |BD
+    |CHEMIN
+    |CH\.?
+    |GALERIE
+    |IMPASSE
+    |SQUARE
+    |ALL[ÉE]E
+    |CLOS
+    |VOIE
+    |RY
+    |PASSAGE
+    |QUAI
+    |PARC
+    |Z\.I\.?
+    |ZONE
+    |SITE
+    |PROMENADE
+    |FAUBOURG
+    |FBG
+    |QUARTIER
+    |CITE
+    |HAMEAU
+    |LOTISSEMENT
+    |ENTRE\s+LES\s+GHETES(Z\.-L\.)?
+    |BELLEVAUX
+    |LES\s+PATURAGES)
+""", re.VERBOSE | re.IGNORECASE)
+
+FLAMAND_ADRESSE_REGEX = re.compile(r"""
+    (STRAAT
+    |STRAATJE
+    |LAAN
+    |DREEF
+    |STEENWEG
+    |WEG
+    |PLEIN
+    |LEI
+    |BAAN
+    |HOF
+    |KAAI
+    |DRIES
+    |MARKT
+    |KANAAL
+    |BERG
+    |ZUID
+    |NOORD
+    |OOST
+    |WEST
+    |DOORN
+    |VELD
+    |NIEUWBUITENSTRAAT
+    |VOORSTAD
+    |BUITENWIJK
+    |DORP
+    |GEDEELTE
+    |WIJK)
+""", re.VERBOSE | re.IGNORECASE)
+
+GERMAN_ADRESSE_REGEX = re.compile(r"""
+    (STRASSE
+    |STR\.?
+    |PLATZ
+    |ALLEE
+    |WEG
+    |RING
+    |GASSE
+    |DORF
+    |BERG
+    |TOR
+    |WALD
+    |STEIG
+    |MARKT
+    |HOF
+    |GARTENVORSTADT
+    |STADTTEIL
+    |STADTRAND
+    |ORTSTEIL
+    |AUSSENBEREICH)
+""", re.VERBOSE | re.IGNORECASE)
+
 
 def _build_dirigeant_espece_rx(forms: list[str]) -> re.Pattern:
     """
@@ -128,7 +218,6 @@ PAT_DANS_L_AFFAIRE = re.compile(
     )
 
 
-
 def _build_en_cause_de_societe_rx(forms:list[str]) -> re.Pattern:
     """
     Capture le nom de société juste après « En cause de : ».
@@ -158,6 +247,7 @@ RX_DIRIGEANT_ESPECE = _build_dirigeant_espece_rx(FORMS)
 # ─────────────────────────────────────────────────────────────
 # FONCTIONS FALLBACK AVEC LOG
 # ─────────────────────────────────────────────────────────────
+
 
 def fallback_nom_extraction(text, forms, doc_id=None):
     fallbackgroup = []
@@ -197,7 +287,7 @@ def fallback_nom_extraction(text, forms, doc_id=None):
 # ─────────────────────────────────────────────────────────────
 
 # retourne nom complet
-def extract_nom_forme(text, déclencheur, form_regex, nom_list, is_nl=False):
+def extract_nom_forme(text, declencheur, form_regex, nom_list, is_nl=False):
     # Détermine la fin de capture possible pour un nom d'entreprise après un déclencheur.
     # Ce lookahead permet de vérifier que ce qui suit la forme et le nom est bien une structure attendue,
     # comme une adresse ou un numéro BCE, pour augmenter la précision des extractions.
@@ -228,7 +318,7 @@ def extract_nom_forme(text, déclencheur, form_regex, nom_list, is_nl=False):
     # Le tout est suivi d’un lookahead (`ending`) pour s’assurer que l’extraction est suivie d’une adresse ou d’une structure attendue.
 
     pattern = rf"""
-        {déclencheur}\s*:?\s*
+        {declencheur}\s*:?\s*
         (?:
             \(?(?P<forme1>{form_regex})\)?[-\s]*+(?P<nom1>(?:[A-Z0-9&@".\-',]+[-\s]*){{1,5}})
             |
@@ -369,10 +459,10 @@ def extract_noms_entreprises(texte_html, doc_id=None):
     extract_by_patterns(full_text, adresse_patterns, nom_list)
 
     # 🔹 Extraction via déclencheurs + formes juridiques
-    for déclencheur in DECLENCHEURS:
+    for declencheur in DECLENCHEURS:
 
-        extract_nom_forme(full_text, déclencheur, form_regex, nom_list, is_nl=False)
-        extract_nom_forme(full_text, déclencheur, form_regex, nom_list, is_nl=True)
+        extract_nom_forme(full_text, declencheur, form_regex, nom_list, is_nl=False)
+        extract_nom_forme(full_text, declencheur, form_regex, nom_list, is_nl=True)
 
     # 🔹 Cas spéciaux : formes juridiques en préfixe (ASBL SOCOBEL → SOCOBEL ASBL)
     for form in FORMS:

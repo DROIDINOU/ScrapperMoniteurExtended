@@ -85,9 +85,13 @@ logger_nomsvsdates.debug("🔍 Logger 'nomsvsdates_logger' initialisé pour les 
 # CHAMP NOM TERRORISME : identifiant_terrorisme
 logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
-print(">>> CODE À JOUR")
+
+# CHAMP NOM ENTREPRISE : nom_entreprise
+logger_nomsentreprises = setup_dynamic_logger(name="nomsentreprises_logger", keyword=keyword, level=logging.DEBUG)
+logger_nomsentreprises.debug("🔍 Logger 'nomsentreprises_logger' initialisé pour les noms entreprises.")
 
 logged_adresses: set[tuple[str, str]] = set()
+print(">>> CODE À JOUR")
 
 # ---------------------------------------------------------------------------------------------------------------------
 #                                          VARIABLES D ENVIRONNEMENT
@@ -269,7 +273,7 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     return []
 
 
-from_date = date.fromisoformat("2025-07-01")
+from_date = date.fromisoformat("2025-07-26")
 to_date = "2025-07-30"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
@@ -486,7 +490,6 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         texte_date_naissance_sansdup = remove_duplicate_paragraphs(texte_date_naissance)
         texte_date_naissance_deces = dedupe_phrases_ocr(texte_date_naissance_sansdup)
         raw_naissance = extract_date_after_birthday(str(texte_date_naissance_deces))  # liste ou str
-        nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
 
         if isinstance(raw_naissance, list):
             raw_naissance = [norm_er(s) for s in raw_naissance]
@@ -510,8 +513,10 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             date_deces = convertir_date(raw_deces)  # -> liste ISO ou None
             adresse = extract_address(str(texte_brut), doc_id=doc_id)
             detect_succession_keywords(texte_brut, extra_keywords)
+            nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
 
         if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
+            nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
             if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
                 raw_deces = extract_dates_after_decede(str(main))
 
@@ -521,7 +526,6 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
                     raw_deces = norm_er(raw_deces)
 
                 date_deces = convertir_date(raw_deces)
-
             administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                          ["avocate", "avocat", "Maître", "bureaux", "cabinet",
                                                           "curateur"])
@@ -543,9 +547,9 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                          ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
             detect_justice_paix_keywords(texte_brut, extra_keywords)
-
+            nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
         if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
-            # verifier a quoi sert id ici
+            # verifier à quoi sert id ici mais pense que peut etre utile
             nom_interdit = extraire_personnes_interdites(texte_brut)  # va falloir deplacer dans fonction ?
             nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
             administrateur = extract_administrateur(texte_brut)

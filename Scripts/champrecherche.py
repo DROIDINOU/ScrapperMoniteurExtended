@@ -243,6 +243,16 @@ st.markdown(f"Documents avec administrateur : {len(docs_avec_admin)} <span style
 st.markdown(f"Documents sans administrateur : {len(docs_sans_admin)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
 st.markdown(f"Documents avec nom : {len(docs_avec_nom)} <span style='color: green;'>S JP</span>", unsafe_allow_html=True)
 st.markdown(f"Documents sans nom : {len(docs_sans_nom)} <span style='color: green;'>S JP</span>", unsafe_allow_html=True)
+st.markdown(
+    f"Documents avec nom tribunal entreprise : {len(docs_avec_nom_trib_entreprise)} "
+    "<span style='color: green;'>✔️</span>",
+    unsafe_allow_html=True
+)
+st.markdown(
+    f"Documents sans nom tribunal entreprise : {len(docs_sans_nom_trib_entreprise)} "
+    "<span style='color: red;'>✖️</span>",
+    unsafe_allow_html=True
+)
 st.markdown(f"Documents avec numéro national : {len(docs_avec_num_nat)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
 st.markdown(f"Documents sans numéro national : {len(docs_sans_num_nat)} <span style='color: green;'>  - JP</span>", unsafe_allow_html=True)
 st.markdown(f"Documents avec date de naissance : {len(docs_avec_date_naissance)} <span style='color: green;'>  S JP</span>", unsafe_allow_html=True)
