@@ -5,6 +5,7 @@ import hashlib
 import csv
 import re
 import unicodedata
+import requests
 
 
 # --- Bibliothèques tierces ---
@@ -602,6 +603,13 @@ def names_list_from_nom(nom):
     return []
 
 
+
+def is_entite_publique(entite_bce: str) -> bool:
+    s = re.sub(r"\D", "", entite_bce or "")
+    if len(s) == 9:
+        s = "0" + s
+    return s.startswith("0200")
+
 # ----------------------------------------------------------------------------------------------------------------------
 #                                        NETTOYAGE DES ADRESSES
 # 1 Nettoyer en tronquant le texte (nettoyage final dans mainscrapper.py)
@@ -1182,18 +1190,18 @@ def build_denom_index(
 def build_address_index(
     csv_path: str,
     *,
-    lang: str = "FR",                       # "FR" ou "NL" (fallback auto si champ vide)
-    allowed_types: set[str] | None = None,  # ex: {"REGO", "SEAT"} si tu veux filtrer
-    skip_public: bool = True,               # idem à ta fonction précédente
+    lang: str = "FR",
+    allowed_types: set[str] | None = None,
+    skip_public: bool = True,
 ) -> dict[str, set[str]]:
     """
-    Lit address.csv en streaming et renvoie :
+    Lit address.csv et renvoie :
       { "xxxx.xxx.xxx": {"Adresse complète 1", "Adresse complète 2", ...}, ... }
     """
 
     index: dict[str, set[str]] = {}
 
-    # petit cache disque pour gros CSV (même logique : mtime uniquement)
+    # petit cache disque
     pkl = _cache_path_for(csv_path)
     csv_mtime = _csv_mtime(csv_path)
     if os.path.exists(pkl):
@@ -1203,15 +1211,16 @@ def build_address_index(
             if payload.get("mtime") == csv_mtime:
                 return payload["index"]
         except Exception:
-            pass  # on reconstruit si échec / cache obsolète
+            pass
 
-    # lecture streaming (utf-8-sig puis latin-1)
+    # lecture streaming
     for enc in ("utf-8-sig", "latin-1"):
         try:
             with open(csv_path, newline="", encoding=enc) as f:
                 r = csv.DictReader(f)
                 for row in r:
-                    ent = (row.get("EntityNumber") or "").strip()
+                    ent_raw = (row.get("EntityNumber") or "").strip()
+                    ent = format_bce(ent_raw)   # 👈 normalisation ici
                     if not ent:
                         continue
                     if skip_public and is_entite_publique(ent):
@@ -1221,8 +1230,6 @@ def build_address_index(
                     if allowed_types and typ not in allowed_types:
                         continue
 
-                    # Adresse éventuellement "radiée" : on garde la même philosophie que ton code,
-                    # on ne filtre PAS sur DateStrikingOff (mais tu peux le faire ici si besoin).
                     addr = _format_address(row, lang)
                     if not addr:
                         continue
@@ -1232,7 +1239,7 @@ def build_address_index(
         except UnicodeDecodeError:
             continue
 
-    # sauve en cache disque avec mtime du CSV
+    # cache
     try:
         with open(pkl, "wb") as f:
             pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -1240,6 +1247,109 @@ def build_address_index(
         pass
 
     return index
+
+
+def build_enterprise_index(
+    csv_path: str,
+    skip_public: bool = True
+) -> set[str]:
+    """
+    Lit enterprise.csv et renvoie un set de numéros BCE formatés
+    ex: {"0200.065.765", "0778.045.116", ...}
+    """
+
+    index: set[str] = set()
+
+    # petit cache disque
+    pkl = _cache_path_for(csv_path)
+    csv_mtime = _csv_mtime(csv_path)
+    if os.path.exists(pkl):
+        try:
+            with open(pkl, "rb") as f:
+                payload = pickle.load(f)
+            if payload.get("mtime") == csv_mtime:
+                return payload["index"]
+        except Exception:
+            pass
+
+    # lecture streaming
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    ent_raw = (row.get("EnterpriseNumber") or "").strip()
+                    ent = format_bce(ent_raw)   # 👈 normalisation ici
+                    if not ent:
+                        continue
+                    if skip_public and is_entite_publique(ent):
+                        continue
+
+                    index.add(ent)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    # cache
+    try:
+        with open(pkl, "wb") as f:
+            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
+
+    return index
+
+
+def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[dict]:
+    """
+    Extrait (nom, forme juridique) des sociétés listées dans la recherche eJustice
+    Exemple : [{"nom": "AMD SERVICES", "forme": "SRL"}]
+    """
+    num = re.sub(r"\D", "", tva)
+    if not num:
+        return []
+
+    searches = ([num[1:]] if len(num) > 1 else []) + [num]
+    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+
+    for search in searches:
+        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
+        try:
+            resp = requests.get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[article.pl] échec ({search}): {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        main = soup.select_one("main.page__inner.page__inner--content.article-text")
+        if not main:
+            continue
+
+        out = []
+        for p in main.find_all("p"):
+            font_tag = p.find("font", {"color": "blue"})
+            if font_tag:
+                nom = font_tag.get_text(strip=True)
+
+                # tout le texte du <p> après le <font>
+                full_text = p.get_text(" ", strip=True)
+
+                # supprime le nom déjà capturé
+                reste = full_text.replace(nom, "").strip()
+
+                # capture forme juridique (SA, SRL, ASBL, etc.)
+                match_forme = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
+                forme = match_forme.group(1).upper() if match_forme else None
+
+                out.append({"nom": nom, "forme": forme})
+
+        if out:
+            return out
+
+    return []
+
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1264,6 +1374,12 @@ ADDRESS_INDEX = build_address_index(
 )
 
 
+ENTERPRISE_INDEX = build_enterprise_index(
+    chemin_csv("enterprise.csv"),
+    skip_public=True
+)
+
+
 # --------------------------------------------------------------------------------------
 # Retourne le premier non-vide (après strip).
 # Filtre public num public dans fichier bce
@@ -1271,11 +1387,6 @@ ADDRESS_INDEX = build_address_index(
 # sera pas le cas si on étend a decision FSMA dans l avenir
 # --------------------------------------------------------------------------------------
 
-def is_entite_publique(entite_bce: str) -> bool:
-    s = re.sub(r"\D", "", entite_bce or "")
-    if len(s) == 9:
-        s = "0" + s
-    return s.startswith("0200")
 
 
 def has_person_names(nom):
@@ -1309,4 +1420,81 @@ def clean_nom_trib_entreprise(noms: list[str]) -> list[str]:
             and nom.strip().lower() != "4. l etat belge spf finances"
             and nom.strip().lower() != "spf finances")
     ]
+
+
+SOCIETESABRV = {"SA", "SRL", "SE", "SPRL", "SIIC", "SC", "SNC", "SCS",
+                "COMMV", "SCRL", "SAS", "ASBL", "SCA"}
+
+def _extraire_nom_majuscule(liste: list[str]) -> str | None:
+    """
+    Extrait un nom d'entreprise à partir d'une liste de chaînes.
+    - Garde uniquement les tokens 100% en majuscules.
+    - Supprime les abréviations de forme juridique (SA, SRL...).
+    - Retourne le nom nettoyé ou None.
+    """
+    if not liste:
+        return None
+    for brut in liste:
+        tokens = brut.strip().split()
+        uppers = [t for t in tokens if t.isupper() and t not in SOCIETESABRV]
+        if uppers:
+            return " ".join(uppers)
+    return None
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Correction des TVA si denoms_by_bce est vide (via DENOM_INDEX déjà construit)
+# ----------------------------------------------------------------------------------------------------------------------
+def corriger_tva_par_nom(doc: dict, denom_index: dict[str, set[str]], logger=None):
+    """
+    Si denoms_by_bce est vide :
+    - On prend le champ "nom"
+    - Si rien, on tente le champ "nom_trib_entreprise" (extraction des tokens UPPER sans forme juridique)
+    - On cherche dans DENOM_INDEX les EntityNumber où ce nom apparaît comme dénomination
+    - Si trouvé, on compare le TVA correspondant avec les TVA extraites
+    - Si différent → ajoute le bon numéro et met à jour denoms_by_bce
+    """
+
+    if doc.get("denoms_by_bce"):
+        return doc  # rien à faire
+
+    # 1️⃣ Essai avec champ "nom"
+    noms = names_list_from_nom(doc.get("nom"))
+    candidats = [n.strip() for n in noms if isinstance(n, str) and n.strip()]
+
+    # 2️⃣ Fallback avec champ "nom_trib_entreprise"
+    if not candidats and doc.get("nom_trib_entreprise"):
+        fallback_nom = _extraire_nom_majuscule(doc["nom_trib_entreprise"])
+        if fallback_nom:
+            candidats = [fallback_nom]
+
+    if not candidats:
+        return doc
+
+    nom_doc = candidats[0].strip().lower()
+
+    # Recherche dans index des dénominations
+    for ent, denoms in denom_index.items():
+        if any((d or "").strip().lower() == nom_doc for d in denoms):
+            tva_csv = format_bce(ent)
+            if not tva_csv:
+                continue
+
+            tva_extraites = [format_bce(t) for t in (doc.get("TVA") or []) if format_bce(t)]
+
+            if not tva_extraites or tva_csv not in tva_extraites:
+                msg = (f"[⚠️ Correction TVA par NOM/ENTREPRISE] DOC={doc.get('doc_hash')} | "
+                       f"Nom='{nom_doc}' | TVA extraite={tva_extraites} | TVA trouvé={tva_csv}")
+                if logger:
+                    logger.warning(msg)
+                else:
+                    print(msg)
+
+                doc.setdefault("TVA", []).append(tva_csv)
+                doc["denoms_by_bce"] = list(denoms)
+            break
+
+    return doc
+
+
 

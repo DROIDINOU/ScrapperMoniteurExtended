@@ -1,3 +1,7 @@
+# A SUPPRIMER
+# date naissance? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
+# date décès? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
+# tout ce qui est lie a nom faut virer mais peut remprendre la maniere de logguer les regex
 # --- Imports standards ---
 import concurrent.futures
 import json
@@ -26,16 +30,16 @@ from logger_config import setup_logger, setup_dynamic_logger
 from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET, POSTAL_RE, BCE_RE
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
-from Extraction.NomPrenom.extraction_nom_terrorisme_bis import extraire_personnes_terrorisme
 from Extraction.Adresses.extract_adresses_entreprises import extract_add_entreprises
+# va falloir mettre dans denomination et pas nomprenom
+from Extraction.Denomination.extraction_entites_radiees import extract_noms_entreprises_radiees
 from Extraction.Adresses.extraction_adresses_moniteur import extract_address
 from Extraction.Denomination.extraction_nom_entreprises import extract_noms_entreprises
 from Extraction.Gerant.extraction_administrateurs import extract_administrateur
 from Extraction.Keyword.tribunal_entreprise_keyword import detect_tribunal_entreprise_keywords
-from Extraction.Keyword.justice_paix_keyword import detect_justice_paix_keywords
 from Extraction.Keyword.tribunal_premiere_instance_keyword import detect_tribunal_premiere_instance_keywords
 from Extraction.Keyword.cour_appel_keyword import detect_courappel_keywords
-from Extraction.Keyword.terrorisme_keyword import add_tag_personnes_a_supprimer
+from Extraction.Keyword.radiation_keyword import detect_radiations_keywords
 from Extraction.MandataireJustice.extraction_mandataire_justice_gen import trouver_personne_dans_texte
 from Extraction.Dates.extractionDateNaissanceDeces import extract_date_after_birthday, \
     extract_dates_after_decede
@@ -49,7 +53,8 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
     verifier_premiere_adresse_apres_nom, remove_av_parentheses, to_list_dates, names_list_from_nom, \
     remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, DENOM_INDEX, \
-    ADDRESS_INDEX, normaliser_espaces_invisibles
+    ADDRESS_INDEX, ENTERPRISE_INDEX, normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, \
+    corriger_tva_par_nom
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
@@ -67,20 +72,23 @@ logger.debug("✅ Logger initialisé dans le script principal.")
 logger_adresses = setup_dynamic_logger(name="adresses_logger", keyword=keyword, level=logging.DEBUG)
 logger_adresses.debug("🔍 Logger 'adresses_logger' initialisé pour les adresses.")
 
+# -------- A SUPPRIMER
 # CHAMP NOM : nom : log si le champ nom est null
 logger_nomspersonnes = setup_dynamic_logger(name="nomspersonnes_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomspersonnes.debug("🔍 Logger 'nomspersonnes_logger' initialisé pour les noms.")
 # CHAMP DATE NAISSANCE : date_naissance
 logger_datenaissance = setup_dynamic_logger(name="datenaissance_logger", keyword=keyword, level=logging.DEBUG)
 logger_datenaissance.debug("🔍 Logger 'datenaissance_logger' initialisé pour les noms.")
+# ---------
+logger_bce = setup_dynamic_logger(name="bce_logger", keyword=keyword, level=logging.DEBUG)
+logger_bce.debug("🔍 Logger 'bce_logger' initialisé pour les noms et adresses bce.")
 
+
+# ---------- A SUPPRIMER
 logger_nomsdouble = setup_dynamic_logger(name="nomsdouble_logger", keyword=keyword, level=logging.DEBUG)
 logger_nomsdouble.debug("🔍 Logger 'nomsdouble_logger' initialisé pour les noms.")
+# ----------
 
-
-# CHAMP NOM TERRORISME : identifiant_terrorisme
-logger_nomsterrorisme = setup_dynamic_logger(name="nomsterrorisme_logger", keyword=keyword, level=logging.DEBUG)
-logger_nomsterrorisme.debug("🔍 Logger 'nomsterrorisme_logger' initialisé pour les noms terrorisme.")
 
 # CHAMP NOM ENTREPRISE : nom_entreprise
 logger_nomsentreprises = setup_dynamic_logger(name="nomsentreprises_logger", keyword=keyword, level=logging.DEBUG)
@@ -255,8 +263,10 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     return []
 
 
-from_date = date.fromisoformat("2025-04-26")
-to_date = "2025-07-30"  # date.today()
+
+# tester trib premiere instance 26/04
+from_date = date.fromisoformat("2024-02-26")
+to_date = "2024-07-30"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -342,14 +352,6 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
                     print(
                         f"[❌] Ignoré (source ou titre non pertinent pour trib entreprise): {title} | Source : {subtitle_text}")
 
-            elif keyword in ("justice+de+paix"):
-                if title.lower().startswith("justice de paix"):
-                    # print(title)
-                    find_linklist_in_items(item, keyword, link_list)
-
-                else:
-                    print(
-                        f"[❌] Ignoré (source ou titre non pertinent pourjustice de paix): {title} | Source: {subtitle_text}")
             elif keyword in ("cour+d"):
                 if (
                         title.lower().startswith("cour d'appel")
@@ -367,6 +369,7 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
 
 
 def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, subtitle):
+    # va certainement falloir enrichir ici
     with requests.Session() as s:
         EVENT_RX = re.compile(
         r"\b(?:"
@@ -387,7 +390,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         if not main:
            return (
                numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
-               None, None, None, None, None, None, None, None)
+               None, None, None, None, None, None, None, None, None)
         # si terrorisme on a besoin de garder les liens pour acceder aux pdf où certains noms devront etre recherchés
         if keyword != "terrorisme":
            texte_brut = extract_clean_text(main)
@@ -407,60 +410,10 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         adresses_by_bce = tvas_valides
         match_nn_all = extract_nrn_variants(texte_brut)
         nns = match_nn_all
+        denoms_by_ejustice = tvas_valides
         doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
         if detect_erratum(texte_brut):
             extra_keywords.append("erratum")
-
-        # Cas spécial : TERRORISME
-        if re.search(r"terrorisme", keyword, flags=re.IGNORECASE):
-            add_tag_personnes_a_supprimer(texte_brut, extra_keywords)
-            matches = extraire_personnes_terrorisme(texte_brut, doc_id=doc_id)  # [(num, nom, nrn), ...]
-            seen = set()
-            noms_paires: List[List[str]] = []
-
-            for _, name, nn in matches:
-                key = (name.upper(), nn)  # même logique de dédup que dans la fonction
-                if key in seen:
-                    continue
-                seen.add(key)
-                noms_paires.append([name, nn])
-
-            # Si trouvé dans le HTML → pas besoin d'OCR
-            if noms_paires:
-                return (
-                    numac, date_doc, langue, texte_brut, url, keyword,
-                    None, title, subtitle, None, extra_keywords, None, None, None, None, None, None,
-                    None, None, None, None, noms_paires, None, None
-                )
-
-            # Sinon, OCR fallback
-            main_pdf_links = soup.find_all("a", class_="links-link")
-            if len(main_pdf_links) >= 2:
-                pdf_href = main_pdf_links[-2]['href']
-                full_pdf_url = urljoin("https://www.ejustice.just.fgov.be", pdf_href)
-                print(f"📄 Téléchargement du PDF: {full_pdf_url}")
-                page_index = extract_page_index_from_url(full_pdf_url)
-                if page_index is None:
-                    print(f"[⚠️] Pas de numéro de page dans l’URL: {full_pdf_url} — on commence à la page 0")
-                    page_index = 0
-
-                ocr_text = convert_pdf_pages_to_text_range(full_pdf_url, page_index, page_count=6)
-                pattern = r"(\d+)[,\.]\s*([A-Za-z\s]+)\s*\(NRN:\s*(\d{2}\.\d{2}\.\d{2}-\d{3}\.\d{2})\)"
-                if ocr_text:
-                    ocr_matches = re.findall(pattern, ocr_text)
-                    noms_ocr = [(name.strip(), nn.strip()) for _, name, nn in ocr_matches]
-                    return (
-                        numac, date_doc, langue, texte_brut, url, keyword,
-                        None, title, subtitle, None, extra_keywords, None, None, None, None, nom_trib_entreprise, None,
-                        None,
-                        None, None, None, noms_ocr, None, None
-                    )
-                else:
-                    print("⚠️ Texte OCR vide.")
-                    return None
-            else:
-                print("⚠️ Aucun lien PDF trouvé pour l’OCR.")
-                return None
 
         # Cas normal
         # on va devoir deplacer nom
@@ -512,12 +465,6 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             if not has_person_names(nom) and EVENT_RX.search(_norm_txt(texte_brut)):
                 nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
 
-        if re.search(r"justice\s+de\s+paix", keyword.replace("+", " "), flags=re.IGNORECASE):
-            administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
-                                                         ["avocate", "avocat", "Maître", "bureaux", "cabinet"])
-            detect_justice_paix_keywords(texte_brut, extra_keywords)
-            nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
-
         # -----------------------------
         # TRIB ENTREPRISE
         # -----------------------------
@@ -530,10 +477,20 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
 
         # -----------------------------
+        # ENTREPRISES RADIEES
+        # -----------------------------
+        if re.search(r"Liste\s+des\s+entites\s+enregistrees", keyword.replace("+", " "), flags=re.IGNORECASE):
+            if not tvas_valides:
+                return None
+            nom_trib_entreprise = extract_noms_entreprises_radiees(texte_brut, doc_id=doc_id)
+            detect_radiations_keywords(texte_brut, extra_keywords)
+
+        # ------------ -----------------
         # COUR D'APPEL
         # -----------------------------
         if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
-
+            if not tvas_valides:
+                return None
             nom_interdit = extraire_personnes_interdites(texte_brut)
             nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
             detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
@@ -588,7 +545,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
             nom_trib_entreprise,
             date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce,
-            adresses_by_bce
+            adresses_by_bce, denoms_by_ejustice
         )
 
 
@@ -640,12 +597,12 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce", "adresses_by_bce"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce", "adresses_by_bce","denoms_by_ejustice"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
-    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce", "adresses_by_bce"
+    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce", "adresses_by_bce", "denoms_by_ejustice"
 ])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
@@ -686,7 +643,8 @@ with requests.Session() as session:
             "nom_interdit": record[20],
             "identifiant_terrorisme": record[21],
             "denoms_by_bce": record[22],
-            "adresses_by_bce": record[23]
+            "adresses_by_bce": record[23],
+            "denoms_by_ejustice": record[24]
 
         }
         # rien a faire dans meili mettre dans postgre
@@ -704,7 +662,7 @@ with requests.Session() as session:
                 doc["nom_terrorisme"] = [pair[0] for pair in record[21] if len(pair) == 2]
                 doc["num_nat_terrorisme"] = [pair[1] for pair in record[21] if len(pair) == 2]
 
-                # ✅ Forcer administrateur à être une liste si ce n’est pas None
+        # ✅ Forcer administrateur à être une liste si ce n’est pas None
         if isinstance(doc["administrateur"], str):
             doc["administrateur"] = [doc["administrateur"]]
         elif doc["administrateur"] is None:
@@ -714,41 +672,78 @@ with requests.Session() as session:
 
 # ✅ Enrichissement des dénominations – une seule passe
 for doc in documents:
+    # 🚨 Skip si c’est un cas "annulation doublon"
+    # cela veut dire que le numero bce n est plus valide donc pas besoin de chercher (voir procedure doublons bce)
+    if "annulation_doublon" in (doc.get("extra_keyword") or []):
+        doc["denoms_by_bce"] = None
+        continue
+
     denoms = set()
     for t in (doc.get("TVA") or []):
         bce = format_bce(t)
         if bce and bce in DENOM_INDEX:
             denoms.update(DENOM_INDEX[bce])
     doc["denoms_by_bce"] = sorted(denoms) if denoms else None
-
+# ✅ Enrichissement des adresses – une seule passe
 # ✅ Enrichissement des adresses – une seule passe
 for doc in documents:
     addrs = set()
+
     for t in (doc.get("TVA") or []):
         bce = format_bce(t)
-        if bce and bce in ADDRESS_INDEX:
-            addrs.update(ADDRESS_INDEX[bce])
+
+        if not bce:
+            logger_adresses.warning(
+                f"[⚠️ TVA invalide] DOC={doc.get('doc_hash')} | TVA brute={t}"
+            )
+            continue
+
+        if bce not in ENTERPRISE_INDEX:
+            logger_adresses.warning(
+                f"[❌ TVA absente du CSV enterprise.csv] DOC={doc.get('doc_hash')} | TVA={bce}"
+            )
+            continue
+
+        # ✅ TVA valide et présente dans enterprise.csv
+        addrs.update(ADDRESS_INDEX.get(bce, set()))   # 👈 ici changement
+
     doc["adresses_by_bce"] = sorted(addrs) if addrs else None
-    # Fallback : si AUCUNE adresse dans le CSV, on va chercher la ligne d'adresse de l'article
+
+    # 🚨 Fallback si rien trouvé dans le CSV
     if not addrs:
         found = []
         for t in (doc.get("TVA") or []):
             found.extend(fetch_ejustice_article_addresses_by_tva(t) or [])
-
         if found:
-            cur = doc.get("adresses_by_bce")
-            cur_list = [] if cur is None else ([cur] if isinstance(cur, str) else list(cur))
-            seen_local = set(cur_list)
-            for addr in found:
-                if addr not in seen_local:
-                    cur_list.append(addr)
-                    seen_local.add(addr)
-            doc["adresses_by_bce"] = cur_list or None
+            doc["adresses_by_bce"] = found
 
+# 🚨 Correction TVA par NOM si aucune dénomination trouvée
+for doc in documents:
+    doc = corriger_tva_par_nom(doc, DENOM_INDEX, logger=logger_bce)
+
+# 🚨 Nouveau bloc séparé : enrichissement e-Justice
+for doc in documents:
+    tvas = doc.get("TVA") or []
+    noms_from_ejustice = []
+    if tvas:
+        try:
+            noms_from_ejustice = fetch_ejustice_article_names_by_tva(tva=tvas[0])
+        except Exception as e:
+            logger.warning(f"[e-Justice fetch] DOC={doc.get('doc_hash')} | err={e}")
+    doc["denoms_by_ejustice"] = noms_from_ejustice if noms_from_ejustice else None
 
 # On va faire les logs ici
 # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste
 # 🧼 Nettoyage des champs noms
+
+# ✅ Vérification pour tribunal de l’entreprise sans BCE
+for doc in documents:
+    if doc.get("keyword") and "tribunal de l" in doc["keyword"].lower():
+        if not doc.get("denoms_by_bce") and not doc.get("adresses_by_bce"):
+            logger_bce.warning(
+                f"[⚠️ Tribunal entreprise sans BCE] "
+                f"DOC={doc.get('doc_hash')} | URL={doc.get('url')}"
+            )
 
 for doc in documents:
     adresse = doc.get("adresse")
@@ -1151,7 +1146,8 @@ cur.execute("""
     nom_interdit TEXT,
     identifiant_terrorisme TEXT[],
     denoms_by_bce TEXT[],
-    adresses_by_bce TEXT[]
+    adresses_by_bce TEXT[],
+    denoms_by_ejustice TEXT[]
 
 
 );
@@ -1186,7 +1182,7 @@ for doc in tqdm(documents, desc="PostgreSQL Insert"):
     date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, nom_interdit, identifiant_terrorisme, denoms_by_bce,     adresses_by_bce TEXT[]
 
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s, %s, %s,%s)
 ON CONFLICT (doc_hash) DO NOTHING
 """, (
         doc["date_doc"],
@@ -1210,7 +1206,8 @@ ON CONFLICT (doc_hash) DO NOTHING
         doc["nom_interdit"],
         doc["identifiant_terrorisme"],
         doc["denoms_by_bce"],
-        doc["adresses_by_bce"]
+        doc["adresses_by_bce"],
+        doc["denoms_by_ejustice"]
 
     ))
 

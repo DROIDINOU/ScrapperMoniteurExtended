@@ -838,7 +838,7 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(f"{nom}, {prenoms}", regex_name="RX_INTERDIT_A", m=m)
 
     for lenomme in RX_LE_NOMME_NP.finditer(full_text):
-        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}", regex_name="RX_LE_NOMME_NP", m=m)
+        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}", regex_name="RX_LE_NOMME_NP", m=lenomme)
 
     for rxnrnp in RX_NR_NP.finditer(full_text):
         nom_list.append(f"{rxnrnp.group('nom').strip()}, {rxnrnp.group('prenoms').strip()}")

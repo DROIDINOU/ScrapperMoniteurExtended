@@ -30,6 +30,10 @@ def fallback_nom(text):
 
     return None
 
+
+# -----------------------------------------------------------------
+#                       NETTOYAGE CHAMP ADMINISTRATEUR
+# -----------------------------------------------------------------
 def clean_admin_list(admins):
     stopwords = {
         "LE", "LA", "DE", "DES", "DU", "S-", "C-", "L'", "D'",
@@ -56,9 +60,15 @@ def clean_admin_list(admins):
         # Trop court
         if len(val) < 3:
             continue
+
+        # ⚡ rejeter si c'est un seul mot
+        if len(val.split()) == 1:
+            continue
+
         # Contient un mot d'adresse (début OU intérieur)
         if any(k in upper_val.split() for k in adresse_keywords):
             continue
+
         if any(k in upper_val.split() for k in bruit_keywords):
             continue
 
@@ -189,6 +199,41 @@ def extract_administrateur(text):
     match5_6 = re.search(pattern5_6, text, flags=re.IGNORECASE | re.DOTALL)
     if match5_6:
             administrateurs.append(f"{match5_6.group(1)} {match5_6.group(2)}")
+
+    # --- 7. Cas "article 2:79" avec Monsieur/Madame ... , né le ...
+    # On ne déclenche QUE si "article 2:79" est dans le texte
+    if re.search(r"article\s*2\s*:?\s*79", text, flags=re.IGNORECASE):
+        pattern_279 = (
+            r"(?:Monsieur|Messieurs|Madame|M\.|Mme|Mr)\s+"   # civilité obligatoire
+            r"([A-Z][a-zéèêàîôûç\-']+(?:\s+[A-Z][a-zéèêàîôûç\-']+)*)"  # prénom(s)
+            r"\s+([A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"                     # NOM en majuscules
+            r"\s*,?\s*né\s+le\s+\d{1,2}\s+\w+\s+\d{4}"       # date de naissance obligatoire
+        )
+        matches_279 = re.findall(pattern_279, text, flags=re.IGNORECASE)
+        for prenom, nom in matches_279:
+            administrateurs.append(f"{prenom} {nom}")
+    # --- 7bis. Cas "article 2:79" avec plusieurs personnes (séparées par "et")
+    if re.search(r"article\s*2\s*:?\s*79", text, flags=re.IGNORECASE):
+        bloc_pattern = (
+            r"(Messieurs?|Mesdames?|Monsieur|Madame|M\.|Mme|Mr)\s+"
+            r"(.+?)"  # capture tout ce bloc de noms + "né le ...", jusqu'à "sont considérés"
+            r"\s+sont\s+considérés?\s+comme\s+liquidateurs?"
+        )
+        bloc_match = re.search(bloc_pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if bloc_match:
+            bloc_noms = bloc_match.group(2)
+
+            # Découpe en segments "X NOM, né le JJ mois AAAA"
+            personne_pattern = (
+                r"(?:Monsieur|Madame|M\.|Mme|Mr|Messieurs?)?\s*"
+                r"([A-Z][a-zéèêàîôûç\-']+(?:\s+[A-Z][a-zéèêàîôûç\-']+)*)"  # prénom(s)
+                r"\s+([A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"  # NOM
+                r"(?=\s*,?\s*né\s+le\s+\d{1,2}\s+\w+\s+\d{4})"  # lookahead: s’arrête avant "né le"
+            )
+
+            matches = re.findall(personne_pattern, bloc_noms, flags=re.IGNORECASE)
+            for prenom, nom in matches:
+                administrateurs.append(f"{prenom} {nom}")
 
     # --- Fallback
     fallback = fallback_nom(text)
