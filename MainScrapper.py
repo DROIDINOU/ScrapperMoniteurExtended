@@ -3,7 +3,9 @@
 # date décès? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
 # tout ce qui est lie a nom faut virer mais peut remprendre la maniere de logguer les regex
 # --- Imports standards ---
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
+
 import json
 import locale
 import logging
@@ -21,6 +23,7 @@ import meilisearch
 import psycopg2
 import pytesseract
 import requests
+import threading
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -53,8 +56,7 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
     verifier_premiere_adresse_apres_nom, remove_av_parentheses, to_list_dates, names_list_from_nom, \
     remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, DENOM_INDEX, \
-    ADDRESS_INDEX, ENTERPRISE_INDEX, normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, \
-    corriger_tva_par_nom
+    ADDRESS_INDEX, ENTERPRISE_INDEX, normaliser_espaces_invisibles, corriger_tva_par_nom
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
@@ -97,6 +99,18 @@ logger_nomsentreprises.debug("🔍 Logger 'nomsentreprises_logger' initialisé p
 logged_adresses: set[tuple[str, str]] = set()
 print(">>> CODE À JOUR")
 
+
+_TLS = threading.local()
+
+def _get_session():
+    s = getattr(_TLS, "session", None)
+    if s is None:
+        s = requests.Session()
+        s.headers.update({"User-Agent": "ejustice-scraper/1.0"})
+        _TLS.session = s
+    return s
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 #                                          VARIABLES D ENVIRONNEMENT
 # ----------------------------------------------------------------------------------------------------------------------
@@ -104,6 +118,8 @@ load_dotenv()
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
+print("🧩 MEILI_URL =", MEILI_URL)
+print("🧩 MEILI_KEY =", MEILI_KEY)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -210,16 +226,34 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
     if not num:
         return []
 
-    searches = ([num[1:]] if len(num) > 1 else []) + [num]
+    try:
+        return list(_cached_fetch_article_addresses(num, language))
+    except Exception as e:
+        # même comportement de log que ta version
+        try:
+            logger.warning(f"[article.pl] échec (num={num}): {e}")
+        except Exception:
+            pass
+        return []
+
+
+@lru_cache(maxsize=10000)
+def _cached_fetch_article_addresses(num: str, language: str) -> tuple[str, ...]:
     base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+    # on garde l’ordre: sans 1er chiffre puis complet
+    searches = ([num[1:]] if len(num) > 1 else []) + [num]
 
     for search in searches:
         url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
         try:
-            resp = requests.get(url, timeout=20)
+            resp = _get_session().get(url, timeout=20)
             resp.raise_for_status()
         except Exception as e:
-            logger.warning(f"[article.pl] échec ({search}): {e}")
+            # on log et on continue sur la variante suivante
+            try:
+                logger.warning(f"[article.pl] échec ({search}): {e}")
+            except Exception:
+                pass
             continue
 
         html = resp.text
@@ -245,9 +279,10 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
         lines = [norm_spaces(ln) for ln in text.split("\n") if ln.strip()]
 
         # 4) filtrer le bruit puis garder les lignes avec CP
-        out = []
+        out: list[str] = []
         for ln in lines:
-            if not ln or "rubrique" in ln.lower():
+            low = ln.lower()
+            if not ln or "rubrique" in low:
                 continue
             if BCE_RE.search(ln):
                 continue
@@ -258,15 +293,122 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
                     out.append(ln)
 
         if out:
-            return out[:5]
+            # on garde ta limite à 5, on renvoie tuple pour clé LRU hashable
+            return tuple(out[:5])
 
-    return []
+    return tuple()
+
+def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[dict]:
+    """
+    Extrait (nom, forme juridique) de toutes les sociétés listées dans eJustice,
+    avec filtrage du bruit (IMAGE, TVA, vide...).
+    """
+    num = re.sub(r"\D", "", tva)
+    if not num:
+        return []
+
+    searches = ([num[1:]] if len(num) > 1 else []) + [num]
+    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+    results = []
+
+    for search in searches:
+        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
+        print(f"[EJ] 🔎 GET {url}")
+        try:
+            resp = _get_session().get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[EJ] ⚠️ Échec ({search}): {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 🧩 combine mode liste + mode article
+        font_tags = soup.select("p.list-item--subtitle font[color='blue']") or \
+                    soup.select("main.page__inner.page__inner--content.article-text p font[color='blue']") or \
+                    soup.select("main p font[color='blue']")
+
+        print(f"[EJ] 🎯 {len(font_tags)} balises <font color='blue'> trouvées")
+
+        for i, font_tag in enumerate(font_tags, start=1):
+            nom = font_tag.get_text(strip=True)
+
+            # 🚫 Filtrage des noms invalides
+            if not nom or len(nom) < 2:
+                print(f"   [SKIP] #{i} → nom vide")
+                continue
+            if re.search(r"\bimage\b", nom, flags=re.I):
+                print(f"   [SKIP] #{i} → 'IMAGE'")
+                continue
+            if re.fullmatch(r"\d{3}\.\d{3}\.\d{3}", nom):
+                print(f"   [SKIP] #{i} → '{nom}' = TVA")
+                continue
+
+            # Récupère le texte complet du paragraphe pour trouver la forme
+            full_text = font_tag.parent.get_text(" ", strip=True)
+            reste = full_text.replace(nom, "").strip()
+            match_forme = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
+            forme = match_forme.group(1).upper() if match_forme else None
+
+            entry = {"nom": nom, "forme": forme}
+            if entry not in results:
+                results.append(entry)
+                print(f"   [OK] #{i} → nom='{nom}', forme='{forme}'")
+
+        print(f"[EJ] ✅ TVA={tva} → {len(results)} enregistrements valides")
+
+    # 🔄 Déduplication stricte (nom+forme)
+    cleaned = []
+    seen = set()
+    for r in results:
+        key = (r["nom"].upper(), r["forme"] or "")
+        if key not in seen:
+            seen.add(key)
+            cleaned.append(r)
+
+    print(f"[EJ] 🧹 Nettoyé → {len(cleaned)} enregistrements finaux")
+    return cleaned
 
 
+
+@lru_cache(maxsize=10000)
+def _cached_fetch_article_names(num: str, language: str) -> tuple[tuple[str, str | None], ...]:
+    """
+    Extrait toutes les dénominations e-Justice liées à un numéro de TVA
+    (fonctionne pour page de liste OU page d’article).
+    """
+    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+    searches = ([num[1:]] if len(num) > 1 else []) + [num]
+    results = []
+
+    for search in searches:
+        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
+        try:
+            resp = _get_session().get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[article.pl] échec ({search}): {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # ✅ 1) Essaye d’abord le format LISTE (comme ta capture)
+        list_items = soup.select("p.list-item--subtitle font[color='blue']")
+        if list_items:
+            for font_tag in list_items:
+                nom = font_tag.get_text(strip=True)
+                reste = font_tag.parent.get_text(" ", strip=True).replace(nom, "").strip()
+                forme_match = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
+                forme = forme_match.group(1).upper() if forme_match else None
+                results.append((nom, forme))
+            continue  # on passe à la suite si trouvé
+
+        # ✅ 2) Sinon format ARTICLE (fallback)
+        main = soup.select_one("main.page__inner.page__inner--content.article-text")
 
 # tester trib premiere instance 26/04
-from_date = date.fromisoformat("2024-02-26")
-to_date = "2024-07-30"  # date.today()
+from_date = date.fromisoformat("2025-07-26")
+to_date = "2025-07-25"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -319,20 +461,10 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
             subtitle_text = subtitle.get_text(strip=True) if subtitle else ""
             title_elem = item.find("a", class_="list-item--title")
             title = title_elem.get_text(strip=True) if title_elem else ""
+
+
             if keyword == "Liste+des+entites+enregistrees" and subtitle_text == "Service public fédéral Economie, P.M.E., Classes moyennes et Énergie":
                 find_linklist_in_items(item, keyword, link_list)
-            elif keyword == "Conseil+d+'+Etat" and subtitle_text == "Conseil d'État" and title.lower().startswith(
-                    "avis prescrit"):
-                find_linklist_in_items(item, keyword, link_list)
-            elif keyword == "Cour+constitutionnelle" and subtitle_text == "Cour constitutionnelle":
-                find_linklist_in_items(item, keyword, link_list)
-            elif keyword == "terrorisme":
-                cleaned_title = title.strip().lower()
-                if "entités visée aux articles 3 et 5 de l'arrêté royal du 28 décembre 2006" in cleaned_title:
-                    print(f"[🪦] Document succession détecté: {title}")
-                    find_linklist_in_items(item, keyword, link_list)
-                else:
-                    print(f"[❌] Ignoré (terrorisme mais pas SPF Finances): {title}")
 
             elif keyword in ("tribunal+de+premiere+instance"):
                 if title.lower().startswith("tribunal de première instance"):
@@ -362,7 +494,7 @@ def ask_belgian_monitor(session, start_date, end_date, keyword):
                     print(
                         f"[❌] Ignoré (source ou titre non pertinent pour cour d appel) : {title} | Source : {subtitle_text}")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         list(tqdm(executor.map(process_page, range(1, page_amount + 1)), total=page_amount, desc="Pages"))
 
     return link_list
@@ -392,10 +524,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
                numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
                None, None, None, None, None, None, None, None, None)
         # si terrorisme on a besoin de garder les liens pour acceder aux pdf où certains noms devront etre recherchés
-        if keyword != "terrorisme":
-           texte_brut = extract_clean_text(main)
-        else:
-           texte_brut = extract_clean_text(main, remove_links=False)
+        texte_brut = extract_clean_text(main, remove_links=False)
 
         date_jugement = None
         administrateur = None
@@ -433,21 +562,15 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         if not date_jugement:
             date_jugement = extract_jugement_date(str(texte_brut))
 
+        # -----------------------------
+        # TRIB PREMIERE INSTANCE
+        # -----------------------------
         if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
             if not tvas_valides:
                 return None
             print(f"⚠ TVA trouvée pour {doc_id} → document ignoré")
 
             nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
-            if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
-                raw_deces = extract_dates_after_decede(str(main))
-
-                if isinstance(raw_deces, list):
-                    raw_deces = [norm_er(s) for s in raw_deces]
-                elif isinstance(raw_deces, str):
-                    raw_deces = norm_er(raw_deces)
-
-                date_deces = convertir_date(raw_deces)
             administrateur = trouver_personne_dans_texte(texte_brut, chemin_csv("curateurs.csv"),
                                                          ["avocate", "avocat", "Maître", "bureaux", "cabinet",
                                                           "curateur"])
@@ -482,8 +605,12 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         if re.search(r"Liste\s+des\s+entites\s+enregistrees", keyword.replace("+", " "), flags=re.IGNORECASE):
             if not tvas_valides:
                 return None
+
             nom_trib_entreprise = extract_noms_entreprises_radiees(texte_brut, doc_id=doc_id)
-            detect_radiations_keywords(texte_brut, extra_keywords)
+
+            # 🚀 Accélération : on ne garde que les 1500 premiers caractères pour la détection
+            header = texte_brut[:1500]
+            detect_radiations_keywords(header, extra_keywords)
 
         # ------------ -----------------
         # COUR D'APPEL
@@ -556,14 +683,14 @@ with requests.Session() as session:
     raw_link_list = ask_belgian_monitor(session, from_date, to_date, keyword)
     link_list = raw_link_list  # on garde le nom pour compatibilité
     scrapped_data = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = [
             executor.submit(
                 scrap_informations_from_url, url, numac, date_doc, langue, keyword, title, subtitle
             )
             for (url, numac, date_doc, langue, keyword, title, subtitle) in link_list
         ]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Scraping {keyword}"):
+        for future in tqdm(as_completed(futures), total=len(futures), desc=f"Scraping {keyword}"):
             result = future.result()
             if result is not None and isinstance(result, tuple) and len(result) >= 5:
                 scrapped_data.append(result)
@@ -597,7 +724,7 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce", "adresses_by_bce","denoms_by_ejustice"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce", "adresses_by_bce","denoms_by_ejustice"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
@@ -652,16 +779,6 @@ with requests.Session() as session:
         # doc["publications_pdfs"] = get_publication_pdfs_for_tva(session, record[6][0])
         documents.append(doc)
 
-        # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
-        print("🔍 Indexation des dénominations par TVA (1 seule lecture du CSV)…")
-
-
-
-        if keyword == "terrorisme":
-            if isinstance(record[21], list):
-                doc["nom_terrorisme"] = [pair[0] for pair in record[21] if len(pair) == 2]
-                doc["num_nat_terrorisme"] = [pair[1] for pair in record[21] if len(pair) == 2]
-
         # ✅ Forcer administrateur à être une liste si ce n’est pas None
         if isinstance(doc["administrateur"], str):
             doc["administrateur"] = [doc["administrateur"]]
@@ -709,28 +826,83 @@ for doc in documents:
 
     doc["adresses_by_bce"] = sorted(addrs) if addrs else None
 
-    # 🚨 Fallback si rien trouvé dans le CSV
-    if not addrs:
-        found = []
-        for t in (doc.get("TVA") or []):
-            found.extend(fetch_ejustice_article_addresses_by_tva(t) or [])
-        if found:
-            doc["adresses_by_bce"] = found
 
 # 🚨 Correction TVA par NOM si aucune dénomination trouvée
 for doc in documents:
     doc = corriger_tva_par_nom(doc, DENOM_INDEX, logger=logger_bce)
 
-# 🚨 Nouveau bloc séparé : enrichissement e-Justice
+
+# 🚀 Fallback e-Justice parallélisé (si aucune adresse trouvée dans le CSV)
+def fetch_all_addresses_for_docs(docs):
+    """Appelle eJustice en parallèle pour les documents sans adresse."""
+    def task(doc):
+        found = []
+        for tva in (doc.get("TVA") or []):
+            res = fetch_ejustice_article_addresses_by_tva(tva)
+            if res:
+                found.extend(res)
+        return doc["doc_hash"], found
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(task, d) for d in docs if not d.get("adresses_by_bce")]
+        for f in tqdm(as_completed(futures), total=len(futures), desc="eJustice adresses parallélisé"):
+            try:
+                doc_hash, addrs = f.result()
+                if addrs:
+                    results[doc_hash] = addrs
+            except Exception as e:
+                logger.warning(f"[e-Justice addr parallélisé] err={e}")
+    return results
+
+# 🔄 Applique les résultats parallèles
+missing_addrs = [d for d in documents if not d.get("adresses_by_bce")]
+addr_results = fetch_all_addresses_for_docs(missing_addrs)
 for doc in documents:
-    tvas = doc.get("TVA") or []
-    noms_from_ejustice = []
-    if tvas:
-        try:
-            noms_from_ejustice = fetch_ejustice_article_names_by_tva(tva=tvas[0])
-        except Exception as e:
-            logger.warning(f"[e-Justice fetch] DOC={doc.get('doc_hash')} | err={e}")
-    doc["denoms_by_ejustice"] = noms_from_ejustice if noms_from_ejustice else None
+    if doc["doc_hash"] in addr_results:
+        doc["adresses_by_bce"] = addr_results[doc["doc_hash"]]
+
+# 🚀 Nouveau bloc : enrichissement e-Justice (noms et formes) parallélisé
+def fetch_all_names_for_docs(docs):
+    """Récupère noms + formes juridiques eJustice pour chaque TVA en parallèle."""
+    def task(doc):
+        ejustice_results = {}
+        for tva in (doc.get("TVA") or []):
+            noms = fetch_ejustice_article_names_by_tva(tva=tva)
+            if noms:
+                ejustice_results[tva] = noms
+        return doc["doc_hash"], ejustice_results
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(task, d) for d in docs]
+        for f in tqdm(as_completed(futures), total=len(futures), desc="eJustice noms parallélisé"):
+            try:
+                doc_hash, noms = f.result()
+                if noms:
+                    results[doc_hash] = noms
+            except Exception as e:
+                logger.warning(f"[e-Justice noms parallélisé] err={e}")
+    return results
+
+name_results = fetch_all_names_for_docs(documents)
+
+for doc in documents:
+    merged = {}
+    for tva in (doc.get("TVA") or []):
+        res = name_results.get(doc["doc_hash"], {}).get(tva)
+        if res:
+            merged[tva] = res
+
+    # ✅ si au moins une TVA a retourné des résultats, on les garde
+    if merged:
+        doc["denoms_by_ejustice"] = merged
+        # aplatis tous les résultats pour denoms_flat
+        flat = [item for sublist in merged.values() for item in sublist]
+        doc["denoms_flat"] = flat or None
+    else:
+        doc["denoms_by_ejustice"] = None
+        doc["denoms_flat"] = None
 
 # On va faire les logs ici
 # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste

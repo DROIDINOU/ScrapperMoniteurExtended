@@ -10,6 +10,7 @@ import requests
 
 # --- Bibliothèques tierces ---
 from bs4 import BeautifulSoup, NavigableString, Tag
+from functools import lru_cache
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from typing import List, Any, Optional, Tuple
 
@@ -1300,55 +1301,6 @@ def build_enterprise_index(
     return index
 
 
-def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[dict]:
-    """
-    Extrait (nom, forme juridique) des sociétés listées dans la recherche eJustice
-    Exemple : [{"nom": "AMD SERVICES", "forme": "SRL"}]
-    """
-    num = re.sub(r"\D", "", tva)
-    if not num:
-        return []
-
-    searches = ([num[1:]] if len(num) > 1 else []) + [num]
-    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
-
-    for search in searches:
-        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
-        try:
-            resp = requests.get(url, timeout=20)
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"[article.pl] échec ({search}): {e}")
-            continue
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        main = soup.select_one("main.page__inner.page__inner--content.article-text")
-        if not main:
-            continue
-
-        out = []
-        for p in main.find_all("p"):
-            font_tag = p.find("font", {"color": "blue"})
-            if font_tag:
-                nom = font_tag.get_text(strip=True)
-
-                # tout le texte du <p> après le <font>
-                full_text = p.get_text(" ", strip=True)
-
-                # supprime le nom déjà capturé
-                reste = full_text.replace(nom, "").strip()
-
-                # capture forme juridique (SA, SRL, ASBL, etc.)
-                match_forme = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
-                forme = match_forme.group(1).upper() if match_forme else None
-
-                out.append({"nom": nom, "forme": forme})
-
-        if out:
-            return out
-
-    return []
 
 
 
