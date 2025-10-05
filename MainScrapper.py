@@ -265,7 +265,7 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
 
 
 # tester trib premiere instance 26/04
-from_date = date.fromisoformat("2024-02-26")
+from_date = date.fromisoformat("2024-07-26")
 to_date = "2024-07-30"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
