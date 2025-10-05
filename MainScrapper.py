@@ -54,7 +54,7 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     verifier_premiere_adresse_apres_nom, remove_av_parentheses, to_list_dates, names_list_from_nom, \
     remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, DENOM_INDEX, \
     ADDRESS_INDEX, ENTERPRISE_INDEX, normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, \
-    corriger_tva_par_nom
+    corriger_tva_par_nom, ESTABLISHMENT_INDEX
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
@@ -266,7 +266,7 @@ def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> l
 
 # tester trib premiere instance 26/04
 from_date = date.fromisoformat("2024-07-26")
-to_date = "2024-07-30"  # date.today()
+to_date = "2024-07-28"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -390,7 +390,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         if not main:
            return (
                numac, date_doc, langue, "", url, keyword, None, title, subtitle, None, None, None, None, None, None, None,
-               None, None, None, None, None, None, None, None, None)
+               None, None, None, None, None, None, None, None, None,None)
         # si terrorisme on a besoin de garder les liens pour acceder aux pdf où certains noms devront etre recherchés
         if keyword != "terrorisme":
            texte_brut = extract_clean_text(main)
@@ -411,6 +411,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         match_nn_all = extract_nrn_variants(texte_brut)
         nns = match_nn_all
         denoms_by_ejustice = tvas_valides
+        adresses_by_ejustice = None
         doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
         if detect_erratum(texte_brut):
             extra_keywords.append("erratum")
@@ -545,7 +546,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
             nom_trib_entreprise,
             date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce,
-            adresses_by_bce, denoms_by_ejustice
+            adresses_by_bce,adresses_by_ejustice, denoms_by_ejustice
         )
 
 
@@ -597,12 +598,14 @@ index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce", "adresses_by_bce","denoms_by_ejustice"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce",
+    "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
 ])
 index.update_displayed_attributes([
     "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
     "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
-    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce", "adresses_by_bce", "denoms_by_ejustice"
+    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce",
+    "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
 ])
 last_task = index.get_tasks().results[-1]
 client.wait_for_task(last_task.uid)
@@ -644,7 +647,8 @@ with requests.Session() as session:
             "identifiant_terrorisme": record[21],
             "denoms_by_bce": record[22],
             "adresses_by_bce": record[23],
-            "denoms_by_ejustice": record[24]
+            "adresses_by_ejustice" : record[24],
+            "denoms_by_ejustice": record[25]
 
         }
         # rien a faire dans meili mettre dans postgre
@@ -709,13 +713,57 @@ for doc in documents:
 
     doc["adresses_by_bce"] = sorted(addrs) if addrs else None
 
-    # 🚨 Fallback si rien trouvé dans le CSV
+    # 🚨 Fallback 1 : si aucune adresse trouvée via ADDRESS_INDEX
     if not addrs:
-        found = []
+        etablissements_addrs = set()
+
+        # 1️⃣ Cherche via les numéros d’établissement liés
         for t in (doc.get("TVA") or []):
-            found.extend(fetch_ejustice_article_addresses_by_tva(t) or [])
-        if found:
-            doc["adresses_by_bce"] = found
+            bce = format_bce(t)
+            if not bce:
+                continue
+
+            etabs = ESTABLISHMENT_INDEX.get(bce, set())
+            for etab_num in etabs:
+                etab_addrs = ADDRESS_INDEX.get(etab_num, set())
+                etablissements_addrs.update(etab_addrs)
+
+        if etablissements_addrs:
+            logger_adresses.info(
+                f"[🏢 Adresses récupérées via établissements] "
+                f"DOC={doc.get('doc_hash')} | TVA={doc.get('TVA')} | "
+                f"Nb adresses={len(etablissements_addrs)}"
+            )
+            doc["adresses_by_bce"] = sorted(etablissements_addrs)
+        else:
+            # 2️⃣ Fallback final : scraping e-Justice
+            found = []
+            for t in (doc.get("TVA") or []):
+                found.extend(fetch_ejustice_article_addresses_by_tva(t) or [])
+            if found:
+                logger_adresses.info(
+                    f"[🌐 Fallback e-Justice] DOC={doc.get('doc_hash')} | Nb={len(found)}"
+                )
+                doc["adresses_by_bce"] = found
+
+# ✅ Enrichissement des établissements (à partir du CSV establishment.csv)
+for doc in documents:
+    etablissements = set()
+
+    for t in (doc.get("TVA") or []):
+        bce = format_bce(t)
+        if not bce:
+            continue
+
+        if bce not in ESTABLISHMENT_INDEX:
+            logger_bce.warning(
+                f"[❌ Aucun établissement trouvé] DOC={doc.get('doc_hash')} | TVA={bce}"
+            )
+            continue
+
+        etablissements.update(ESTABLISHMENT_INDEX.get(bce, set()))
+
+    doc["etablissements_by_bce"] = sorted(etablissements) if etablissements else None
 
 # 🚨 Correction TVA par NOM si aucune dénomination trouvée
 for doc in documents:

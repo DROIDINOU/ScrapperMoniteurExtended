@@ -23,28 +23,55 @@ from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INS
 #   contrairement à set(out), l’ordre d’apparition est conservé (car depuis Python 3.7+,
 #   les dicts gardent l’ordre d’insertion).
 #   dict.fromkeys(seq) crée un dictionnaire dont les clés sont les éléments de la liste.
-
 # ----------------------------------------------------------------------------------------------------------------------
 #                                         FONCTIONS ACCES DE FICHIERS
 # ----------------------------------------------------------------------------------------------------------------------
 
 
+# Exemple :
+# Entrée → "data/users.csv"
+# Sortie → ".cache/users.denoms.pkl"
 def _cache_path_for(csv_path: str) -> str:
     base = os.path.splitext(os.path.basename(csv_path))[0]
     os.makedirs(".cache", exist_ok=True)
     return os.path.join(".cache", f"{base}.denoms.pkl")
 
 
+# Cette fonction est souvent utilisée dans un mécanisme de cache :
+# on compare la date de modification du CSV avec celle d’un fichier de cache
+# (par exemple .cache/clients.denoms.pkl) pour savoir si le cache est encore valide ou s’il faut le régénérer.
 def _csv_mtime(path: str) -> float:
     try:
         return os.path.getmtime(path)
     except OSError:
         return 0.0
+
+
+# depend du repertoire courant
+def chemin_csv(nom_fichier: str) -> str:
+    return os.path.abspath(os.path.join("Datas", nom_fichier))
+
+
+# ne depend pas du repertoire courant (-> plus robuste)
+def chemin_csv_abs(nom_fichier: str) -> str:
+    """Retourne le chemin absolu vers un fichier CSV situé dans le dossier 'Datas' (au même niveau que 'Scripts')."""
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # <- remonte 2 niveaux
+    return os.path.join(base_dir, 'Datas', nom_fichier)
+
+
+def chemin_log(nom_fichier: str = "succession.log") -> str:
+    """
+    Retourne le chemin absolu du fichier de log, situé dans le dossier 'logs',
+    depuis la racine du projet (où est situé le dossier Utilitaire).
+    """
+    # Dossier du projet = 2 niveaux au-dessus de ce fichier
+    projet_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(projet_dir, "logs", nom_fichier)
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 #                                         FONCTIONS DE NETTOYAGE D'URL
 # ----------------------------------------------------------------------------------------------------------------------
-
-
 def clean_url(url):
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
@@ -554,6 +581,27 @@ def detect_erratum(texte_html):
     return False
 
 
+
+# -----------------------------------------------------------------------------
+# 🧩 Fonction : generate_doc_hash_from_html(html, date_doc)
+# -----------------------------------------------------------------------------
+# Cette fonction génère une empreinte unique (hash SHA-256) à partir du contenu
+# textuel nettoyé d’une page HTML et d’une date donnée.
+#
+# 🔹 Étapes :
+#   1. Analyse du HTML avec BeautifulSoup.
+#   2. Suppression des balises inutiles (script, style, font, span, mark).
+#   3. Extraction du texte brut, en supprimant les liens et métadonnées propres
+#      au site ejustice.just.fgov.be.
+#   4. Mise en minuscules et normalisation du texte (suppression ponctuation,
+#      espaces multiples, etc.).
+#   5. Concaténation de la date du document avec le texte nettoyé.
+#   6. Calcul d’un hash SHA-256 pour obtenir une signature unique et stable.
+#
+# 💡 Utilité :
+#   Sert à identifier de manière unique un document juridique ou administratif
+#   à partir de son contenu et de sa date, même si son format HTML change.
+# -----------------------------------------------------------------------------
 def generate_doc_hash_from_html(html, date_doc):
     soup = BeautifulSoup(html, 'html.parser')
     for tag in soup(["script", "style", "font", "span", "mark"]):
@@ -603,13 +651,11 @@ def names_list_from_nom(nom):
     return []
 
 
-
 def is_entite_publique(entite_bce: str) -> bool:
     s = re.sub(r"\D", "", entite_bce or "")
     if len(s) == 9:
         s = "0" + s
     return s.startswith("0200")
-
 # ----------------------------------------------------------------------------------------------------------------------
 #                                        NETTOYAGE DES ADRESSES
 # 1 Nettoyer en tronquant le texte (nettoyage final dans mainscrapper.py)
@@ -1104,23 +1150,110 @@ def _format_address(row: dict, lang: str) -> str:
     return addr
 
 
-def chemin_csv_abs(nom_fichier: str) -> str:
-    """Retourne le chemin absolu vers un fichier CSV situé dans le dossier 'Datas' (au même niveau que 'Scripts')."""
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # <- remonte 2 niveaux
-    return os.path.join(base_dir, 'Datas', nom_fichier)
+def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[dict]:
+    """
+    Extrait (nom, forme juridique) des sociétés listées dans la recherche eJustice
+    Exemple : [{"nom": "AMD SERVICES", "forme": "SRL"}]
+    """
+    num = re.sub(r"\D", "", tva)
+    if not num:
+        return []
+
+    searches = ([num[1:]] if len(num) > 1 else []) + [num]
+    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+
+    for search in searches:
+        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
+        try:
+            resp = requests.get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[article.pl] échec ({search}): {e}")
+            continue
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        main = soup.select_one("main.page__inner.page__inner--content.article-text")
+        if not main:
+            continue
+
+        out = []
+        for p in main.find_all("p"):
+            font_tag = p.find("font", {"color": "blue"})
+            if font_tag:
+                nom = font_tag.get_text(strip=True)
+
+                # tout le texte du <p> après le <font>
+                full_text = p.get_text(" ", strip=True)
+
+                # supprime le nom déjà capturé
+                reste = full_text.replace(nom, "").strip()
+
+                # capture forme juridique (SA, SRL, ASBL, etc.)
+                match_forme = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
+                forme = match_forme.group(1).upper() if match_forme else None
+
+                out.append({"nom": nom, "forme": forme})
+
+        if out:
+            return out
+
+    return []
 
 
-def chemin_log(nom_fichier: str = "succession.log") -> str:
+# ---------------------------------------------------------------------------------------------------------------------
+#                              LECTURE DES FICHIERS CSV DE LA BCE
+# ----------------------------------------------------------------------------------------------------------------------
+def build_establishment_index(
+    csv_path: str,
+    skip_public: bool = True
+) -> dict[str, set[str]]:
     """
-    Retourne le chemin absolu du fichier de log, situé dans le dossier 'logs',
-    depuis la racine du projet (où est situé le dossier Utilitaire).
+    Lit establishment.csv et renvoie :
+      { "xxxx.xxx.xxx": {"2.xxx.xxx.xxx", ...}, ... }
     """
-    # Dossier du projet = 2 niveaux au-dessus de ce fichier
-    projet_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    return os.path.join(projet_dir, "logs", nom_fichier)
-# faire comme celui en dessous pour plus de securite
-def chemin_csv(nom_fichier: str) -> str:
-    return os.path.abspath(os.path.join("Datas", nom_fichier))
+    index: dict[str, set[str]] = {}
+
+    pkl = _cache_path_for(csv_path)
+    csv_mtime = _csv_mtime(csv_path)
+    if os.path.exists(pkl):
+        try:
+            with open(pkl, "rb") as f:
+                payload = pickle.load(f)
+            if payload.get("mtime") == csv_mtime:
+                return payload["index"]
+        except Exception:
+            pass
+
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    ent_raw = (row.get("EnterpriseNumber") or "").strip()
+                    est_raw = (row.get("EstablishmentNumber") or "").strip()
+                    if not ent_raw or not est_raw:
+                        continue
+
+                    ent = format_bce(ent_raw)
+                    if not ent:
+                        continue
+
+                    if skip_public and is_entite_publique(ent):
+                        continue
+
+                    index.setdefault(ent, set()).add(est_raw)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    try:
+        with open(pkl, "wb") as f:
+            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
+
+    return index
 
 
 def build_denom_index(
@@ -1299,65 +1432,11 @@ def build_enterprise_index(
 
     return index
 
-
-def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[dict]:
-    """
-    Extrait (nom, forme juridique) des sociétés listées dans la recherche eJustice
-    Exemple : [{"nom": "AMD SERVICES", "forme": "SRL"}]
-    """
-    num = re.sub(r"\D", "", tva)
-    if not num:
-        return []
-
-    searches = ([num[1:]] if len(num) > 1 else []) + [num]
-    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
-
-    for search in searches:
-        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
-        try:
-            resp = requests.get(url, timeout=20)
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"[article.pl] échec ({search}): {e}")
-            continue
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        main = soup.select_one("main.page__inner.page__inner--content.article-text")
-        if not main:
-            continue
-
-        out = []
-        for p in main.find_all("p"):
-            font_tag = p.find("font", {"color": "blue"})
-            if font_tag:
-                nom = font_tag.get_text(strip=True)
-
-                # tout le texte du <p> après le <font>
-                full_text = p.get_text(" ", strip=True)
-
-                # supprime le nom déjà capturé
-                reste = full_text.replace(nom, "").strip()
-
-                # capture forme juridique (SA, SRL, ASBL, etc.)
-                match_forme = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
-                forme = match_forme.group(1).upper() if match_forme else None
-
-                out.append({"nom": nom, "forme": forme})
-
-        if out:
-            return out
-
-    return []
-
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-#                                            CONSTANTES MAINSCRAPPER
-# ----------------------------------------------------------------------------------------------------------------------
 # +++++++++++++++++++++++++++++++++++++++++++++++++
 # DEMOM_INDEX : pour fichier csv bce denominations
 # ADRESSES_INDEX : pour fichier csv bce adresses
+# ENTREPRISE_INDEX : pour fichier csv bce entreprises
+# ESTABLISHMENT_INDEX : pour fichier csc bce etablissements
 # +++++++++++++++++++++++++++++++++++++++++++++++++
 DENOM_INDEX = build_denom_index(
     chemin_csv("denomination.csv"),
@@ -1379,6 +1458,10 @@ ENTERPRISE_INDEX = build_enterprise_index(
     skip_public=True
 )
 
+ESTABLISHMENT_INDEX = build_establishment_index(
+    chemin_csv("establishment.csv"),
+    skip_public=True
+)
 
 # --------------------------------------------------------------------------------------
 # Retourne le premier non-vide (après strip).
