@@ -688,63 +688,62 @@ for doc in documents:
         if bce and bce in DENOM_INDEX:
             denoms.update(DENOM_INDEX[bce])
     doc["denoms_by_bce"] = sorted(denoms) if denoms else None
-# ✅ Enrichissement des adresses – une seule passe
-# ✅ Enrichissement des adresses – une seule passe
+
+
+# ✅ Enrichissement des adresses à partir des CSV BCE / Establishment
 for doc in documents:
-    addrs = set()
+    adresses_bce = set()
+    tvas = doc.get("TVA") or []
 
-    for t in (doc.get("TVA") or []):
-        bce = format_bce(t)
-
+    for tva in tvas:
+        bce = format_bce(tva)
         if not bce:
-            logger_adresses.warning(
-                f"[⚠️ TVA invalide] DOC={doc.get('doc_hash')} | TVA brute={t}"
-            )
             continue
 
-        if bce not in ENTERPRISE_INDEX:
-            logger_adresses.warning(
-                f"[❌ TVA absente du CSV enterprise.csv] DOC={doc.get('doc_hash')} | TVA={bce}"
-            )
-            continue
+        # --- Siège social (enterprise.csv)
+        if bce in ADDRESS_INDEX:
+            for addr in ADDRESS_INDEX[bce]:
+                adresses_bce.add(json.dumps({
+                    "adresse": addr,
+                    "source": "siege"
+                }))
 
-        # ✅ TVA valide et présente dans enterprise.csv
-        addrs.update(ADDRESS_INDEX.get(bce, set()))   # 👈 ici changement
+        # --- Établissements secondaires
+        if bce in ESTABLISHMENT_INDEX:
+            etabs = ESTABLISHMENT_INDEX[bce]
+            for etab in etabs:
+                # ⚙️ un établissement n'est PAS une BCE — on garde uniquement les chiffres
+                etab_norm = re.sub(r"\D", "", etab)
+                if etab_norm in ADDRESS_INDEX:
+                    for addr in ADDRESS_INDEX[etab_norm]:
+                        adresses_bce.add(json.dumps({
+                            "adresse": addr,
+                            "source": "etablissement"
+                        }))
+                else:
+                    logger_bce.warning(
+                        f"[⚠️ Aucun mapping d'adresse trouvé pour établissement {etab_norm}] TVA={bce}"
+                    )
 
-    doc["adresses_by_bce"] = sorted(addrs) if addrs else None
-
-    # 🚨 Fallback 1 : si aucune adresse trouvée via ADDRESS_INDEX
-    if not addrs:
-        etablissements_addrs = set()
-
-        # 1️⃣ Cherche via les numéros d’établissement liés
-        for t in (doc.get("TVA") or []):
-            bce = format_bce(t)
-            if not bce:
-                continue
-
-            etabs = ESTABLISHMENT_INDEX.get(bce, set())
-            for etab_num in etabs:
-                etab_addrs = ADDRESS_INDEX.get(etab_num, set())
-                etablissements_addrs.update(etab_addrs)
-
-        if etablissements_addrs:
-            logger_adresses.info(
-                f"[🏢 Adresses récupérées via établissements] "
-                f"DOC={doc.get('doc_hash')} | TVA={doc.get('TVA')} | "
-                f"Nb adresses={len(etablissements_addrs)}"
-            )
-            doc["adresses_by_bce"] = sorted(etablissements_addrs)
         else:
-            # 2️⃣ Fallback final : scraping e-Justice
-            found = []
-            for t in (doc.get("TVA") or []):
-                found.extend(fetch_ejustice_article_addresses_by_tva(t) or [])
-            if found:
-                logger_adresses.info(
-                    f"[🌐 Fallback e-Justice] DOC={doc.get('doc_hash')} | Nb={len(found)}"
-                )
-                doc["adresses_by_bce"] = found
+            logger_bce.warning(f"[⚠️ Aucun établissement trouvé pour TVA {bce}]")
+
+    # Sortie finale propre
+    if adresses_bce:
+        doc["adresses_by_bce"] = [json.loads(a) for a in sorted(adresses_bce)]
+    else:
+        doc["adresses_by_bce"] = None
+
+
+# ✅ Fallback eJustice séparé — NE PAS ÉCRASER adresses_by_bce
+for doc in documents:
+    if not doc.get("adresses_by_bce"):
+        adresses_ejustice = []
+        for t in (doc.get("TVA") or []):
+            found = fetch_ejustice_article_addresses_by_tva(t)
+            for addr in found:
+                adresses_ejustice.append({"adresse": addr, "source": "ejustice"})
+        doc["adresses_by_ejustice"] = adresses_ejustice if adresses_ejustice else None
 
 # ✅ Enrichissement des établissements (à partir du CSV establishment.csv)
 for doc in documents:
@@ -764,10 +763,6 @@ for doc in documents:
         etablissements.update(ESTABLISHMENT_INDEX.get(bce, set()))
 
     doc["etablissements_by_bce"] = sorted(etablissements) if etablissements else None
-
-# 🚨 Correction TVA par NOM si aucune dénomination trouvée
-for doc in documents:
-    doc = corriger_tva_par_nom(doc, DENOM_INDEX, logger=logger_bce)
 
 # 🚨 Nouveau bloc séparé : enrichissement e-Justice
 for doc in documents:

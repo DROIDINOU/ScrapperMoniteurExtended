@@ -1204,26 +1204,12 @@ def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[
 # ---------------------------------------------------------------------------------------------------------------------
 #                              LECTURE DES FICHIERS CSV DE LA BCE
 # ----------------------------------------------------------------------------------------------------------------------
-def build_establishment_index(
-    csv_path: str,
-    skip_public: bool = True
-) -> dict[str, set[str]]:
+def build_establishment_index(csv_path: str, skip_public: bool = True) -> dict[str, set[str]]:
     """
     Lit establishment.csv et renvoie :
-      { "xxxx.xxx.xxx": {"2.xxx.xxx.xxx", ...}, ... }
+      { "0403.449.823": {"2000000339", ...}, ... }
     """
     index: dict[str, set[str]] = {}
-
-    pkl = _cache_path_for(csv_path)
-    csv_mtime = _csv_mtime(csv_path)
-    if os.path.exists(pkl):
-        try:
-            with open(pkl, "rb") as f:
-                payload = pickle.load(f)
-            if payload.get("mtime") == csv_mtime:
-                return payload["index"]
-        except Exception:
-            pass
 
     for enc in ("utf-8-sig", "latin-1"):
         try:
@@ -1235,26 +1221,62 @@ def build_establishment_index(
                     if not ent_raw or not est_raw:
                         continue
 
+                    # ⚙️ Normalisation des deux identifiants
                     ent = format_bce(ent_raw)
-                    if not ent:
+                    est = re.sub(r"\D", "", est_raw)  # 2.291.655.781 → 2291655781
+                    if not ent or not est:
                         continue
 
                     if skip_public and is_entite_publique(ent):
                         continue
 
-                    index.setdefault(ent, set()).add(est_raw)
+                    index.setdefault(ent, set()).add(est)
             break
         except UnicodeDecodeError:
             continue
 
-    try:
-        with open(pkl, "wb") as f:
-            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        pass
-
     return index
 
+
+def build_address_index(csv_path: str, *, lang: str = "FR", allowed_types: set[str] | None = None, skip_public: bool = True) -> dict[str, set[str]]:
+    """
+    Lit address.csv et renvoie :
+      { "0731750083": {...}, "2291655781": {...} }
+    """
+    index: dict[str, set[str]] = {}
+
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    ent_raw = (row.get("EntityNumber") or "").strip()
+                    if not ent_raw:
+                        continue
+
+                    # ⚙️ Un numéro commençant par 2. = établissement
+                    if ent_raw.startswith("2."):
+                        ent = re.sub(r"\D", "", ent_raw)  # 2.291.655.781 → 2291655781
+                    else:
+                        ent = re.sub(r"\D", "", format_bce(ent_raw) or ent_raw)
+
+                    if not ent:
+                        continue
+
+                    typ = (row.get("TypeOfAddress") or "").strip()
+                    if allowed_types and typ not in allowed_types:
+                        continue
+
+                    addr = _format_address(row, lang)
+                    if not addr:
+                        continue
+
+                    index.setdefault(ent, set()).add(addr)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    return index
 
 def build_denom_index(
     csv_path: str,
@@ -1311,68 +1333,6 @@ def build_denom_index(
             continue
 
     # sauve en cache disque avec mtime du CSV
-    try:
-        with open(pkl, "wb") as f:
-            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        pass
-
-    return index
-
-
-def build_address_index(
-    csv_path: str,
-    *,
-    lang: str = "FR",
-    allowed_types: set[str] | None = None,
-    skip_public: bool = True,
-) -> dict[str, set[str]]:
-    """
-    Lit address.csv et renvoie :
-      { "xxxx.xxx.xxx": {"Adresse complète 1", "Adresse complète 2", ...}, ... }
-    """
-
-    index: dict[str, set[str]] = {}
-
-    # petit cache disque
-    pkl = _cache_path_for(csv_path)
-    csv_mtime = _csv_mtime(csv_path)
-    if os.path.exists(pkl):
-        try:
-            with open(pkl, "rb") as f:
-                payload = pickle.load(f)
-            if payload.get("mtime") == csv_mtime:
-                return payload["index"]
-        except Exception:
-            pass
-
-    # lecture streaming
-    for enc in ("utf-8-sig", "latin-1"):
-        try:
-            with open(csv_path, newline="", encoding=enc) as f:
-                r = csv.DictReader(f)
-                for row in r:
-                    ent_raw = (row.get("EntityNumber") or "").strip()
-                    ent = format_bce(ent_raw)   # 👈 normalisation ici
-                    if not ent:
-                        continue
-                    if skip_public and is_entite_publique(ent):
-                        continue
-
-                    typ = (row.get("TypeOfAddress") or "").strip()
-                    if allowed_types and typ not in allowed_types:
-                        continue
-
-                    addr = _format_address(row, lang)
-                    if not addr:
-                        continue
-
-                    index.setdefault(ent, set()).add(addr)
-            break
-        except UnicodeDecodeError:
-            continue
-
-    # cache
     try:
         with open(pkl, "wb") as f:
             pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
