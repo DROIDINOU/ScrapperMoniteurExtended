@@ -7,6 +7,23 @@ def detect_radiations_keywords(texte_brut: str, extra_keywords):
     # 🚀 Tronquer si texte trop long
     if len(texte_brut) > 3000:
         texte_brut = texte_brut[:3000]
+    # ------------------------------------------------------------------------------------------------------------------
+    # --- PATTERN permettant de quitter directement
+    # ------------------------------------------------------------------------------------------------------------------
+
+    # On ne regarde que les 3–4 premières lignes pour éviter du bruit ailleurs
+    head_text = texte_brut[:500]
+    print(f"head!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!{head_text}")
+    radiation_header_pattern = re.compile(
+        r"liste\s+des\s+entit[ée]s?\s+enregistr[ée]es?.{0,100}?"
+        r"(adresse\s+du\s+(si[èe]ge|siege|siège)|succursale).*radi[ée]e?",
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
+    if radiation_header_pattern.search(head_text):
+        print("okkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
+        extra_keywords.append("liste_radiations_adresse_siege")
+        return
 
     # ------------------------------------------------------------------------------------------------------------------
     # --- DOUBLONS ---

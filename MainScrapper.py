@@ -8,10 +8,15 @@ import json
 import locale
 import logging
 import os
+import time
 import re
 import sys
+import csv
 from collections import defaultdict
 from datetime import date
+from functools import wraps
+
+
 from typing import List
 
 from urllib.parse import urlencode, urljoin
@@ -52,14 +57,18 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
     extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
     verifier_premiere_adresse_apres_nom, remove_av_parentheses, to_list_dates, names_list_from_nom, \
-    remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, DENOM_INDEX, \
-    ADDRESS_INDEX, ENTERPRISE_INDEX, normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, \
-    corriger_tva_par_nom, ESTABLISHMENT_INDEX
+    remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, normaliser_espaces_invisibles,\
+    fetch_ejustice_article_names_by_tva, \
+    corriger_tva_par_nom
+from Utilitaire.outils.MesOutils import charger_indexes_bce
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
 keyword = sys.argv[1]
 
+EXPORT_DIR = "exports"
+os.makedirs(EXPORT_DIR, exist_ok=True)
+csv_path = os.path.join(EXPORT_DIR, "moniteur_enrichissement.csv")
 # ---------------------------------------------------------------------------------------------------------------------
 #                                    CONFIGURATION DES LOGGERS
 # ----------------------------------------------------------------------------------------------------------------------
@@ -106,6 +115,7 @@ MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
 
+DENOM_INDEX = ADDRESS_INDEX = ENTERPRISE_INDEX = ESTABLISHMENT_INDEX = None
 # ---------------------------------------------------------------------------------------------------------------------
 #                                          FONCTIONS INTERNES
 # ----------------------------------------------------------------------------------------------------------------------
@@ -200,13 +210,39 @@ def _log_nom_repetition_locale_first_token(doc, window=80):
 #                               FONCTIONS PRINCIPALES D EXTRACTION
 # ----------------------------------------------------------------------------------------------------------------------
 
+# Decorator pour limiter la fréquence des requêtes
+def throttle(delay_seconds=6):
+    """
+    Empêche d'appeler une fonction plus d'une fois toutes les X secondes.
+    """
+    def decorator(func):
+        last_call_time = [0]
 
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            now = time.time()
+            elapsed = now - last_call_time[0]
+
+            if elapsed < delay_seconds:
+                sleep_time = delay_seconds - elapsed
+                logging.debug(f"[Throttle] Attente de {sleep_time:.1f}s avant appel de {func.__name__}")
+                time.sleep(sleep_time)
+
+            result = func(*args, **kwargs)
+            last_call_time[0] = time.time()
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@throttle(delay_seconds=6)
 def fetch_ejustice_article_addresses_by_tva(num_tva, page=1):
     """
     Va sur list.pl (Annexe Personnes morales) et récupère toutes les adresses
     affichées juste avant le numéro de TVA tronqué (9 chiffres) dans chaque item.
     """
-    # on garde uniquement les chiffres pour la requête (&btw=XXXXXXXXX)
     num_tva_clean = re.sub(r"\D", "", str(num_tva))
 
     url = (
@@ -234,29 +270,22 @@ def fetch_ejustice_article_addresses_by_tva(num_tva, page=1):
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # ✅ bon sélecteur (double tiret)
     anchors = soup.select("div.list-item--content a.list-item--title")
     logging.debug(f"[eJustice] {len(anchors)} items trouvés pour TVA {num_tva_clean}")
 
     if not anchors:
-        # aide au debug : montre le début du HTML
         logging.debug(resp.text[:600])
         return []
 
     addresses = []
 
     def is_tva_9_digits(line: str) -> bool:
-        # on enlève tout sauf les chiffres et on vérifie 9 chiffres
         digits = re.sub(r"\D", "", line)
         return len(digits) == 9
 
     for a in anchors:
-        # on récupère les lignes telles qu’affichées (les <br> deviennent \n)
         block = a.get_text(separator="\n", strip=True)
         lines = [ln.strip() for ln in block.split("\n") if ln.strip()]
-
-        # DEBUG facultatif
-        # logging.debug(f"[eJustice] Lignes item: {lines}")
 
         for i, ln in enumerate(lines):
             if is_tva_9_digits(ln) and i > 0:
@@ -267,11 +296,9 @@ def fetch_ejustice_article_addresses_by_tva(num_tva, page=1):
     logging.debug(f"[eJustice] {len(addresses)} adresses trouvées pour {num_tva_clean}")
     return addresses
 
-
-
 # tester trib premiere instance 26/04
 from_date = date.fromisoformat("2024-07-26")
-to_date = "2024-07-28"  # date.today()
+to_date = "2024-05-28"  # date.today()
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -551,7 +578,7 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
             tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
             nom_trib_entreprise,
             date_deces, extra_links, administrateur, doc_id, nom_interdit, identifiants_terrorisme, denoms_by_bce,
-            adresses_by_bce,adresses_by_ejustice, denoms_by_ejustice
+            adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice
         )
 
 
@@ -679,75 +706,80 @@ with requests.Session() as session:
         elif not isinstance(doc["administrateur"], list):
             doc["administrateur"] = [str(doc["administrateur"])]
 
-# ✅ Enrichissement des dénominations – une seule passe
+
+# 🧩 Ici : tu veux croiser avec la BCE (denominations, adresses, etc.)
+#     ⬇️ C’est ICI qu’on charge les CSV BCE une seule fois :
+if DENOM_INDEX is None:
+    DENOM_INDEX, ADDRESS_INDEX, ENTERPRISE_INDEX, ESTABLISHMENT_INDEX = charger_indexes_bce()
+
+# ✅ Enrichissement combiné : dictionnaires TVA → noms et adresses
 for doc in documents:
-    # 🚨 Skip si c’est un cas "annulation doublon"
-    # cela veut dire que le numero bce n est plus valide donc pas besoin de chercher (voir procedure doublons bce)
+    # ⚠️ On saute les doublons annulés
     if "annulation_doublon" in (doc.get("extra_keyword") or []):
         doc["denoms_by_bce"] = None
+        doc["adresses_by_bce"] = None
         continue
 
-    denoms = set()
-    for t in (doc.get("TVA") or []):
-        bce = format_bce(t)
-        if bce and bce in DENOM_INDEX:
-            denoms.update(DENOM_INDEX[bce])
-    doc["denoms_by_bce"] = sorted(denoms) if denoms else None
-
-
-# ✅ Enrichissement des adresses à partir des CSV BCE / Establishment
-for doc in documents:
-    adresses_bce = set()
     tvas = doc.get("TVA") or []
+    denoms_map = {}
+    adresses_map = {}
 
     for tva in tvas:
         bce = format_bce(tva)
         if not bce:
             continue
 
-        # --- Siège social (enterprise.csv)
-        if bce in ADDRESS_INDEX:
-            for addr in ADDRESS_INDEX[bce]:
-                adresses_bce.add(json.dumps({
-                    "adresse": addr,
-                    "source": "siege"
-                }))
+        # -----------------------------
+        # 🔹 Dénominations
+        # -----------------------------
+        noms = sorted(DENOM_INDEX.get(bce, []))
+        if noms:
+            denoms_map[bce] = noms
 
-        # --- Établissements secondaires
+        # -----------------------------
+        # 🔹 Adresses (siège + établissements)
+        # -----------------------------
+        adresses = []
+
+        # Siège social
+        if bce in ADDRESS_INDEX:
+            adresses.extend(
+                {"adresse": addr, "source": "siege"} for addr in ADDRESS_INDEX[bce]
+            )
+
+        # Établissements secondaires
         if bce in ESTABLISHMENT_INDEX:
             etabs = ESTABLISHMENT_INDEX[bce]
             for etab in etabs:
-                # ⚙️ un établissement n'est PAS une BCE — on garde uniquement les chiffres
                 etab_norm = re.sub(r"\D", "", etab)
                 if etab_norm in ADDRESS_INDEX:
-                    for addr in ADDRESS_INDEX[etab_norm]:
-                        adresses_bce.add(json.dumps({
-                            "adresse": addr,
-                            "source": "etablissement"
-                        }))
+                    adresses.extend(
+                        {"adresse": addr, "source": "etablissement"}
+                        for addr in ADDRESS_INDEX[etab_norm]
+                    )
                 else:
                     logger_bce.warning(
                         f"[⚠️ Aucun mapping d'adresse trouvé pour établissement {etab_norm}] TVA={bce}"
                     )
 
-        else:
-            logger_bce.warning(f"[⚠️ Aucun établissement trouvé pour TVA {bce}]")
+        if adresses:
+            adresses_map[bce] = adresses
 
-    # Sortie finale propre
-    if adresses_bce:
-        doc["adresses_by_bce"] = [json.loads(a) for a in sorted(adresses_bce)]
-    else:
-        doc["adresses_by_bce"] = None
+    # -----------------------------
+    # 🔹 Affectation au document
+    # -----------------------------
+    doc["denoms_by_bce"] = denoms_map if denoms_map else None
+    doc["adresses_by_bce"] = adresses_map if adresses_map else None
 
 
 # ✅ Fallback eJustice séparé — NE PAS ÉCRASER adresses_by_bce
 for doc in documents:
     if not doc.get("adresses_by_bce"):
         adresses_ejustice = []
-        for t in (doc.get("TVA") or []):
-            found = fetch_ejustice_article_addresses_by_tva(t)
-            for addr in found:
-                adresses_ejustice.append({"adresse": addr, "source": "ejustice"})
+        #for t in (doc.get("TVA") or []):
+            #found = fetch_ejustice_article_addresses_by_tva(t)
+            #for addr in found:
+                #adresses_ejustice.append({"adresse": addr, "source": "ejustice"})
         doc["adresses_by_ejustice"] = adresses_ejustice if adresses_ejustice else None
 
 # ✅ Enrichissement des établissements (à partir du CSV establishment.csv)
@@ -773,11 +805,11 @@ for doc in documents:
 for doc in documents:
     tvas = doc.get("TVA") or []
     noms_from_ejustice = []
-    if tvas:
-        try:
-            noms_from_ejustice = fetch_ejustice_article_names_by_tva(tva=tvas[0])
-        except Exception as e:
-            logger.warning(f"[e-Justice fetch] DOC={doc.get('doc_hash')} | err={e}")
+    #if tvas:
+        #try:
+            #noms_from_ejustice = fetch_ejustice_article_names_by_tva(tva=tvas[0])
+        #except Exception as e:
+            #logger.warning(f"[e-Justice fetch] DOC={doc.get('doc_hash')} | err={e}")
     doc["denoms_by_ejustice"] = noms_from_ejustice if noms_from_ejustice else None
 
 # On va faire les logs ici
@@ -1098,13 +1130,6 @@ try:
 except meilisearch.errors.MeilisearchApiError:
     print("❌ Document non trouvé par ID dans Meilisearch.")
 
-# 📝 Sauvegarde en JSON local
-os.makedirs("exports", exist_ok=True)
-json_path = os.path.join("exports", f"documents_{keyword}.json")
-with open(json_path, "w", encoding="utf-8") as f:
-    json.dump(documents, f, indent=2, ensure_ascii=False)
-print(f"[💾] Fichier JSON sauvegardé : {json_path}")
-
 print("[📥] Mes Logs…")
 # 🔔 Log TOUTES les adresses (doublons compris) dans UNE seule entrée par doc
 for doc in documents:
@@ -1146,6 +1171,24 @@ for doc in documents:
         f"Adresse log general : '{all_in_one}'\n"
         f"Texte : {doc.get('text', '')}..."
     )
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                   FICHIERS CSV CONTENANT LES DONNES NECESSAIRES POUR LES APPELS AUX ANNEXES
+#                                             DU MONITEUR BELGE
+# ----------------------------------------------------------------------------------------------------------------------
+with open(csv_path, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(["tva", "doc_hash", "url", "keyword", "denoms_by_bce", "adresses_by_bce"])
+    for doc in documents:
+        for tva in doc.get("TVA", []):
+            writer.writerow([tva, doc["doc_hash"], doc["url"], doc["keyword"], doc["denoms_by_bce"],
+                             doc["adresses_by_bce"]])
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                                    BASE DE DONNEE : POSTGRE
+#
+# ----------------------------------------------------------------------------------------------------------------------
 
 print("[📥] Connexion à PostgreSQL…")
 
@@ -1263,3 +1306,14 @@ conn.commit()
 cur.close()
 conn.close()
 print("[✅] Insertion PostgreSQL terminée.")
+
+# ----------------------------------------------------------------------------------------------------------------------
+#                                 FICHIERS CSV CONTENANT LES DONNES INSEREES DANS MEILI
+# ----------------------------------------------------------------------------------------------------------------------
+# 📝 Sauvegarde finale en JSON local (version enrichie)
+os.makedirs("exports", exist_ok=True)
+json_path = os.path.join("exports", f"documents_enrichis_{keyword}.json")
+with open(json_path, "w", encoding="utf-8") as f:
+    json.dump(documents, f, indent=2, ensure_ascii=False)
+
+print(f"[💾] Fichier JSON enrichi sauvegardé : {json_path}")

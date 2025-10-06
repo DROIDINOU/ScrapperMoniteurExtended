@@ -1392,36 +1392,61 @@ def build_enterprise_index(
 
     return index
 
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-# DEMOM_INDEX : pour fichier csv bce denominations
-# ADRESSES_INDEX : pour fichier csv bce adresses
-# ENTREPRISE_INDEX : pour fichier csv bce entreprises
-# ESTABLISHMENT_INDEX : pour fichier csc bce etablissements
-# +++++++++++++++++++++++++++++++++++++++++++++++++
-DENOM_INDEX = build_denom_index(
-    chemin_csv("denomination.csv"),
-    allowed_types=None,   # {"001","002"} si tu veux filtrer
-    allowed_langs=None,   # {"2"} si tu veux uniquement FR
-    skip_public=True
-)
+# ---------------------------------------------------------------------------------------------------------------------
+#                          FONCTION DE CHARGEMENT "LAZY" DES INDEXS BCE (pour éviter lenteur au démarrage)
+# ---------------------------------------------------------------------------------------------------------------------
+def charger_indexes_bce():
+    """
+    Charge dynamiquement les index BCE :
+    - dénominations (denomination.csv)
+    - adresses (address.csv)
+    - entreprises (enterprise.csv)
+    - établissements (establishment.csv)
 
-ADDRESS_INDEX = build_address_index(
-    chemin_csv("address.csv"),
-    lang="FR",           # "FR" ou "NL" (fallback auto si champ vide)
-    allowed_types=None,  # ex: {"REGO","SEAT"} pour filtrer certains types d’adresse
-    skip_public=True
-)
+    ⚙️ Appelée à la demande dans MainScrapper.py pour éviter le long chargement initial.
+    """
+    from Utilitaire.outils.MesOutils import (
+        chemin_csv,
+        build_denom_index,
+        build_address_index,
+        build_enterprise_index,
+        build_establishment_index,
+    )
 
+    print("[⚙️] Chargement des CSV BCE...")
 
-ENTERPRISE_INDEX = build_enterprise_index(
-    chemin_csv("enterprise.csv"),
-    skip_public=True
-)
+    denom_index = build_denom_index(
+        chemin_csv("denomination.csv"),
+        allowed_types=None,   # {"001","002"} si tu veux filtrer
+        allowed_langs=None,   # {"2"} si tu veux uniquement FR
+        skip_public=True
+    )
 
-ESTABLISHMENT_INDEX = build_establishment_index(
-    chemin_csv("establishment.csv"),
-    skip_public=True
-)
+    address_index = build_address_index(
+        chemin_csv("address.csv"),
+        lang="FR",           # "FR" ou "NL" (fallback auto si champ vide)
+        allowed_types=None,  # ex: {"REGO","SEAT"} pour filtrer certains types d’adresse
+        skip_public=True
+    )
+
+    enterprise_index = build_enterprise_index(
+        chemin_csv("enterprise.csv"),
+        skip_public=True
+    )
+
+    establishment_index = build_establishment_index(
+        chemin_csv("establishment.csv"),
+        skip_public=True
+    )
+
+    print(f"[✅] Index BCE chargés : "
+          f"{len(denom_index)} dénoms, "
+          f"{len(address_index)} adresses, "
+          f"{len(enterprise_index)} entreprises, "
+          f"{len(establishment_index)} établissements")
+
+    return denom_index, address_index, enterprise_index, establishment_index
+
 
 # --------------------------------------------------------------------------------------
 # Retourne le premier non-vide (après strip).
