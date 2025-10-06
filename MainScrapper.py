@@ -199,68 +199,73 @@ def _log_nom_repetition_locale_first_token(doc, window=80):
 # ---------------------------------------------------------------------------------------------------------------------
 #                               FONCTIONS PRINCIPALES D EXTRACTION
 # ----------------------------------------------------------------------------------------------------------------------
-def fetch_ejustice_article_addresses_by_tva(tva: str, language: str = "fr") -> list[str]:
+
+
+def fetch_ejustice_article_addresses_by_tva(num_tva, page=1):
     """
-    Vue ARTICLE uniquement (page=1). Renvoie les lignes contenant un code postal.
-    - essaie btw_search = TVA sans 1er chiffre, puis TVA complète
-    - remplace <br> et <hr> par des retours à la ligne
-    - ignore "IMAGE", BCE, dates, RUBRIQUE
+    Va sur list.pl (Annexe Personnes morales) et récupère toutes les adresses
+    affichées juste avant le numéro de TVA tronqué (9 chiffres) dans chaque item.
     """
-    num = digits_only(tva)
-    if not num:
+    # on garde uniquement les chiffres pour la requête (&btw=XXXXXXXXX)
+    num_tva_clean = re.sub(r"\D", "", str(num_tva))
+
+    url = (
+        "https://www.ejustice.just.fgov.be/cgi_tsv/list.pl"
+        f"?language=fr&sum_date=&page={page}&btw={num_tva_clean}"
+    )
+    logging.debug(f"[eJustice] URL: {url}")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127 Safari/537.36"
+        )
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=(3, 10))
+        resp.raise_for_status()
+    except requests.Timeout:
+        logging.warning(f"[eJustice] Timeout pour {url}")
+        return []
+    except Exception as e:
+        logging.warning(f"[eJustice] Erreur {e} sur {url}")
         return []
 
-    searches = ([num[1:]] if len(num) > 1 else []) + [num]
-    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
+    soup = BeautifulSoup(resp.text, "html.parser")
 
-    for search in searches:
-        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
-        try:
-            resp = requests.get(url, timeout=20)
-            resp.raise_for_status()
-        except Exception as e:
-            logger.warning(f"[article.pl] échec ({search}): {e}")
-            continue
+    # ✅ bon sélecteur (double tiret)
+    anchors = soup.select("div.list-item--content a.list-item--title")
+    logging.debug(f"[eJustice] {len(anchors)} items trouvés pour TVA {num_tva_clean}")
 
-        html = resp.text
-        soup = BeautifulSoup(html, "html.parser")
+    if not anchors:
+        # aide au debug : montre le début du HTML
+        logging.debug(resp.text[:600])
+        return []
 
-        main = soup.select_one("main.page__inner.page__inner--content.article-text") or soup.find("main")
-        if not main:
-            continue
+    addresses = []
 
-        node = main.find("p") or main
+    def is_tva_9_digits(line: str) -> bool:
+        # on enlève tout sauf les chiffres et on vérifie 9 chiffres
+        digits = re.sub(r"\D", "", line)
+        return len(digits) == 9
 
-        # 1) convertir <br> ET <hr> en sauts de ligne
-        for tag in node.find_all(["br", "hr"]):
-            tag.replace_with("\n")
+    for a in anchors:
+        # on récupère les lignes telles qu’affichées (les <br> deviennent \n)
+        block = a.get_text(separator="\n", strip=True)
+        lines = [ln.strip() for ln in block.split("\n") if ln.strip()]
 
-        # 2) supprimer le texte "IMAGE" (liens PDF)
-        for a in node.find_all("a"):
-            if "image" in a.get_text(strip=True).lower():
-                a.decompose()
+        # DEBUG facultatif
+        # logging.debug(f"[eJustice] Lignes item: {lines}")
 
-        # 3) récupérer lignes + normaliser espaces/guillemets
-        text = node.get_text("\n", strip=True).replace('"', " ").replace("’", "'")
-        lines = [norm_spaces(ln) for ln in text.split("\n") if ln.strip()]
+        for i, ln in enumerate(lines):
+            if is_tva_9_digits(ln) and i > 0:
+                addr = lines[i - 1]
+                if addr and addr not in addresses:
+                    addresses.append(addr)
 
-        # 4) filtrer le bruit puis garder les lignes avec CP
-        out = []
-        for ln in lines:
-            if not ln or "rubrique" in ln.lower():
-                continue
-            if BCE_RE.search(ln):
-                continue
-            if re.search(r"\b(19|20)\d{2}-\d{2}-\d{2}\b", ln):
-                continue
-            if POSTAL_RE.search(ln):
-                if ln not in out:
-                    out.append(ln)
-
-        if out:
-            return out[:5]
-
-    return []
+    logging.debug(f"[eJustice] {len(addresses)} adresses trouvées pour {num_tva_clean}")
+    return addresses
 
 
 
