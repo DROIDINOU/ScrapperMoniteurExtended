@@ -1,5 +1,5 @@
-# A SUPPRIMER
-# date naissance? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
+# A SUPPRIMER TDM EN PROD
+# date naissance ? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
 # date décès? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
 # tout ce qui est lie a nom faut virer mais peut remprendre la maniere de logguer les regex
 # --- Imports standards ---
@@ -15,11 +15,6 @@ import csv
 from collections import defaultdict
 from datetime import date
 from functools import wraps
-
-
-from typing import List
-
-from urllib.parse import urlencode, urljoin
 
 # --- Bibliothèques tierces ---
 import meilisearch
@@ -60,12 +55,22 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, normaliser_espaces_invisibles,\
     fetch_ejustice_article_names_by_tva, \
     corriger_tva_par_nom
+
 from Utilitaire.outils.MesOutils import charger_indexes_bce
 from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
 
 assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
 keyword = sys.argv[1]
 
+
+print("[📦] Chargement initial des indexes BCE…")
+DENOM_INDEX, ADDRESS_INDEX, ENTERPRISE_INDEX, ESTABLISHMENT_INDEX = charger_indexes_bce()
+print("[✅] Index BCE chargés :", len(DENOM_INDEX or {}), "entrées")
+if not DENOM_INDEX:
+    raise RuntimeError("❌ Index BCE vides — vérifie le fichier CSV ou pickle.")
+# ---------------------------------------------------------------------------------------------------------------------
+#                 CONSTRUCTION FICHIER EXPORTS CONTENANT DONNEES NECESSAIRE A APPEL ANNEXES MONITEUR
+# ----------------------------------------------------------------------------------------------------------------------
 EXPORT_DIR = "exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 csv_path = os.path.join(EXPORT_DIR, "moniteur_enrichissement.csv")
@@ -81,27 +86,11 @@ logger.debug("✅ Logger initialisé dans le script principal.")
 logger_adresses = setup_dynamic_logger(name="adresses_logger", keyword=keyword, level=logging.DEBUG)
 logger_adresses.debug("🔍 Logger 'adresses_logger' initialisé pour les adresses.")
 
-# -------- A SUPPRIMER
-# CHAMP NOM : nom : log si le champ nom est null
-logger_nomspersonnes = setup_dynamic_logger(name="nomspersonnes_logger", keyword=keyword, level=logging.DEBUG)
-logger_nomspersonnes.debug("🔍 Logger 'nomspersonnes_logger' initialisé pour les noms.")
-# CHAMP DATE NAISSANCE : date_naissance
-logger_datenaissance = setup_dynamic_logger(name="datenaissance_logger", keyword=keyword, level=logging.DEBUG)
-logger_datenaissance.debug("🔍 Logger 'datenaissance_logger' initialisé pour les noms.")
-# ---------
+
+# --------- logger bce
 logger_bce = setup_dynamic_logger(name="bce_logger", keyword=keyword, level=logging.DEBUG)
 logger_bce.debug("🔍 Logger 'bce_logger' initialisé pour les noms et adresses bce.")
 
-
-# ---------- A SUPPRIMER
-logger_nomsdouble = setup_dynamic_logger(name="nomsdouble_logger", keyword=keyword, level=logging.DEBUG)
-logger_nomsdouble.debug("🔍 Logger 'nomsdouble_logger' initialisé pour les noms.")
-# ----------
-
-
-# CHAMP NOM ENTREPRISE : nom_entreprise
-logger_nomsentreprises = setup_dynamic_logger(name="nomsentreprises_logger", keyword=keyword, level=logging.DEBUG)
-logger_nomsentreprises.debug("🔍 Logger 'nomsentreprises_logger' initialisé pour les noms terrorisme.")
 
 logged_adresses: set[tuple[str, str]] = set()
 print(">>> CODE À JOUR")
@@ -115,7 +104,27 @@ MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
 
-DENOM_INDEX = ADDRESS_INDEX = ENTERPRISE_INDEX = ESTABLISHMENT_INDEX = None
+failed_urls = []
+
+MAX_WORKERS = 12
+TIMEOUT_RESULT = 90
+TIMEOUT_FUTURE = 120
+
+
+print("[INFO] Initialisation Meilisearch (au début du script)…")
+client = meilisearch.Client(MEILI_URL, MEILI_KEY)
+try:
+    index = client.get_index(INDEX_NAME)
+    delete_task = index.delete()
+    client.wait_for_task(delete_task.task_uid)
+    print(f"[🗑️] Ancien index '{INDEX_NAME}' supprimé.")
+except meilisearch.errors.MeilisearchApiError:
+    print(f"[ℹ️] Aucun index existant à supprimer ({INDEX_NAME}).")
+
+create_task = client.create_index(INDEX_NAME, {"primaryKey": "id"})
+client.wait_for_task(create_task.task_uid)
+index = client.get_index(INDEX_NAME)
+print(f"[✅] Index '{INDEX_NAME}' prêt.")
 # ---------------------------------------------------------------------------------------------------------------------
 #                                          FONCTIONS INTERNES
 # ----------------------------------------------------------------------------------------------------------------------
@@ -188,22 +197,6 @@ def _log_nom_repetition_locale_first_token(doc, window=80):
         left = max(0, start - window)
         right = min(len(texte_norm), end + window)
         fen = texte_norm[left:right]
-
-        # compte du token dans la fenêtre
-        if len(pat.findall(fen)) >= 2:
-            # utilise ton logger déjà défini (tu semblais utiliser `loggernomspersonnes`)
-            try:
-                logger_nomsdouble.warning(
-                    f"[Nom (1er mot) dédoublé localement] DOC={doc.get('doc_hash')} | "
-                    f"token='{token}' | fenêtre={window} | extrait=…{fen}…"
-                )
-            except NameError:
-                # fallback print si le logger n'existe pas dans ce scope
-                print(
-                    f"[Nom (1er mot) dédoublé localement] DOC={doc.get('doc_hash')} | "
-                    f"token='{token}' | fenêtre={window} | extrait=…{fen}…"
-                )
-            break  # un log par doc suffit
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -295,10 +288,8 @@ def fetch_ejustice_article_addresses_by_tva(num_tva, page=1):
 
     logging.debug(f"[eJustice] {len(addresses)} adresses trouvées pour {num_tva_clean}")
     return addresses
-
-# tester trib premiere instance 26/04
-from_date = date.fromisoformat("2024-07-26")
-to_date = "2024-05-28"  # date.today()
+from_date = date.fromisoformat("2025-08-26")  # début
+to_date = date.today()                         # fin (ou une autre date plus récente)
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
 locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
@@ -414,6 +405,9 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         re.IGNORECASE
         )
         response = retry(url, session)
+        if not response:
+            print(f"[❌ Abandon définitif pour {url}]")
+            return None  # ⚠️ important : on sort si la page ne répond jamais
         soup = BeautifulSoup(response.text, 'html.parser')
         extra_keywords = []
         extra_links = []
@@ -438,12 +432,12 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         identifiants_terrorisme = None
         tvas = extract_numero_tva(texte_brut)
         tvas_valides = [t for t in tvas if format_bce(t)]
-        denoms_by_bce = tvas_valides  # temporaire, juste le formaté
-        adresses_by_bce = tvas_valides
+        denoms_by_bce = None
+        adresses_by_bce = None
+        denoms_by_ejustice = None
+        adresses_by_ejustice = None
         match_nn_all = extract_nrn_variants(texte_brut)
         nns = match_nn_all
-        denoms_by_ejustice = tvas_valides
-        adresses_by_ejustice = None
         doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
         if detect_erratum(texte_brut):
             extra_keywords.append("erratum")
@@ -469,8 +463,6 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
             if not tvas_valides:
                 return None
-            print(f"⚠ TVA trouvée pour {doc_id} → document ignoré")
-
             nom = extract_name_from_text(str(texte_date_naissance_deces), keyword, doc_id=doc_id)
             if re.search(r"\bsuccessions?\b", texte_brut, flags=re.IGNORECASE):
                 raw_deces = extract_dates_after_decede(str(main))
@@ -502,6 +494,8 @@ def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, su
         # TRIB ENTREPRISE
         # -----------------------------
         if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
+            if not tvas_valides:
+                return None
             # verifier à quoi sert id ici mais pense que peut etre utile
             nom_interdit = extraire_personnes_interdites(texte_brut)  # va falloir deplacer dans fonction ?
             nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
@@ -588,60 +582,71 @@ with requests.Session() as session:
 
     raw_link_list = ask_belgian_monitor(session, from_date, to_date, keyword)
     link_list = raw_link_list  # on garde le nom pour compatibilité
+
     scrapped_data = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-        futures = [
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
             executor.submit(
                 scrap_informations_from_url, url, numac, date_doc, langue, keyword, title, subtitle
-            )
+            ): url
             for (url, numac, date_doc, langue, keyword, title, subtitle) in link_list
-        ]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Scraping {keyword}"):
-            result = future.result()
-            if result is not None and isinstance(result, tuple) and len(result) >= 5:
-                scrapped_data.append(result)
-            #else:
-              #print("[⚠️] Résultat invalide ignoré.")
+        }
+
+        total = len(futures)
+        print(f"[DEBUG] Nombre total de futures : {total}")
+
+        for future in tqdm(
+                concurrent.futures.as_completed(futures),
+                total=total,
+                desc=f"Scraping {keyword}",
+        ):
+            url = futures[future]
+            try:
+                # ⏱️ Timeout dur : 90 s max par tâche
+                result = future.result(timeout=90)
+                if result and isinstance(result, tuple) and len(result) >= 5:
+                    scrapped_data.append(result)
+            except concurrent.futures.TimeoutError:
+                print(f"[⏰] Timeout sur {url}")
+                failed_urls.append(url)
+            except Exception as e:
+                print(f"[❌] Erreur sur {url} : {type(e).__name__} – {e}")
+                failed_urls.append(url)
+
+    print(f"[DEBUG] Futures terminées : {sum(f.done() for f in futures)} / {len(futures)}")
+    print(f"[📉] Pages échouées : {len(failed_urls)} / {len(link_list)}")
+
+    # --- 🔁 Sauvegarde pour relancer plus tard ---
+    if failed_urls:
+        with open("failed_urls.txt", "w", encoding="utf-8") as f:
+            for u in failed_urls:
+                f.write(u + "\n")
+        print("📄 Fichier 'failed_urls.txt' créé avec les pages à relancer.")
 
 # ✅ Supprime les None avant de les envoyer à Meilisearch
 final.extend(scrapped_data)  # ou final = [r for r in scrapped_data if r is not None]
 
-print("[INFO] Connexion à Meilisearch…")
-client = meilisearch.Client(MEILI_URL, MEILI_KEY)
+start_time = time.perf_counter()
 
-# ✅ Si l'index existe, on le supprime proprement
-try:
-    index = client.get_index(INDEX_NAME)
-    print("✅ Clé primaire de l'index :", index.primary_key)
-    delete_task = index.delete()
-    client.wait_for_task(delete_task.task_uid)
-    print(f"[🗑️] Index '{INDEX_NAME}' supprimé avec succès.")
-except meilisearch.errors.MeilisearchApiError:
-    print(f"[ℹ️] Aucun index existant à supprimer.")
 
-# 🔄 Ensuite on recrée un nouvel index propre avec clé primaire
-create_task = client.create_index(INDEX_NAME, {"primaryKey": "id"})
-client.wait_for_task(create_task.task_uid)
-index = client.get_index(INDEX_NAME)
-print("✅ Index recréé avec clé primaire :", index.primary_key)
-
-# ✅ Ajoute ces lignes ici (et non dans le try)
+# ⚙️ 3️⃣ Configuration des attributs
 index.update_filterable_attributes(["keyword"])
 index.update_searchable_attributes([
     "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
     "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme", "text", "denoms_by_bce",
-    "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
+    "date_deces", "extra_links", "administrateur", "nom_interdit", "identifiant_terrorisme",
+    "text", "denoms_by_bce", "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
 ])
 index.update_displayed_attributes([
-    "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom", "date_jugement", "TVA",
-    "num_nat", "date_naissance", "adresse", "nom_trib_entreprise", "date_deces",
-    "extra_links", "administrateur", "text", "url", "nom_interdit", "identifiant_terrorisme", "denoms_by_bce",
-    "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
+    "id", "doc_hash", "date_doc", "title", "keyword", "extra_keyword", "nom",
+    "date_jugement", "TVA", "num_nat", "date_naissance", "adresse",
+    "nom_trib_entreprise", "date_deces", "extra_links", "administrateur",
+    "text", "url", "nom_interdit", "identifiant_terrorisme",
+    "denoms_by_bce", "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
 ])
-last_task = index.get_tasks().results[-1]
-client.wait_for_task(last_task.uid)
 
+print(f"[⚙️] Index '{INDEX_NAME}' prêt en {time.perf_counter() - start_time:.2f}s.")
 documents = []
 with requests.Session() as session:
     for record in tqdm(final, desc="Préparation Meilisearch"):
@@ -707,17 +712,14 @@ with requests.Session() as session:
             doc["administrateur"] = [str(doc["administrateur"])]
 
 
-# 🧩 Ici : tu veux croiser avec la BCE (denominations, adresses, etc.)
-#     ⬇️ C’est ICI qu’on charge les CSV BCE une seule fois :
-if DENOM_INDEX is None:
-    DENOM_INDEX, ADDRESS_INDEX, ENTERPRISE_INDEX, ESTABLISHMENT_INDEX = charger_indexes_bce()
-
-# ✅ Enrichissement combiné : dictionnaires TVA → noms et adresses
+# 🧩 Enrichissement BCE (toujours crée les champs, même vides)
 for doc in documents:
-    # ⚠️ On saute les doublons annulés
+    # Initialisation systématique
+    doc["denoms_by_bce"] = None
+    doc["adresses_by_bce"] = None
+
+    # ⚠️ Ignorer les doublons annulés
     if "annulation_doublon" in (doc.get("extra_keyword") or []):
-        doc["denoms_by_bce"] = None
-        doc["adresses_by_bce"] = None
         continue
 
     tvas = doc.get("TVA") or []
@@ -729,77 +731,77 @@ for doc in documents:
         if not bce:
             continue
 
-        # -----------------------------
         # 🔹 Dénominations
-        # -----------------------------
         noms = sorted(DENOM_INDEX.get(bce, []))
         if noms:
             denoms_map[bce] = noms
 
-        # -----------------------------
         # 🔹 Adresses (siège + établissements)
-        # -----------------------------
         adresses = []
-
-        # Siège social
         if bce in ADDRESS_INDEX:
             adresses.extend(
                 {"adresse": addr, "source": "siege"} for addr in ADDRESS_INDEX[bce]
             )
 
-        # Établissements secondaires
         if bce in ESTABLISHMENT_INDEX:
-            etabs = ESTABLISHMENT_INDEX[bce]
-            for etab in etabs:
+            for etab in ESTABLISHMENT_INDEX[bce]:
                 etab_norm = re.sub(r"\D", "", etab)
                 if etab_norm in ADDRESS_INDEX:
                     adresses.extend(
                         {"adresse": addr, "source": "etablissement"}
                         for addr in ADDRESS_INDEX[etab_norm]
                     )
-                else:
-                    logger_bce.warning(
-                        f"[⚠️ Aucun mapping d'adresse trouvé pour établissement {etab_norm}] TVA={bce}"
-                    )
 
         if adresses:
             adresses_map[bce] = adresses
 
-    # -----------------------------
-    # 🔹 Affectation au document
-    # -----------------------------
-    doc["denoms_by_bce"] = denoms_map if denoms_map else None
-    doc["adresses_by_bce"] = adresses_map if adresses_map else None
+    # ✅ Affectation finale : TOUJOURS créer les champs
+    doc["denoms_by_bce"] = (
+        [{"bce": bce, "noms": noms} for bce, noms in denoms_map.items()]
+        if denoms_map else None
+    )
+
+    doc["adresses_by_bce"] = (
+        [{"bce": bce, "adresses": adresses} for bce, adresses in adresses_map.items()]
+        if adresses_map else None
+    )
 
 
 # ✅ Fallback eJustice séparé — NE PAS ÉCRASER adresses_by_bce
 for doc in documents:
     if not doc.get("adresses_by_bce"):
         adresses_ejustice = []
-        #for t in (doc.get("TVA") or []):
-            #found = fetch_ejustice_article_addresses_by_tva(t)
-            #for addr in found:
-                #adresses_ejustice.append({"adresse": addr, "source": "ejustice"})
-        doc["adresses_by_ejustice"] = adresses_ejustice if adresses_ejustice else None
 
-# ✅ Enrichissement des établissements (à partir du CSV establishment.csv)
+        # Exemple si tu veux réactiver la récupération plus tard :
+        # for t in (doc.get("TVA") or []):
+        #     found = fetch_ejustice_article_addresses_by_tva(t)
+        #     for addr in found:
+        #         adresses_ejustice.append({"adresse": addr, "source": "ejustice"})
+
+        # ✅ Nouveau format compatible Meilisearch (liste d’objets)
+        doc["adresses_by_ejustice"] = (
+            [{"adresse": addr.get("adresse"), "source": addr.get("source", "ejustice")}
+             for addr in adresses_ejustice]
+            if adresses_ejustice else None
+        )
+
+# 🚨 Nouveau bloc séparé : enrichissement e-Justice
 for doc in documents:
-    etablissements = set()
+    tvas = doc.get("TVA") or []
+    noms_from_ejustice = []
 
-    for t in (doc.get("TVA") or []):
-        bce = format_bce(t)
-        if not bce:
-            continue
+    # Exemple si tu veux réactiver plus tard :
+    # if tvas:
+    #     try:
+    #         noms_from_ejustice = fetch_ejustice_article_names_by_tva(tva=tvas[0])
+    #     except Exception as e:
+    #         logger.warning(f"[e-Justice fetch] DOC={doc.get('doc_hash')} | err={e}")
 
-        if bce not in ESTABLISHMENT_INDEX:
-            logger_bce.warning(
-                f"[❌ Aucun établissement trouvé] DOC={doc.get('doc_hash')} | TVA={bce}"
-            )
-            continue
-
-        etablissements.update(ESTABLISHMENT_INDEX.get(bce, set()))
-
-    doc["etablissements_by_bce"] = sorted(etablissements) if etablissements else None
+    # ✅ Nouveau format compatible Meilisearch
+    doc["denoms_by_ejustice"] = (
+        [{"bce": tva, "noms": noms_from_ejustice}]
+        if noms_from_ejustice else None
+    )
 
 # 🚨 Nouveau bloc séparé : enrichissement e-Justice
 for doc in documents:
@@ -916,7 +918,6 @@ for doc in documents:
                 return None
 
         tokens = norm.split()
-        print(tokens)
         # 🔹 Découpage en tokens pour filtrer les parasites
 
         if len(tokens) < 2 or len("".join(tokens)) < 3:
@@ -963,12 +964,6 @@ for doc in documents:
     elif isinstance(nom, str):
         if not est_nom_valide(nom):
             doc["nom"] = None
-
-    # 🔔 Vérifier si aucun nom exploitable après nettoyage
-    if not doc.get("nom"):  # None, [] ou dict vide
-            logger_nomspersonnes.warning(
-                f"[AUCUN NOM] DOC={doc.get('doc_hash')} | Nom brut avant nettoyage='{nom}'"
-            )
 
     _log_len_mismatch(doc, date_naissance, date_deces, nom)
     _log_nom_repetition_locale_first_token(doc, window=80)  # 👈 ajout ici
@@ -1102,75 +1097,37 @@ doc_ids = [doc["id"] for doc in documents]
 batch_size = 1000
 task_ids = []
 
+# 🚀 5️⃣ Indexation rapide en batch
+batch_size = 3000  # tu peux monter jusqu'à 10_000
+task_ids = []
+
+print(f"[📦] Indexation de {len(documents)} documents en batchs de {batch_size}…")
+
 for i in tqdm(range(0, len(documents), batch_size), desc="Envoi vers Meilisearch"):
-    batch = documents[i:i + batch_size]
-
-    # 🔍 Vérifie si un document n'a pas d'ID
-    for doc in batch:
-        if not doc.get("id"):
-            print("❌ Document sans ID :", json.dumps(doc, indent=2))
-
-    print("\n[🧾] Exemple de document envoyé à Meilisearch :")
-    print(json.dumps(batch[0], indent=2))
+    batch = [
+        doc for doc in documents[i:i + batch_size]
+    ]
     task = index.add_documents(batch)
     task_ids.append(task.task_uid)
 
-# ✅ Attendre que toutes les tasks soient terminées à la fin
+# 🕒 Attente de la complétion de TOUTES les tâches
+print(f"[⏳] Attente de {len(task_ids)} tâches Meili…")
+
 for uid in task_ids:
-    index.wait_for_task(uid, timeout_in_ms=150_000)
+    # 💤 Attente bloquante (assure que la tâche est terminée)
+    client.wait_for_task(uid, timeout_in_ms=180_000)
+    task_info = client.get_task(uid)
 
-# 🧪 TEST : Vérifie que le document a bien été indexé avec l'ID attendu
+    status = task_info.status
+    print(f" - Task {uid} → {status}")
 
-test_id = documents[0]["id"]
-print(f"\n🔍 Test récupération document avec ID = {test_id}")
-try:
-    found_doc = index.get_document(test_id)
-    print("✅ Document trouvé dans Meilisearch :")
-    print(json.dumps(dict(found_doc), indent=2))
-except meilisearch.errors.MeilisearchApiError:
-    print("❌ Document non trouvé par ID dans Meilisearch.")
+    if status == "failed":
+        print(f"   ❌ Erreur : {task_info.error}")
 
-print("[📥] Mes Logs…")
-# 🔔 Log TOUTES les adresses (doublons compris) dans UNE seule entrée par doc
-for doc in documents:
-    adrs = doc.get("adresse") or []  # toujours une liste
-    # normalise un peu et garde même les doublons
-    adrs_norm = [re.sub(r"\s+", " ", a).strip() for a in adrs if isinstance(a, str) and a.strip()]
-    if not adrs_norm:
-        continue
+# 🔹 Vérifie le résultat final dans Meili
+stats = index.get_stats()
+print(f"[📊] Nombre réel de documents dans Meilisearch : {stats.number_of_documents}")
 
-    # Regroupe tout dans un seul champ (séparateur au choix)
-    all_in_one = " | ".join(adrs_norm)  # ex: "addr1 | addr2 | addr2 | addr3"
-    # --- Récupère UNIQUEMENT le nom canonique depuis doc["nom"] ---
-    nom_field = doc.get("nom")
-    canon_name = ""
-
-    if isinstance(nom_field, dict):
-        # priorité aux canonicals
-        canonicals = nom_field.get("canonicals") or []
-        if isinstance(canonicals, list) and canonicals:
-            canon_name = str(canonicals[0]).strip()
-        elif nom_field.get("records"):
-            for r in nom_field["records"]:
-                if isinstance(r, dict) and isinstance(r.get("canonical"), str) and r["canonical"].strip():
-                    canon_name = r["canonical"].strip()
-                    break
-        elif isinstance(nom_field.get("aliases_flat"), list) and nom_field["aliases_flat"]:
-            canon_name = str(nom_field["aliases_flat"][0]).strip()
-    elif isinstance(nom_field, list):
-        # prend le premier string non vide
-        for s in nom_field:
-            if isinstance(s, str) and s.strip():
-                canon_name = s.strip()
-                break
-    elif isinstance(nom_field, str):
-        canon_name = nom_field.strip()
-    logger_adresses.warning(
-        f"DOC ID: '{doc['doc_hash']}'\n"
-        f"NOM: '{canon_name}'\n"
-        f"Adresse log general : '{all_in_one}'\n"
-        f"Texte : {doc.get('text', '')}..."
-    )
 
 # ----------------------------------------------------------------------------------------------------------------------
 #                   FICHIERS CSV CONTENANT LES DONNES NECESSAIRES POUR LES APPELS AUX ANNEXES

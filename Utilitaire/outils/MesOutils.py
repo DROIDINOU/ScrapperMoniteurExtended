@@ -16,6 +16,7 @@ from typing import List, Any, Optional, Tuple
 # --- Modules internes au projet ---
 from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INSTITUTIONS
 
+
 # TODO:
 #  Rajouter dans nettoyer_adresses_par_keyword des patterns a nettoyer au fur et a mesure de l evolution du \
 #  scrapping -> faut un log pour quasi tout ....
@@ -693,16 +694,6 @@ def nettoyer_adresses_par_keyword(adresses, keyword):
         # Normalisation espaces
         cleaned = re.sub(r'\s+', ' ', adr).strip()
 
-        # Nettoyages contextuels par keyword
-        if keyword == "justice+de+paix":
-            # Supprimer les mentions du récit typiques
-            cleaned = re.sub(r"et des biens de", "", cleaned, flags=re.IGNORECASE)
-        if keyword == "succession":
-            print(repr(cleaned))
-            # Supprimer les mentions du récit typiques
-            cleaned = re.sub(r"\(e\)", "", cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(r"\(Av", "", cleaned, flags=re.IGNORECASE)
-
         if cleaned:
             nettoyees.append(cleaned)
         else:
@@ -1258,8 +1249,7 @@ def build_address_index(csv_path: str, *, lang: str = "FR", allowed_types: set[s
                     if ent_raw.startswith("2."):
                         ent = re.sub(r"\D", "", ent_raw)  # 2.291.655.781 → 2291655781
                     else:
-                        ent = re.sub(r"\D", "", format_bce(ent_raw) or ent_raw)
-
+                        ent = format_bce(ent_raw) or ent_raw
                     if not ent:
                         continue
 
@@ -1393,7 +1383,7 @@ def build_enterprise_index(
     return index
 
 # ---------------------------------------------------------------------------------------------------------------------
-#                          FONCTION DE CHARGEMENT "LAZY" DES INDEXS BCE (pour éviter lenteur au démarrage)
+#                          FONCTION DE CHARGEMENT "LAZY" DES INDEXS BCE (avec cache rapide pickle)
 # ---------------------------------------------------------------------------------------------------------------------
 def charger_indexes_bce():
     """
@@ -1404,7 +1394,10 @@ def charger_indexes_bce():
     - établissements (establishment.csv)
 
     ⚙️ Appelée à la demande dans MainScrapper.py pour éviter le long chargement initial.
+    ✅ Utilise un cache pickle (cache_bce/bce_indexes.pkl) pour accélérer les exécutions suivantes.
     """
+    import os
+    import pickle
     from Utilitaire.outils.MesOutils import (
         chemin_csv,
         build_denom_index,
@@ -1413,7 +1406,23 @@ def charger_indexes_bce():
         build_establishment_index,
     )
 
-    print("[⚙️] Chargement des CSV BCE...")
+    CACHE_DIR = "cache_bce"
+    CACHE_FILE = os.path.join(CACHE_DIR, "bce_indexes.pkl")
+
+    # ⚡ 1️⃣ Si le cache existe, on recharge directement
+    if os.path.exists(CACHE_FILE):
+        print("[⚡] Chargement des index BCE depuis le cache pickle…")
+        try:
+            with open(CACHE_FILE, "rb") as f:
+                result = pickle.load(f)
+                print("[✅] Cache BCE chargé avec succès.")
+                return result
+        except Exception as e:
+            print(f"[⚠️] Erreur de lecture du cache ({e}), rechargement depuis les CSV…")
+
+    # 🐢 2️⃣ Sinon : on recharge depuis les CSV
+    print("[🐢] Chargement initial des fichiers CSV BCE…")
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
     denom_index = build_denom_index(
         chemin_csv("denomination.csv"),
@@ -1445,7 +1454,16 @@ def charger_indexes_bce():
           f"{len(enterprise_index)} entreprises, "
           f"{len(establishment_index)} établissements")
 
+    # 💾 3️⃣ Sauvegarde du cache pour accélérer les futurs chargements
+    try:
+        with open(CACHE_FILE, "wb") as f:
+            pickle.dump((denom_index, address_index, enterprise_index, establishment_index), f)
+        print("[💾] Index BCE mis en cache pour les prochains runs.")
+    except Exception as e:
+        print(f"[⚠️] Impossible d’écrire le cache ({e})")
+
     return denom_index, address_index, enterprise_index, establishment_index
+
 
 
 # --------------------------------------------------------------------------------------

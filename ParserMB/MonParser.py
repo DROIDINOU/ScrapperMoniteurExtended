@@ -15,16 +15,28 @@ import pytesseract
 from Constante.mesconstantes import BASE_URL
 
 
-def retry(url, session, params=None):
-    try:
-        response = session.get(url, params=params)
-        response.encoding = "Windows-1252"
-        response.raise_for_status()
-        return response
-    except requests.exceptions.RequestException:
-        print(f"[!] Retry needed for {url}")
-        time.sleep(10)
-        return retry(url, session, params)
+def retry(url, session, params=None, retries=3, delay=10):
+    """
+    Fait jusqu'à 'retries' tentatives avec un timeout.
+    Empêche les blocages indéfinis.
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            response = session.get(url, params=params, timeout=(5, 30))  # ⏱️ 5s connect / 30s lecture
+            response.encoding = "Windows-1252"
+            response.raise_for_status()
+            return response
+        except requests.exceptions.Timeout:
+            print(f"[⏰ Timeout] ({attempt}/{retries}) pour {url}")
+        except requests.exceptions.RequestException as e:
+            print(f"[⚠️ Requête échouée] ({attempt}/{retries}) {url} → {e}")
+
+        if attempt < retries:
+            time.sleep(delay)
+            print(f"[🔁 Nouvelle tentative dans {delay}s] {url}")
+
+    print(f"[❌ Abandon après {retries} tentatives] {url}")
+    return None
 
 
 def find_linklist_in_items(item, keyword, link_list):

@@ -39,7 +39,7 @@ def _build_dirigeant_espece_rx(forms: list[str]) -> re.Pattern:
         )
         (?=\s*(?:,|\s+dont\b|\s+ayant\b|\s+qui\b|;|\.))  # on s'arrête net avant le contexte
     """
-    return re.compile(pattern, re.IGNORECASE | re.VERBOSE | re.DOTALL)
+    return re.compile(pattern, re.IGNORECASE | re.VERBOSE)
 
 
 def _canon(s: str) -> str:
@@ -102,7 +102,7 @@ PAT_FAILLITE_INSCRITE_SOUS = re.compile(
         (?P<nom>.+?)                     # ← ce qu'on veut (nom + forme, dans n'importe quel ordre)
         \s*,?\s*inscrit(?:e)?\s+sous\b   # stop net avant "inscrit(e) sous"
     """,
-    re.IGNORECASE | re.VERBOSE | re.DOTALL
+    re.IGNORECASE | re.VERBOSE
 )
 # ➕ à côté de tes autres patterns (avant le nettoyage/dédoublonnage)
 PAT_FAILLITE_NOM_PRENOM = re.compile(
@@ -236,7 +236,7 @@ def extract_nom_forme(text, déclencheur, form_regex, nom_list, is_nl=False):
         )
         {ending}
     """
-    matches = re.findall(pattern, text, flags=re.IGNORECASE | re.DOTALL | re.VERBOSE)
+    matches = re.findall(pattern, text, flags=re.IGNORECASE | re.VERBOSE)
     for m in matches:
         forme = (m[0] or m[3]).strip(" -:.,")
         nom = (m[1] or m[2]).strip(" -:.,")
@@ -246,7 +246,7 @@ def extract_nom_forme(text, déclencheur, form_regex, nom_list, is_nl=False):
             nom_list.append(nom_complet)
 
 
-def extract_by_patterns(text, patterns, nom_list, flags=re.IGNORECASE | re.DOTALL):
+def extract_by_patterns(text, patterns, nom_list, flags=re.IGNORECASE):
     for pat in patterns:
         matches = re.findall(pat, text, flags=flags)
         for m in matches:
@@ -270,6 +270,10 @@ def extract_noms_entreprises(texte_html, doc_id=None):
 
     soup = BeautifulSoup(texte_html, 'html.parser')
     full_text = _canon(soup.get_text(separator=" "))
+    # 🚀 Sécurité : tronquer les textes trop longs pour éviter le backtracking infini
+    if len(full_text) > 8000:
+        logger.warning(f"[Troncature] Texte trop long ({len(full_text)} chars) → coupé à 8000 pour ID={doc_id}")
+        full_text = full_text[:8000]
 
     for m in PAT_FAILLITE_INSCRITE_SOUS.finditer(full_text):
         nom = _canon(m.group("nom")).strip(" .;,-")
@@ -286,7 +290,7 @@ def extract_noms_entreprises(texte_html, doc_id=None):
         full_text = re.sub(rf"({re.escape(form)})[\s\-:]+", r"\1 ", full_text)
     form_regex = '|'.join(re.escape(f) for f in FORMS)
     form_regex = rf"(?:{form_regex})[-:]?"  # 👈 accepte un tiret à la fin (optionnel)
-    flags = re.IGNORECASE | re.DOTALL
+    flags = re.IGNORECASE
 
 
     # 🆕 1) Détection dédiée : « En cause de : … »
