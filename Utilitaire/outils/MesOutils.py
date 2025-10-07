@@ -24,6 +24,8 @@ from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INS
 #   contrairement à set(out), l’ordre d’apparition est conservé (car depuis Python 3.7+,
 #   les dicts gardent l’ordre d’insertion).
 #   dict.fromkeys(seq) crée un dictionnaire dont les clés sont les éléments de la liste.
+
+
 # ----------------------------------------------------------------------------------------------------------------------
 #                                         FONCTIONS ACCES DE FICHIERS
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1271,17 +1273,19 @@ def build_address_index(csv_path: str, *, lang: str = "FR", allowed_types: set[s
 def build_denom_index(
     csv_path: str,
     *,
-    allowed_types: set[str] | None = None,   # ex: {"001","002"} si tu veux restreindre
-    allowed_langs: set[str] | None = None,   # ex: {"1","2"} (FR=2, NL=1, DE=0 selon ton fichier)
+    allowed_types: set[str] | None = None,   # ex: {"001","002"}
+    allowed_langs: set[str] | None = None,   # ex: {"1","2"}
     skip_public: bool = True,
-) -> dict[str, set[str]]:
+) -> tuple[dict[str, set[str]], dict[str, str]]:
     """
-    Lit le CSV une seule fois et renvoie un dict:
-      { "xxxx.xxx.xxx": {"Denom1","Denom2", ...}, ... }
+    Lit le CSV une seule fois et renvoie :
+      - index: { "xxxx.xxx.xxx": {"Denom1", "Denom2", ...}, ... }
+      - type_entite_by_bce: { "xxxx.xxx.xxx": "physique" | "morale" }
     """
     index: dict[str, set[str]] = {}
+    type_entite_by_bce: dict[str, str] = {}
 
-    # petit cache disque pour gros CSV
+    # petit cache disque
     pkl = _cache_path_for(csv_path)
     csv_mtime = _csv_mtime(csv_path)
     if os.path.exists(pkl):
@@ -1289,19 +1293,39 @@ def build_denom_index(
             with open(pkl, "rb") as f:
                 payload = pickle.load(f)
             if payload.get("mtime") == csv_mtime:
-                return payload["index"]
+                return payload["index"], payload.get("types", {})
         except Exception:
             pass  # on reconstruit
 
-    # lecture streaming (utf-8-sig puis latin-1)
+    # Étape 1️⃣ : Charger enterprise.csv pour récupérer le type d'entité
+    enterprise_csv = chemin_csv("enterprise.csv")
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(enterprise_csv, newline="", encoding=enc) as f:
+                r = csv.DictReader(f)
+                for row in r:
+                    num = (row.get("EnterpriseNumber") or "").strip()
+                    typ_ent = (row.get("TypeOfEnterprise") or "").strip()
+                    ent = format_bce(num)
+                    if not ent or not typ_ent:
+                        continue
+
+                    type_entite_by_bce[ent] = "physique" if typ_ent == "1" else "morale"
+            break
+        except UnicodeDecodeError:
+            continue
+
+    # Étape 2️⃣ : Lire denomination.csv
     for enc in ("utf-8-sig", "latin-1"):
         try:
             with open(csv_path, newline="", encoding=enc) as f:
                 r = csv.DictReader(f)
                 for row in r:
-                    ent = (row.get("EntityNumber") or "").strip()
+                    raw_ent = (row.get("EntityNumber") or "").strip()
+                    ent = format_bce(raw_ent)
                     if not ent:
                         continue
+
                     if skip_public and is_entite_publique(ent):
                         continue
 
@@ -1317,19 +1341,26 @@ def build_denom_index(
                     if not denom:
                         continue
 
+                    # 🔹 Nettoie le code final du type (ex: "(015)")
+                    denom = re.sub(r"\s*\(\d+\)\s*$", "", denom).strip()
+
                     index.setdefault(ent, set()).add(denom)
             break
         except UnicodeDecodeError:
             continue
 
-    # sauve en cache disque avec mtime du CSV
+    # Sauvegarde cache avec les deux structures
     try:
         with open(pkl, "wb") as f:
-            pickle.dump({"mtime": csv_mtime, "index": index}, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(
+                {"mtime": csv_mtime, "index": index, "types": type_entite_by_bce},
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL
+            )
     except Exception:
         pass
 
-    return index
+    return index, type_entite_by_bce
 
 
 def build_enterprise_index(
@@ -1389,12 +1420,13 @@ def charger_indexes_bce():
     """
     Charge dynamiquement les index BCE :
     - dénominations (denomination.csv)
+    - type d'entité (physique / morale)
     - adresses (address.csv)
     - entreprises (enterprise.csv)
     - établissements (establishment.csv)
 
-    ⚙️ Appelée à la demande dans MainScrapper.py pour éviter le long chargement initial.
-    ✅ Utilise un cache pickle (cache_bce/bce_indexes.pkl) pour accélérer les exécutions suivantes.
+    ✅ Utilise un cache pickle (cache_bce/bce_indexes.pkl)
+    pour accélérer les exécutions suivantes.
     """
     import os
     import pickle
@@ -1414,17 +1446,24 @@ def charger_indexes_bce():
         print("[⚡] Chargement des index BCE depuis le cache pickle…")
         try:
             with open(CACHE_FILE, "rb") as f:
-                result = pickle.load(f)
+                payload = pickle.load(f)
                 print("[✅] Cache BCE chargé avec succès.")
-                return result
+                return (
+                    payload["denom_index"],
+                    payload.get("type_entite_by_bce", {}),
+                    payload["address_index"],
+                    payload["enterprise_index"],
+                    payload["establishment_index"],
+                )
         except Exception as e:
             print(f"[⚠️] Erreur de lecture du cache ({e}), rechargement depuis les CSV…")
 
-    # 🐢 2️⃣ Sinon : on recharge depuis les CSV
+    # 🐢 2️⃣ Sinon : rechargement depuis les CSV
     print("[🐢] Chargement initial des fichiers CSV BCE…")
     os.makedirs(CACHE_DIR, exist_ok=True)
 
-    denom_index = build_denom_index(
+    # ⚙️ build_denom_index renvoie maintenant 2 objets
+    denom_index, type_entite_by_bce = build_denom_index(
         chemin_csv("denomination.csv"),
         allowed_types=None,   # {"001","002"} si tu veux filtrer
         allowed_langs=None,   # {"2"} si tu veux uniquement FR
@@ -1433,8 +1472,8 @@ def charger_indexes_bce():
 
     address_index = build_address_index(
         chemin_csv("address.csv"),
-        lang="FR",           # "FR" ou "NL" (fallback auto si champ vide)
-        allowed_types=None,  # ex: {"REGO","SEAT"} pour filtrer certains types d’adresse
+        lang="FR",
+        allowed_types=None,
         skip_public=True
     )
 
@@ -1452,19 +1491,28 @@ def charger_indexes_bce():
           f"{len(denom_index)} dénoms, "
           f"{len(address_index)} adresses, "
           f"{len(enterprise_index)} entreprises, "
-          f"{len(establishment_index)} établissements")
+          f"{len(establishment_index)} établissements, "
+          f"{len(type_entite_by_bce)} types d'entité")
 
-    # 💾 3️⃣ Sauvegarde du cache pour accélérer les futurs chargements
+    # 💾 3️⃣ Sauvegarde du cache pour accélérer les prochains chargements
     try:
         with open(CACHE_FILE, "wb") as f:
-            pickle.dump((denom_index, address_index, enterprise_index, establishment_index), f)
+            pickle.dump(
+                {
+                    "denom_index": denom_index,
+                    "type_entite_by_bce": type_entite_by_bce,
+                    "address_index": address_index,
+                    "enterprise_index": enterprise_index,
+                    "establishment_index": establishment_index,
+                },
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
         print("[💾] Index BCE mis en cache pour les prochains runs.")
     except Exception as e:
         print(f"[⚠️] Impossible d’écrire le cache ({e})")
 
-    return denom_index, address_index, enterprise_index, establishment_index
-
-
+    return denom_index, type_entite_by_bce, address_index, enterprise_index, establishment_index
 
 # --------------------------------------------------------------------------------------
 # Retourne le premier non-vide (après strip).

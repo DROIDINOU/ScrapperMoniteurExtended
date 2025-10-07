@@ -3,6 +3,9 @@
 # date décès? OUI A VERIFIER SI APPARAIT DANS ENTREPRISE
 # tout ce qui est lie a nom faut virer mais peut remprendre la maniere de logguer les regex
 # --- Imports standards ---
+#
+# (venv) C:\Users\32471\ScrapperCJCE>del cache_bce\bce_indexes.pkl
+# (venv) C:\Users\32471\ScrapperCJCE>del .cache\denomination.denoms
 import concurrent.futures
 import json
 import locale
@@ -64,7 +67,7 @@ keyword = sys.argv[1]
 
 
 print("[📦] Chargement initial des indexes BCE…")
-DENOM_INDEX, ADDRESS_INDEX, ENTERPRISE_INDEX, ESTABLISHMENT_INDEX = charger_indexes_bce()
+DENOM_INDEX, PERSONNES_PHYSIQUES, ADDRESS_INDEX, ENTERPRISE_INDEX, ESTABLISHMENT_INDEX = charger_indexes_bce()
 print("[✅] Index BCE chargés :", len(DENOM_INDEX or {}), "entrées")
 if not DENOM_INDEX:
     raise RuntimeError("❌ Index BCE vides — vérifie le fichier CSV ou pickle.")
@@ -288,7 +291,7 @@ def fetch_ejustice_article_addresses_by_tva(num_tva, page=1):
 
     logging.debug(f"[eJustice] {len(addresses)} adresses trouvées pour {num_tva_clean}")
     return addresses
-from_date = date.fromisoformat("2025-08-26")  # début
+from_date = date.fromisoformat("2025-09-26")  # début
 to_date = date.today()                         # fin (ou une autre date plus récente)
 # BASE_URL = "https://www.ejustice.just.fgov.be/cgi/"
 
@@ -731,10 +734,15 @@ for doc in documents:
         if not bce:
             continue
 
-        # 🔹 Dénominations
+        # 🔹 Dénominations + type d'entité
         noms = sorted(DENOM_INDEX.get(bce, []))
+        type_ent = PERSONNES_PHYSIQUES.get(bce, "inconnu")  # "physique" ou "morale"
+
         if noms:
-            denoms_map[bce] = noms
+            denoms_map[bce] = {
+                "type": type_ent,
+                "noms": noms
+            }
 
         # 🔹 Adresses (siège + établissements)
         adresses = []
@@ -757,7 +765,10 @@ for doc in documents:
 
     # ✅ Affectation finale : TOUJOURS créer les champs
     doc["denoms_by_bce"] = (
-        [{"bce": bce, "noms": noms} for bce, noms in denoms_map.items()]
+        [
+            {"bce": bce, "type": data["type"], "noms": data["noms"]}
+            for bce, data in denoms_map.items()
+        ]
         if denoms_map else None
     )
 
@@ -765,7 +776,6 @@ for doc in documents:
         [{"bce": bce, "adresses": adresses} for bce, adresses in adresses_map.items()]
         if adresses_map else None
     )
-
 
 # ✅ Fallback eJustice séparé — NE PAS ÉCRASER adresses_by_bce
 for doc in documents:
