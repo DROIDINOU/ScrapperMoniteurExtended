@@ -4,12 +4,20 @@ import streamlit as st
 from dotenv import load_dotenv
 import meilisearch
 from datetime import datetime
+from collections import Counter
+
 
 # Chargement des variables d'environnement
 load_dotenv()
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
+
+# --- Compter la fréquence des extra_keywords ---
+keyword_counter = Counter()
+
+
+
 
 # Liste des mois de l'année en français
 mois_fr = [
@@ -549,7 +557,22 @@ for doc in docs_avec_nom:
 
 
 
+for doc in docs_avec_extra_keyword:
+    extra_kw = doc.get("extra_keyword")
+    if isinstance(extra_kw, str) and extra_kw.strip():
+        keyword_counter[extra_kw.strip()] += 1
+    elif isinstance(extra_kw, list):
+        for kw in extra_kw:
+            if isinstance(kw, str) and kw.strip():
+                keyword_counter[kw.strip()] += 1
 
+st.subheader("🏷️ Top des mots-clés rencontrés (extra_keyword)")
+
+if keyword_counter:
+    for kw, count in keyword_counter.most_common(30):  # Top 30 par défaut
+        st.markdown(f"- **{kw}** → {count} occurrences")
+else:
+    st.info("Aucun mot-clé détecté dans les documents.")
 # --- Instructions supplémentaires ---
 st.subheader("📝 Instructions supplémentaires")
 st.write("""
