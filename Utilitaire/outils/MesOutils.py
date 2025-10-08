@@ -1046,52 +1046,6 @@ def _extract_house_num(addr: Optional[str]) -> Optional[str]:
     return None
 
 
-# Compare la première adresse extraite après le nom (CP + numéro) à l'adresse priorisée.
-# Logger si elles ne correspondent pas.
-def verifier_premiere_adresse_apres_nom(nom: Any, texte: str, adresse: str, doc_hash: str, logger=None):
-
-    T = _norm(texte)
-    name_end = _name_end_in_text(nom, texte)
-    T_after_nom = _clean_dates_and_grands_nombres(T[name_end:])
-
-    # Recherche CP puis numéro (≠ date ou grand nombre)
-    RX_VALID_NUM = r"\b\d{1,4}(?:[A-Za-z](?!\s*\.))?(?:/[A-Z0-9\-]+)?\b"
-    RX_GRAND_NB = r"\b\d{6,}(?:[.,-]\d+)?\b"
-
-    def is_valid_num(n: str) -> bool:
-        return not re.fullmatch(RX_GRAND_NB, n)
-
-    # Trouver le premier CP suivi de n° valide
-    cp = None
-    num = None
-    for m in re.finditer(r"\b\d{4}\b", T_after_nom):
-        cp_candidate = m.group()
-        remaining = T_after_nom[m.end():]
-
-        num_match = re.search(RX_VALID_NUM, remaining)
-        if num_match and is_valid_num(num_match.group()):
-            cp = cp_candidate
-            num = num_match.group()
-            break
-
-    if not (cp and num):
-        return  # Pas d'adresse identifiable
-
-    # Extraire CP + numéro de l’adresse priorisée
-    cp_ref = _extract_cp(adresse)
-    num_ref = _extract_house_num(adresse)
-
-    if cp != cp_ref or num != num_ref:
-        msg = (
-            f"[❗️1ère vraie adresse ≠ adresse priorisée] DOC={doc_hash} | "
-            f"Priorisée = '{adresse}' | Extrait après nom = {cp} {num}"
-        )
-        if logger:
-            logger.warning(msg)
-        else:
-            print(msg)
-
-
 # --------------------------------------------------------------------------------------
 # Retourne le premier non-vide (après strip).
 # --------------------------------------------------------------------------------------

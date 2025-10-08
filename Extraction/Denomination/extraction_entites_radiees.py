@@ -57,7 +57,4 @@ def extract_noms_entreprises_radiees(texte_html: str, doc_id: str | None = None)
             seen.add(r)
             final.append(r)
 
-    if doc_id:
-        print(f"[extract_uppercase_names_after_bce] DOC={doc_id} | {final}", flush=True)
-
     return final
