@@ -61,7 +61,5 @@ def extraire_personnes_interdites(texte):
     # Suppression des doublons
     personnes_uniques = list(set(personnes_trouvees))
 
-    for nom in personnes_uniques:
-        print(f"✅ {nom}")
 
     return personnes_uniques

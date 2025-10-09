@@ -27,6 +27,45 @@ from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INS
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+#                                         VERIFICATION VALIDITE NUMERO DE TVA
+# ----------------------------------------------------------------------------------------------------------------------
+def verifier_tva_belge(num_tva: str) -> bool:
+    """
+    Vérifie si un numéro de TVA belge est valide selon la règle du modulo 97.
+    Format attendu : 10 chiffres (avec ou sans le préfixe 'BE').
+
+    Règle officielle :
+    ➤ Les 8 premiers chiffres représentent le numéro de base.
+    ➤ Les 2 derniers sont des chiffres de contrôle = 97 - (base % 97).
+
+    Exemple :
+        - BE0123456749 → valide
+        - BE0123456700 → invalide
+
+    Returns:
+        True si le numéro est valide, False sinon.
+    """
+    import re
+
+    # Supprimer tout sauf les chiffres
+    chiffres = re.sub(r"\D", "", num_tva or "")
+
+    # En Belgique : toujours 10 chiffres
+    if len(chiffres) != 10:
+        return False
+
+    base = int(chiffres[:-2])
+    cle = int(chiffres[-2:])
+
+    # Calcul modulo 97 (la clé doit être = 97 - (base % 97))
+    reste = base % 97
+    cle_calculee = 97 - reste
+    if cle_calculee == 0:
+        cle_calculee = 97  # cas particulier
+
+    return cle == cle_calculee
+
+# ----------------------------------------------------------------------------------------------------------------------
 #                                         FONCTIONS ACCES DE FICHIERS
 # ----------------------------------------------------------------------------------------------------------------------
 

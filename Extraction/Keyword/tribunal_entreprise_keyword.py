@@ -1,6 +1,11 @@
 import re
 
 def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
+    # --- ANNULATION / MISE À NÉANT D’UN JUGEMENT ---
+    pattern_mis_a_neant = (
+        r"\bmis\s+à\s+néant\s+le\s+jugement"
+    )
+
     # --- DESIGNATION / REMPLACEMENT DE LIQUIDATEUR ---
     pattern_designation_liquidateur = (
         r"\ba\s+(?:été\s+)?d[ée]sign[ée]?(?:\s*,?\s*en\s+remplacement\s+de\s+\w+)?"
@@ -71,19 +76,34 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
         r"ouverture\s+du\s+transfert\s+sous\s+autorit(?:é|e)\s+judiciaire"
     )
     pattern_decision_ouverture_transfert = (
-        r"\ba\s+d[ée]cid[ée]?\s+de\s+d[ée]clarer\s+ouverte\s+la\s+proc[ée]dure\s+de\s+transfert\s+sous\s+l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)\b"
+        r"\ba\s+d[ée]cid[ée]?\s+de\s+d[ée]clarer\s+ouverte\s+la\s+proc[ée]dure\s+de\s+transfert\s+sous\s+"
+        r"l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)\b"
     )
     # 🆕 nouveau
     pattern_declarer_ouverte_transfert = (
-        r"d[ée]clar[ée]?\s+ouverte\s+la\s+proc[ée]dure\s+de\s+transfert\s+sous\s+l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)"
+        r"d[ée]clar[ée]?\s+ouverte\s+la\s+proc[ée]dure\s+de\s+transfert\s+sous\s+l?['’]?\s*autorit[ée]\s+"
+        r"(?:judiciaire|de\s+justice)"
     )
 
+    # --- 🆕 ANNULATION / MISE À NÉANT D’UN JUGEMENT ---
+    debut_texte = texte_brut[:400]  # on ne regarde que le début du document
+    if re.search(pattern_mis_a_neant, debut_texte, flags=re.IGNORECASE):
+        extra_keywords.append("annulation_jugement_tribunal_de_l_entreprise")
+
     # --- information sur l'état de la procédure       ---
-    pattern_suspend_effets_publication_pv_ag = r"\b(?:ordonne\s+de\s+)?suspend(?:re)?\s+les\s+effets?\s+à\s+l?['’]?égard\s+des\s+tiers\s+de\s+la\s+publication(?:\s+aux?\s+annexes?\s+du\s+moniteur\s+belge)?[\s\S]*?proc[èe]s[-\s]?verbaux\s+des?\s+assembl[ée]es?\s+g[ée]n[ée]rales?"
+    pattern_suspend_effets_publication_pv_ag = r"\b(?:ordonne\s+de\s+)?suspend(?:re)?\s+les\s+" \
+                                               r"effets?\s+à\s+l?['’]?égard\s+des\s+tiers\s+de\s+la\s+publication" \
+                                               r"(?:\s+aux?\s+annexes?\s+du\s+moniteur\s+" \
+                                               r"belge)?[\s\S]*?proc[èe]s[-\s]?" \
+                                               r"verbaux\s+des?\s+assembl[ée]es?\s+g[ée]n[ée]rales?"
     pattern_administrateur_provisoire = r"administrateur\s+provisoire\s+d[ée]sign[ée]?"
     pattern_administrateur_provisoire_droit_commun = (
         r"\b(?:a\s+)?d[ée]sign[ée]?\s+en\s+qualit[ée]\s+d['’]?"
         r"administrateur(?:s)?\s+provisoire(?:s)?\s+de\s+droit\s+commun\b"
+    )
+    pattern_designation_administrateur_provisoire_inverse = (
+        r"d[ée]sign[ée]?\s+(?:[^,]{0,100})?\ben\s+qualit[ée]\s+d['’]?\s*administrateur(?:s)?\s+provisoire(?:s)?"
+        r"(?:\s+des?\s+\w+)?"
     )
 
     pattern_cloture = r"\b[cC](l[oô]|olo)ture\b"
@@ -123,6 +143,9 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     pattern_remplacement_juge_commissaire = r"est\s+remplac[ée]?\s+par\s+le\s+juge\s+commissaire"
     pattern_remplacement_juge_commissaire_bis = (
         r"est\s+remplac[ée]?\s+par\s+(le|les)\s+juges?\s+commissaires?"
+    )
+    pattern_decharge_administrateur_provisoire = (
+        r"\bd[ée]charge\s+(?:de\s+l['’]?\s*)?administrateur(?:s)?\s+provisoire(?:s)?\b"
     )
 
     pattern_report_cessation_paiement = r"report[\s\w,.'’():\-]{0,80}?cessation\s+des\s+paiements"
@@ -213,7 +236,11 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
 
         if re.search(pattern_prolongation_administrateur_provisoire, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("prolongation_administrateur_tribunal_de_l_entreprise")
-
+        # 🆕 Nouveau : décharge d’administrateur provisoire
+        elif re.search(pattern_designation_administrateur_provisoire_inverse, texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("designation_administrateur_provisoire_tribunal_de_l_entreprise")
+        elif re.search(pattern_decharge_administrateur_provisoire, texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("decharge_administrateur_provisoire_tribunal_de_l_entreprise")
         # pas vraiment utile?
         elif not any(k.startswith("cloture") or k.startswith("ouverture") for k in extra_keywords):
             if re.search(

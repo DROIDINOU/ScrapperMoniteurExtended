@@ -1,11 +1,9 @@
 import re
 import unicodedata
 from bs4 import BeautifulSoup
-import logging
 
 # --- Modules internes au projet ---
-from Utilitaire.outils.MesOutils import strip_accents
-from logger_config import setup_logger, setup_dynamic_logger, LoggedList
+from logger_config import setup_dynamic_logger, LoggedList
 
 # ______________________________________________________________________________________________
 #                                          VARIABLES GLOBALES
@@ -20,7 +18,8 @@ seen_nomspersonnes = set()
 # ⟶ Détecte la formule “il est demandé(e) de déclarer l’absence de ”
 ABS_PREF = r"(?:il\s+est\s+)?demand[ée]?\s+de\s+déclarer\s+l'absence\s+de"
 # ⟶ “modifié(e) les mesures de protection à l’égard de la personne et des biens de l’intéressé”
-PROT_PREF = r"modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
+PROT_PREF = r"modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+" \
+            r"des?\s+biens\s+de\s+l[’']?intéress[ée]?"
 # ⟶ Variante : queue seule “à l’égard de la personne et des biens de l’intéressé…”
 INT_PREF_FULL = r"à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?"
 # ⟶ Variante plus courte : “et des biens de l’intéressé ”
@@ -34,7 +33,8 @@ PREFIXES = (
     r"|en qualité de curateur à la succession vacante de"
     r"|la succession vacante de"
     r"|feu[e]?"   # 👈 ajouté ici
-    r"|le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+(?:\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+)*\s+a\s+désigné\s+(?:à\s+)?" 
+    r"|le\s+juge\s+de\s+paix\s+du\s+canton\s+de\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+(?:\s+[A-ZÉÈÊÎÔÛÀÂÇ][a-zà-ÿ\-]+)*\s+a\s+"
+    r"désigné\s+(?:à\s+)?" 
     r"|"
     + ABS_PREF +
     r"|"
@@ -130,7 +130,8 @@ RX_MODIF_PROTECTION_INTERESSE = re.compile(rf"""
 # Même chose que le précédent, mais sans contrainte de ponctuation à la fin
 # Utile si tu veux détecter la personne même dans des phrases mal formées
 RX_PROTECTION_INTERESSE_NOM_SEUL = re.compile(rf"""
-    modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+l[’']?intéress[ée]?\s+
+    modifi[ée]?\s+les\s+mesures\s+de\s+protection\s+à\s+l[’']?égard\s+de\s+la\s+personne\s+et\s+des?\s+biens\s+de\s+
+    l[’']?intéress[ée]?\s+
     (?P<prenoms>{PRENOMS_BLK})\s+(?P<nom>{NOM_BLOCK})
 """, re.IGNORECASE | re.VERBOSE)
 # Détecte les phrases qui précisent la personne protégée, avec contexte "né à"
@@ -345,12 +346,15 @@ RX_SV_ANY = re.compile(rf"""
 
 
 RX_SV_FEU_PAIRE = re.compile(
-    r"(?:succession\s+de\s+feu|à\s+la\s+succession\s+de\s+feu).{0,30}?(?:M(?:onsieur)?|Madame)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)[,\s]+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
+    r"(?:succession\s+de\s+feu|à\s+la\s+succession\s+de\s+feu).{0,30}?"
+    r"(?:M(?:onsieur)?|Madame)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)[,\s]+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+)",
     re.IGNORECASE,
 )
 
 RX_SV_FEU_VARIANTES = re.compile(
-    r"(?:succession\s+(?:déclarée\s+)?vacante\s+de\s+feu|succession\s+de\s+feu|à\s+la\s+succession\s+de\s+feu)\s*:?\s*(?:M(?:onsieur)?|Madame)?\.?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
+    r"(?:succession\s+(?:déclarée\s+)?vacante\s+de\s+feu|succession\s+de\s+feu|à\s+la\s+succession\s+"
+    r"de\s+feu)\s*:?\s*(?:M(?:onsieur)?|Madame)?\.?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+"
+    r"[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
     re.IGNORECASE,
 )
 
@@ -360,17 +364,20 @@ RX_SRV_M_RN = re.compile(
 )
 
 RX_ADMIN_SV_SPEC = re.compile(
-    r"administrateur\s+provisoire\s+à\s+succession,?\s+de\s+(?:Monsieur|Madame|M\.|Mme)?\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
+    r"administrateur\s+provisoire\s+à\s+succession,?\s+de\s+(?:Monsieur|Madame|M\.|Mme)?\s+"
+    r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
     re.IGNORECASE,
 )
 
 RX_SV_PART_VAC = re.compile(
-    r"succession\s+partiellement\s+vacante\s+de\s+(?:Monsieur|Madame|M\.|Mme)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
+    r"succession\s+partiellement\s+vacante\s+de\s+(?:Monsieur|Madame|M\.|Mme)?\s*"
+    r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
     re.IGNORECASE,
 )
 
 RX_ADMIN_SV_VAC_ALT = re.compile(
-    r"administrateur\s+provisoire\s+à\s+succession\s+vacante,?\s+de\s+(?:Monsieur|Madame|M\.|Mme)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
+    r"administrateur\s+provisoire\s+à\s+succession\s+vacante,?\s+de\s+(?:Monsieur|Madame|M\.|Mme)?\s*"
+    r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'’\-]+){1,4})",
     re.IGNORECASE,
 )
 
@@ -416,7 +423,8 @@ RX_SV_MONSIEUR_PN = re.compile(
 # =======================
 # Bloc "En cause de : … (jusqu'à Contre : / Intimés : / fin)"
 RX_EN_CAUSE_BLOCK = re.compile(
-    r"en\s*cause\s*de\s*:?\s*(?P<bloc>.+?)(?=\b(?:contre|intim[ée]s?|défendeur|defendeur|défenderesse|defenderesse)\b\s*:|$)",
+    r"en\s*cause\s*de\s*:?\s*(?P<bloc>.+?)(?=\b(?:contre|intim[ée]s?|défendeur|defendeur|défenderesse|defenderesse)"
+    r"\b\s*:|$)",
     re.IGNORECASE | re.DOTALL
 )
 
@@ -825,7 +833,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     # ------- administrateur des biens de
 
     for m in re.finditer(
-                r"administrateur\s+des\s+biens\s+de.{0,30}?(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
+                r"administrateur\s+des\s+biens\s+de.{0,30}?(?:Monsieur|Madame)\s+"
+                r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
                 full_text,
                 flags=re.IGNORECASE
         ):
@@ -838,7 +847,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(f"{nom}, {prenoms}", regex_name="RX_INTERDIT_A", m=m)
 
     for lenomme in RX_LE_NOMME_NP.finditer(full_text):
-        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}", regex_name="RX_LE_NOMME_NP", m=lenomme)
+        nom_list.append(f"{lenomme.group('nom').strip()}, {lenomme.group('prenoms').strip()}",
+                        regex_name="RX_LE_NOMME_NP", m=lenomme)
 
     for rxnrnp in RX_NR_NP.finditer(full_text):
         nom_list.append(f"{rxnrnp.group('nom').strip()}, {rxnrnp.group('prenoms').strip()}")
@@ -879,9 +889,12 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     for m in RX_SV_FEU_PAIRE.finditer(full_text):
         nom_list.append(f"{m.group(1).strip()}, {m.group(2).strip()}", regex_name="RX_SV_FEU_PAIRE", m=m)
 
-    # 🔹 Ajout spécifique pour : "mesures de protection à l’égard de la personne et des biens de l’intéressé Prénom Nom, né à ..."
+    # 🔹 Ajout spécifique pour : "mesures de protection à l’égard de la personne et des biens de
+    # l’intéressé Prénom Nom, né à ..."
     for rxprotectioninteressene in RX_PROTECTION_INTERESSE_NE.finditer(full_text):
-        nom_list.append(f"{rxprotectioninteressene.group('nom').strip()}, {rxprotectioninteressene.group('prenoms').strip()}", regex_name="RX_PROTECTION_INTERESSE_NE", m= m)
+        nom_list.append(f"{rxprotectioninteressene.group('nom').strip()}, "
+                        f"{rxprotectioninteressene.group('prenoms').strip()}",
+                        regex_name="RX_PROTECTION_INTERESSE_NE", m=m)
 
     for m in RX_SV_FEU_VARIANTES.finditer(full_text):
         nom_list.append(m.group(1).strip(), regex_name="RX_SV_FEU_VARIANTES", m=m)
@@ -918,25 +931,31 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}", regex_name="RX_SRV_NOMPRENOM", m=m)
 
     for m in RX_PROTECTION_INTERESSE_NOM_SEUL.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_PROTECTION_INTERESSE_NOM_SEUL", m=m)
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+                        regex_name="RX_PROTECTION_INTERESSE_NOM_SEUL", m=m)
 
     for m in RX_SV_MONSIEUR_PN.finditer(full_text):
         nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}")
 
     for m in RX_EN_CAUSE_DE_NOM.finditer(full_text):
-        nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}", regex_name="RX_EN_CAUSE_DE_NOM", m=RX_EN_CAUSE_DE_NOM)
+        nom_list.append(f"{m.group(2).strip()}, {m.group(1).strip()}", regex_name="RX_EN_CAUSE_DE_NOM",
+                        m=RX_EN_CAUSE_DE_NOM)
 
     for m in RX_EN_CAUSE_PN.finditer(full_text):
-        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}", regex_name="RX_EN_CAUSE_PN", m=RX_EN_CAUSE_PN)
+        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}",
+                        regex_name="RX_EN_CAUSE_PN", m=RX_EN_CAUSE_PN)
 
     for m in RX_EN_CAUSE_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_EN_CAUSE_NP", m=RX_EN_CAUSE_NP)
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+                        regex_name="RX_EN_CAUSE_NP", m=RX_EN_CAUSE_NP)
 
     for m in RX_CONDAMNE_LE_NOMME_NP.finditer(full_text):
-        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_CONDAMNE_LE_NOMME_NP", m=RX_CONDAMNE_LE_NOMME_NP)
+        nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+                        regex_name="RX_CONDAMNE_LE_NOMME_NP", m=RX_CONDAMNE_LE_NOMME_NP)
 
     for m in RX_CONDAMNE_LE_NOMME_PN.finditer(full_text):
-        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}", regex_name="RX_CONDAMNE_LE_NOMME_PN", m=RX_CONDAMNE_LE_NOMME_PN)
+        nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}",
+                        regex_name="RX_CONDAMNE_LE_NOMME_PN", m=RX_CONDAMNE_LE_NOMME_PN)
     # (A) Civilité + Prénoms + NOM suivi d’un (RN …)
     for m in RX_CIVILITE_PN_RN.finditer(full_text):
         nom_list.append(f"{m.group('prenoms').strip()}, {m.group('nom').strip()}")
@@ -1035,7 +1054,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
                 nom_list.append(nom_complet.strip())
     # 🔹 Cas : "1) Nom et prénoms : NOM, Prénom(s)"
     for m in re.finditer(
-            r"\b\d\)\s*Nom\s+et\s+prénoms\s*:\s*(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*(?P<prenoms>(?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,4})",
+            r"\b\d\)\s*Nom\s+et\s+prénoms\s*:\s*(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s*(?P<prenoms>(?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,4})",
             full_text,
             re.IGNORECASE
     ):
@@ -1044,7 +1064,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 Cas : "le nommé <code> NOM, Prénom(s), NRN ..."
     for m in re.finditer(
-            r"le nommé\s*:?\s*\S*\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*(?P<prenoms>(?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,5}),?\s+NRN",
+            r"le nommé\s*:?\s*\S*\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s*(?P<prenoms>(?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s*){1,5}),?\s+NRN",
             full_text,
             re.IGNORECASE
     ):
@@ -1069,7 +1090,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 3. "NOM, né(e) le jj mois aaaa à VILLE"
     for m in re.finditer(
-            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)\s*le\s*\d{1,2}\s+\w+\s+\d{4}\s*à\s*[A-Za-z\s\-']+",
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö\s\-']+),\s*(?P<civilite>né\(e\)?|né|née)"
+            r"\s*le\s*\d{1,2}\s+\w+\s+\d{4}\s*à\s*[A-Za-z\s\-']+",
             full_text,
             re.IGNORECASE
     ):
@@ -1101,7 +1123,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 7. "Monsieur|Madame Prénom NOM, né à"
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1109,7 +1132,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 7b. Variante sans civilité
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1117,14 +1141,16 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 7d. Cas : "Monsieur Prénom NOM; né à ..."
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);?\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);?\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
         nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="match7d", m=m)
 
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+né\s+à",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+né\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1151,7 +1177,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(nom_complet, regex_name="match_semicolon", m=m)
 
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née)\s+à",
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s*(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(né|née)\s+à",
             full_text,
             flags=re.IGNORECASE
     ):
@@ -1168,7 +1195,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
         nom_list.append(nom_complet, regex_name="match_condamne", m=m)
     # 🔹 Cas spécial : "Monsieur NOM Prénom; né à ..."
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+);\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1188,7 +1216,9 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # "des biens/personne de Monsieur/Madame ..."
     for m in re.finditer(
-            r"(?:des\s+biens\s+et\s+de\s+la\s+personne|de\s+la\s+personne\s+et\s+des\s+biens|des\s+biens\s+de|de\s+la\s+personne\s+de)\s+.{0,30}?(?:M(?:onsieur|me)?\s+)?(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
+            r"(?:des\s+biens\s+et\s+de\s+la\s+personne|de\s+la\s+personne\s+et\s+des\s+biens|des\s+"
+            r"biens\s+de|de\s+la\s+personne\s+de)\s+.{0,30}?(?:M(?:onsieur|me)?\s+)?"
+            r"(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
             full_text,
             flags=re.IGNORECASE
     ):
@@ -1221,7 +1251,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     # 🔹 0.quater : "[Prénom NOM], né(e) à ..."
 
     for m in re.finditer(
-            r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1229,7 +1260,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 8. "Prénom NOM, né(e) le <date>"
     for m in re.finditer(
-            r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<civilite>né|née|né\(e\))\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+            r"\b(?P<nomcomplet>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s+(?P<civilite>né|née|né\(e\))\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
             full_text,
             re.IGNORECASE
     ):
@@ -1237,7 +1269,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 9. "Monsieur/Madame NOM Prénom, inscrit ..."
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+inscrit(?:e)?\s+au\s+registre\s+national",
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+inscrit(?:e)?\s+au\s+registre\s+national",
             full_text,
             re.IGNORECASE
     ):
@@ -1245,7 +1278,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # "NOM Prénom, RN ..., né à"
     for m in re.finditer(
-            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{5,15},?\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{5,15},?\s+"
+            r"(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1253,7 +1287,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # "Monsieur/Madame Prénom NOM, ... personne à protéger"
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,300}personne\s+(?:à\s+protéger|protégée)",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,300}personne\s+(?:à\s+protéger|protégée)",
             full_text,
             re.IGNORECASE
     ):
@@ -1261,7 +1296,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 13. "Prénom NOM, ayant pour numéro RN ..., né à ..."
     for m in re.finditer(
-            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+ayant\s+pour\s+numéro\s+de\s+registre\s+national\s+\d{11,12},\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),"
+            r"\s+ayant\s+pour\s+numéro\s+de\s+registre\s+national\s+\d{11,12},\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1269,7 +1305,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 10. "Prénom NOM, RN <numéro>, né(e) à ..."
     for m in re.finditer(
-            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+RN\s+\d{9,15},?\s+(?P<civilite>né|née|né\(e\))\s+à",
+            r"\b(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+"
+            r"RN\s+\d{9,15},?\s+(?P<civilite>né|née|né\(e\))\s+à",
             full_text,
             re.IGNORECASE
     ):
@@ -1277,7 +1314,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 11. "Monsieur/Madame Prénom NOM, registre national numéro ..."
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+registre\s+national\s+numéro\s+\d{9,15}",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+registre\s+national\s+numéro\s+\d{9,15}",
             full_text,
             re.IGNORECASE
     ):
@@ -1285,7 +1323,9 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # "Monsieur/Madame Prénom NOM ... placé sous un régime ..."
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,200}?(?:placé|placée)\s+sous\s+un\s+régime\s+de\s+représentation",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),[\s\S]{0,200}?(?:placé|placée)\s+"
+            r"sous\s+un\s+régime\s+de\s+représentation",
             full_text,
             re.IGNORECASE
     ):
@@ -1293,7 +1333,9 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # Variante avec "né à ... le ..."
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*né\s+à\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+            r"(?:Monsieur|Madame)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s*né\s+à\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+"
+            r"le\s+\d{1,2}\s+\w+\s+\d{4}",
             full_text,
             re.IGNORECASE
     ):
@@ -1301,7 +1343,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # "Monsieur NOM, Prénom, né le <date>"
     for m in re.finditer(
-            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-\s]+?),\s+(?P<civilite>né|née|né\(e\))\s+le\s+\d{2}/\d{2}/\d{4}",
+            r"(?:Monsieur|Madame)\s+(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+"
+            r"(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-\s]+?),\s+(?P<civilite>né|née|né\(e\))\s+le\s+\d{2}/\d{2}/\d{4}",
             full_text,
             re.IGNORECASE
     ):
@@ -1309,7 +1352,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # "le nommé <code> - NOM Prénom, NRN ..."
     for m in re.finditer(
-            r"le nommé\s+\S+\s*[-–]\s*(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+NRN",
+            r"le nommé\s+\S+\s*[-–]\s*(?P<nom>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+            r"(?P<prenoms>[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+NRN",
             full_text,
             re.IGNORECASE
     ):
@@ -1330,7 +1374,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 Cas : "Monsieur Prénom NOM NOM2 NOM3 (RN ...)"
     match_rn_nom = re.findall(
-        r"(?:Monsieur|Madame)\s+((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+){1,3}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+\(RN\s+\d{2}[.\-/]\d{2}[.\-/]\d{2}",
+        r"(?:Monsieur|Madame)\s+((?:[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+\s+){1,3}[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)\s+"
+        r"\(RN\s+\d{2}[.\-/]\d{2}[.\-/]\d{2}",
         full_text,
         re.IGNORECASE
     )
@@ -1344,7 +1389,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
             nom_list.append(nom_complet)
 
     match_appel_fonde = re.findall(
-        r"déclare\s+fondé\s+l[’']?appel\s+de\s+(?:Monsieur|Madame|Mr|Mme)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
+        r"déclare\s+fondé\s+l[’']?appel\s+de\s+(?:Monsieur|Madame|Mr|Mme)?\s*([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+"
+        r"[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
         full_text,
         flags=re.IGNORECASE
     )
@@ -1359,7 +1405,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     # ✅ Cas : "succession vacante de M./Mme/Monsieur/Madame Prénom NOM [Nom2 Nom3...]"
     # ✅ Cas : "succession vacante de M./Mme/Monsieur/Madame Prénom NOM [Nom2 Nom3...]"
     for m in re.finditer(
-            r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
+            r"succession\s+(?:vacante|en\s+d[ée]sh[ée]rence)?\s+de\s+(?:M(?:me|adame|onsieur)?\.?\s+)?"
+            r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
             full_text,
             re.IGNORECASE
     ):
@@ -1368,7 +1415,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # ✅ Cas : "à la succession de M./Mme NOM [NOM2...]"
     for m in re.finditer(
-            r"(?:à\s+la\s+succession\s+de|succession\s+de)\s+(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
+            r"(?:à\s+la\s+succession\s+de|succession\s+de)\s+"
+            r"(?:M(?:me|adame|onsieur)?\.?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+(?:\s+[A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+){0,3})",
             full_text,
             re.IGNORECASE
     ):
@@ -1377,7 +1425,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # 🔹 Cas : "le nommé : 1492 C 2025 NOM, Prénom, NRN ..."
     match_nom_nr = re.findall(
-        r"le nommé\s*:\s*(?:\d+\s*[A-Z]\s*\d{4})\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+NRN\s+\d{2}[.\-/]\d{2}[.\-/]\d{2}[-\s.]\d{3}[.\-/]\d{2}",
+        r"le nommé\s*:\s*(?:\d+\s*[A-Z]\s*\d{4})\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+"
+        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+),\s+NRN\s+\d{2}[.\-/]\d{2}[.\-/]\d{2}[-\s.]\d{3}[.\-/]\d{2}",
         full_text,
         re.IGNORECASE
     )
@@ -1396,7 +1445,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # Cas "succession vacante de NOM, Prénom"
     match_sv_nomprenom = re.findall(
-        r"succession\s+vacante\s+de\s+(?:M(?:onsieur|me)?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+)",
+        r"succession\s+vacante\s+de\s+(?:M(?:onsieur|me)?\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+),\s+"
+        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+)",
         full_text,
         re.IGNORECASE
     )
@@ -1406,7 +1456,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
 
     # Cas "NOM, Prénom, né à VILLE le 3 septembre 1951"
     match_na_le = re.findall(
-        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+),\s+(né|née)\s+à\s+[A-Za-z\s\-']+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
+        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+),\s+([A-ZÉÈÊÀÂa-zéèêàâçëïüö\-']+),\s+(né|née)\s+"
+        r"à\s+[A-Za-z\s\-']+\s+le\s+\d{1,2}\s+\w+\s+\d{4}",
         full_text,
         re.IGNORECASE
     )
@@ -1453,7 +1504,8 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
                 nom_list.append(nom_candidat.group(1).strip())
 
     match_observation_protectrice = re.findall(
-        r"mesures?\s+d[’']?observation\s+protectrice.{0,30}?(?:à\s+l'égard\s+de\s+)(?:(?:Monsieur|Madame|Mr|Mme)\s+)?([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
+        r"mesures?\s+d[’']?observation\s+protectrice.{0,30}?(?:à\s+l'égard\s+de\s+)(?:(?:Monsieur|Madame|Mr|Mme)\s+)?"
+        r"([A-ZÉÈÊÀÂa-zéèêàâçëïüö'\-]+)",
         full_text,
         flags=re.IGNORECASE
     )
@@ -1483,14 +1535,16 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     for mb in RX_EN_CAUSE_BLOCK.finditer(full_text):
         bloc = mb.group("bloc")
         for m in RX_EN_CAUSE_ITEM_NP.finditer(bloc):
-            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_EN_CAUSE_ITEM_NP", m=m)
+            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+                            regex_name="RX_EN_CAUSE_ITEM_NP", m=m)
         for m in RX_EN_CAUSE_ITEM_PN.finditer(bloc):
-            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}", regex_name="RX_EN_CAUSE_ITEM_NP", m=m)
+            nom_list.append(f"{m.group('nom').strip()}, {m.group('prenoms').strip()}",
+                            regex_name="RX_EN_CAUSE_ITEM_NP", m=m)
 
 
-# _______________________________________________________________________________________________________________________
+# ______________________________________________________________________________________________________________________
 #                          NETTOYAGE DES NOMS + EMPECHER DES NOMS EN DOUBLE
-# _______________________________________________________________________________________________________________________
+# ______________________________________________________________________________________________________________________
     noms_nettoyes = nettoyer_noms_avances(nom_list)
     print("DEBUG sortie nettoyer_noms_avances =", noms_nettoyes)
 
@@ -1504,8 +1558,6 @@ def extract_name_before_birth(texte_html, keyword, doc_id):
     # 2) Si rien de nouveau, on sort vite
     if not nouveaux_noms:
         return group_names_for_meili(noms_nettoyes)
-
-
 
     # 4) Mise à jour de l’état externe (persistant en mémoire)
     seen_nomspersonnes.update(

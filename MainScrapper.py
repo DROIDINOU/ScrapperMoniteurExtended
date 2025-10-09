@@ -75,7 +75,7 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2025-01-26")  # début
+    from_date = date.fromisoformat("2024-01-26")  # début
     to_date = date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------

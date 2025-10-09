@@ -311,63 +311,192 @@ def extract_noms_entreprises(texte_html, doc_id=None):
 
     # Cibler les noms proches d'adresses FR/NL	Très utile quand il n’y a pas de forme juridique
     adresse_patterns = [
-        # Faillite - avec ou sans "Monsieur/Madame", FR
-        rf"faillite\s+de\s*:?\s*(?:Monsieur|Madame)?\.?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})(?=,\s*{ADRESSE_REGEX})",
-        rf"faillite\s+de\s*:?\s*(?:Monsieur|Madame)?\.?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})(?=\s+{ADRESSE_REGEX})",
-        # 👈 ajouté
+        # --- Faillite - FR ---
+        (
+            rf"faillite\s+de\s*:?\s*"
+            rf"(?:Monsieur|Madame)?\.?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})"
+            rf"(?=,\s*{ADRESSE_REGEX})"
+        ),
+        (
+            rf"faillite\s+de\s*:?\s*"
+            rf"(?:Monsieur|Madame)?\.?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})"
+            rf"(?=\s+{ADRESSE_REGEX})"
+        ),
 
-        # Faillite - NL
-        rf"faillite\s+de\s*:?\s*(?:Monsieur|Madame)?\.?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})(?=,\s*{FLAMAND_ADRESSE_REGEX})",
-        rf"faillite\s+de\s*:?\s*(?:Monsieur|Madame)?\.?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})(?=\s+{FLAMAND_ADRESSE_REGEX})",
-        # 👈 ajouté
+        # --- Faillite - NL ---
+        (
+            rf"faillite\s+de\s*:?\s*"
+            rf"(?:Monsieur|Madame)?\.?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})"
+            rf"(?=,\s*{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"faillite\s+de\s*:?\s*"
+            rf"(?:Monsieur|Madame)?\.?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})"
+            rf"(?=\s+{FLAMAND_ADRESSE_REGEX})"
+        ),
 
-        rf"faillite\s+de\s*:?\s*(?:Monsieur|Madame)?\.?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})(?=,\s*{GERMAN_ADRESSE_REGEX})",
-        rf"faillite\s+de\s*:?\s*(?:Monsieur|Madame)?\.?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})(?=\s+{GERMAN_ADRESSE_REGEX})",
-        # 👈 ajouté
+        # --- Faillite - DE ---
+        (
+            rf"faillite\s+de\s*:?\s*"
+            rf"(?:Monsieur|Madame)?\.?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})"
+            rf"(?=,\s*{GERMAN_ADRESSE_REGEX})"
+        ),
+        (
+            rf"faillite\s+de\s*:?\s*"
+            rf"(?:Monsieur|Madame)?\.?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,4}})"
+            rf"(?=\s+{GERMAN_ADRESSE_REGEX})"
+        ),
 
-        # Autres motifs + adresse
-        rf"pour\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{ADRESSE_REGEX})",
-        rf"pour\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{ADRESSE_REGEX})",  # 👈
+        # --- Autres motifs (pour) ---
+        (
+            rf"pour\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{ADRESSE_REGEX})"
+        ),
+        (
+            rf"pour\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{ADRESSE_REGEX})"
+        ),
+        (
+            rf"pour\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"pour\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"pour\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{GERMAN_ADRESSE_REGEX})"
+        ),
+        (
+            rf"pour\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{GERMAN_ADRESSE_REGEX})"
+        ),
 
-        rf"pour\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{FLAMAND_ADRESSE_REGEX})",
-        rf"pour\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{FLAMAND_ADRESSE_REGEX})",  # 👈
+        # --- Homologation ---
+        (
+            rf"homologation\s+du\s+plan\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{ADRESSE_REGEX})"
+        ),
+        (
+            rf"homologation\s+du\s+plan\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{ADRESSE_REGEX})"
+        ),
+        (
+            rf"homologation\s+du\s+plan\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"homologation\s+du\s+plan\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"homologation\s+du\s+plan\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{GERMAN_ADRESSE_REGEX})"
+        ),
+        (
+            rf"homologation\s+du\s+plan\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{GERMAN_ADRESSE_REGEX})"
+        ),
 
-        rf"pour\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{GERMAN_ADRESSE_REGEX})",
-        rf"pour\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{GERMAN_ADRESSE_REGEX})",  # 👈
+        # --- Réorganisation judiciaire ---
+        (
+            rf"réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{ADRESSE_REGEX})"
+        ),
+        (
+            rf"réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{ADRESSE_REGEX})"
+        ),
+        (
+            rf"réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{GERMAN_ADRESSE_REGEX})"
+        ),
+        (
+            rf"réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{GERMAN_ADRESSE_REGEX})"
+        ),
 
-        # Homologation
-        rf"homologation\s+du\s+plan\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{ADRESSE_REGEX})",
-        rf"homologation\s+du\s+plan\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{ADRESSE_REGEX})",  # 👈
-        rf"homologation\s+du\s+plan\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{FLAMAND_ADRESSE_REGEX})",
-        rf"homologation\s+du\s+plan\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{FLAMAND_ADRESSE_REGEX})",  # 👈
-        rf"homologation\s+du\s+plan\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{GERMAN_ADRESSE_REGEX})",
-        rf"homologation\s+du\s+plan\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{GERMAN_ADRESSE_REGEX})",  # 👈
+        # --- Ouverture de réorganisation judiciaire ---
+        (
+            rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{ADRESSE_REGEX})"
+        ),
+        (
+            rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{ADRESSE_REGEX})"
+        ),
+        (
+            rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=,\s*{GERMAN_ADRESSE_REGEX})"
+        ),
+        (
+            rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*"
+            rf"((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})"
+            rf"(?=\s+{GERMAN_ADRESSE_REGEX})"
+        ),
 
-        # Réorganisation judiciaire
-        rf"réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{ADRESSE_REGEX})",
-        rf"réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{ADRESSE_REGEX})",  # 👈
-        rf"réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{FLAMAND_ADRESSE_REGEX})",
-        rf"réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{FLAMAND_ADRESSE_REGEX})",
-        # 👈
-        rf"réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{GERMAN_ADRESSE_REGEX})",
-        rf"réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{GERMAN_ADRESSE_REGEX})",
-        # 👈
-
-        # Ouverture de réorganisation judiciaire
-        rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{ADRESSE_REGEX})",
-        rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{ADRESSE_REGEX})",
-        # 👈
-        rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{FLAMAND_ADRESSE_REGEX})",
-        rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{FLAMAND_ADRESSE_REGEX})",
-        # 👈
-        rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=,\s*{GERMAN_ADRESSE_REGEX})",
-        rf"ouverture\s+de\s+la\s+réorganisation\s+judiciaire\s+de\s*:?\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,5}})(?=\s+{GERMAN_ADRESSE_REGEX})",
-        # 👈
-
-        # Dissolution
-        rf"dissolution(?:\s+judiciaire)?(?:\s+et\s+clôture\s+immédiate)?\s+de\s*:?\s*([^,]{{5,150}}?)(?=[,\s\-]*\s*{ADRESSE_REGEX})",
-        rf"dissolution(?:\s+judiciaire)?(?:\s+et\s+clôture\s+immédiate)?\s+van\s*:?\s*([^,]{{5,150}}?)(?=[,\s\-]*\s*{FLAMAND_ADRESSE_REGEX})",
-        rf"dissolution(?:\s+judiciaire)?(?:\s+et\s+clôture\s+immédiate)?\s+van\s*:?\s*([^,]{{5,150}}?)(?=[,\s\-]*\s*{GERMAN_ADRESSE_REGEX})"
+        # --- Dissolution ---
+        (
+            rf"dissolution(?:\s+judiciaire)?(?:\s+et\s+clôture\s+immédiate)?\s+de\s*:?\s*"
+            rf"([^,]{{5,150}}?)"
+            rf"(?=[,\s\-]*\s*{ADRESSE_REGEX})"
+        ),
+        (
+            rf"dissolution(?:\s+judiciaire)?(?:\s+et\s+clôture\s+immédiate)?\s+van\s*:?\s*"
+            rf"([^,]{{5,150}}?)"
+            rf"(?=[,\s\-]*\s*{FLAMAND_ADRESSE_REGEX})"
+        ),
+        (
+            rf"dissolution(?:\s+judiciaire)?(?:\s+et\s+clôture\s+immédiate)?\s+van\s*:?\s*"
+            rf"([^,]{{5,150}}?)"
+            rf"(?=[,\s\-]*\s*{GERMAN_ADRESSE_REGEX})"
+        )
     ]
 
     extract_by_patterns(full_text, adresse_patterns, nom_list)
@@ -380,10 +509,10 @@ def extract_noms_entreprises(texte_html, doc_id=None):
 
     # 🔹 Cas spéciaux : formes juridiques en préfixe (ASBL SOCOBEL → SOCOBEL ASBL)
     for form in FORMS:
-            pattern = rf"\b{re.escape(form)}\s+([A-ZÉÈÀÙÂÊÎÔÛÇ0-9&@.\-']{{2,}}(?:\s+[A-ZÉÈÀÙÂÊÎÔÛÇ0-9&@.\-']{{2,}}){{0,5}})"
-            matches = re.findall(pattern, full_text, flags=re.IGNORECASE)
-            for m in matches:
-                nom_list.append(f"{m.strip()} {form}")
+        pattern = rf"\b{re.escape(form)}\s+([A-ZÉÈÀÙÂÊÎÔÛÇ0-9&@.\-']{{2,}}(?:\s+[A-ZÉÈÀÙÂÊÎÔÛÇ0-9&@.\-']{{2,}}){{0,5}})"
+        matches = re.findall(pattern, full_text, flags=re.IGNORECASE)
+        for m in matches:
+            nom_list.append(f"{m.strip()} {form}")
     # Cas spécial : "a accordé à ..."
     adresse_patterns.append(
         rf"a\s+accordé\s+à\s*((?:[A-ZÉÈÊÀÂ@\"'\-]+\s*){{1,6}})\s+{form_regex}(?=,?\s*{ADRESSE_REGEX})"
