@@ -75,7 +75,7 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2025-06-26")  # début
+    from_date = date.fromisoformat("2025-01-26")  # début
     to_date = date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
@@ -258,13 +258,13 @@ def main():
         match = re.search(r'page=(\d+)', last_link["href"])
         return int(match.group(1)) if match else 1
 
-    def ask_belgian_monitor(session, start_date, end_date, keyword):
-        page_amount = get_page_amount(session, start_date, end_date, keyword)
-        print(f"[INFO] Pages à scraper pour '{keyword}': {page_amount}")
+    def ask_belgian_monitor(http_session, start_date, end_date, motclef):
+        page_amount = get_page_amount(http_session, start_date, end_date, motclef)
+        print(f"[INFO] Pages à scraper pour '{motclef}': {page_amount}")
         link_list = []
 
         def process_page(page):
-            encoded = keyword.replace(" ", "+")
+            encoded = motclef.replace(" ", "+")
             today = date.today()
             url = f'{BASE_URL}list.pl?language=fr&sum_date={today}&page={page}&pdd={start_date}&pdf={end_date}&choix1=et&choix2=et&exp={encoded}&fr=f&trier=promulgation'
             # NEW: crée une session locale dans ce thread (ne PAS réutiliser celle passée en argument)
@@ -279,50 +279,54 @@ def main():
                 subtitle_text = subtitle.get_text(strip=True) if subtitle else ""
                 title_elem = item.find("a", class_="list-item--title")
                 title = title_elem.get_text(strip=True) if title_elem else ""
-                if keyword == "Liste+des+entites+enregistrees" and subtitle_text == "Service public fédéral Economie, P.M.E., Classes moyennes et Énergie":
-                    find_linklist_in_items(item, keyword, link_list)
-                elif keyword == "Conseil+d+'+Etat" and subtitle_text == "Conseil d'État" and title.lower().startswith(
-                        "avis prescrit"):
-                    find_linklist_in_items(item, keyword, link_list)
-                elif keyword == "Cour+constitutionnelle" and subtitle_text == "Cour constitutionnelle":
-                    find_linklist_in_items(item, keyword, link_list)
+                if motclef == "Liste+des+entites+enregistrees" and \
+                        subtitle_text == "Service public fédéral Economie, P.M.E., Classes moyennes et Énergie":
+                    find_linklist_in_items(item, motclef, link_list)
+                elif motclef == "Conseil+d+'+Etat" and subtitle_text == "Conseil d'État" \
+                        and title.lower().startswith("avis prescrit"):
+                    find_linklist_in_items(item, motclef, link_list)
+                elif motclef == "Cour+constitutionnelle" and subtitle_text == "Cour constitutionnelle":
+                    find_linklist_in_items(item, motclef, link_list)
 
-                elif keyword in ("tribunal+de+premiere+instance"):
+                elif motclef in "tribunal+de+premiere+instance":
                     if title.lower().startswith("tribunal de première instance"):
-                        find_linklist_in_items(item, keyword, link_list)
+                        find_linklist_in_items(item, motclef, link_list)
                     else:
                         print(
-                            f"[❌] Ignoré (source ou titre non pertinent pour tribunal de première instance): {title} | "
+                            f"[❌] Ignoré (source ou titre non pertinent pour tribunal de première instance): "
+                            f"{title} | "
                             f"Source: {subtitle_text}")
-                elif keyword in ("tribunal+de+l"):
+                elif motclef in "tribunal+de+l":
                     if (
                             title.lower().startswith("tribunal de l")
 
                     ):
                         # print(title)
-                        find_linklist_in_items(item, keyword, link_list)
+                        find_linklist_in_items(item, motclef, link_list)
                     else:
                         print(
-                            f"[❌] Ignoré (source ou titre non pertinent pour trib entreprise): {title} | Source : {subtitle_text}")
+                            f"[❌] Ignoré (source ou titre non pertinent pour trib entreprise): "
+                            f"{title} | Source : {subtitle_text}")
 
-                elif keyword in ("cour+d"):
+                elif motclef in "cour+d":
                     if (
                             title.lower().startswith("cour d'appel")
 
                     ):
-                        find_linklist_in_items(item, keyword, link_list)
+                        find_linklist_in_items(item, motclef, link_list)
                     else:
                         print(
-                            f"[❌] Ignoré (source ou titre non pertinent pour cour d appel) : {title} | Source : {subtitle_text}")
+                            f"[❌] Ignoré (source ou titre non pertinent pour cour d appel) : "
+                            f"{title} | Source : {subtitle_text}")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             list(tqdm(executor.map(process_page, range(1, page_amount + 1)), total=page_amount, desc="Pages"))
 
         return link_list
 
-    # --------------------------------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------------------------
     #                                SCRAPER MONITEUR BELGE (publications tribunaux, listes radiation ...)
-    # --------------------------------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------------------------
     def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, subtitle):
         # va certainement falloir enrichir ici
         with requests.Session() as s:
@@ -460,7 +464,7 @@ def main():
                 # 🧼 Nettoyage spécifique Cour d'appel :
                 # Dans les arrêts de cour d'appel, les noms de personnes physiques et les noms de sociétés
                 # sont souvent extraits ensemble dans le champ `nom`.
-                # Or, les sociétés sont déjà présentes dans `nom_trib_entreprise` (extrait via extract_noms_entreprises).
+                # Or, les sociétés sont déjà présentes dans `nom_trib_entreprise` (extrait via extract_noms_entreprises)
                 # Ce bloc sert à nettoyer `nom` pour ne garder QUE les personnes physiques :
                 # on supprime des sous-champs (`records`, `canonicals`, `aliases_flat`)
                 # tous les noms qui correspondent à des entreprises déjà détectées.
@@ -514,7 +518,6 @@ def main():
                 adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice
             )
 
-    # MAIN
     final = []
     with requests.Session() as session:
 
@@ -659,7 +662,7 @@ def main():
             missing.append("TVA")
 
         if missing:
-            logger.warning(f"[❌ Champs manquants] DOC={doc.get('id')} | Manquants: {missing}")
+            logger_champs_manquants_obligatoires.warning(f"[❌ Champs manquants] DOC={doc.get('id')} | Manquants: {missing}")
 
     # --------------------------------------------------------------------------------------------------------------
     # 🧩 Enrichissement BCE (toujours crée les champs, même vides)
@@ -770,7 +773,7 @@ def main():
     for doc in documents:
         if doc.get("keyword") and "tribunal de l" in doc["keyword"].lower():
             if not doc.get("denoms_by_bce") and not doc.get("adresses_by_bce"):
-                logger_bce.warning(
+                logger_champs_manquants_obligatoires.warning(
                     f"[⚠️ Tribunal entreprise sans BCE] "
                     f"DOC={doc.get('id')} | URL={doc.get('url')}"
                 )
@@ -1096,7 +1099,8 @@ def main():
         cur.execute("""
                         INSERT INTO moniteur_documents_postgre (
                         date_doc, lang, text, url, keyword, tva, titre, num_nat, extra_keyword,nom, 
-                        date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, administrateur, 
+                        date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, 
+                        administrateur, 
                         nom_interdit, denoms_by_bce,adresses_by_bce TEXT[]
                     
                     )

@@ -501,12 +501,11 @@ def extract_noms_entreprises(texte_html, doc_id=None):
             seen.add(nom_clean)
 
     if not noms_uniques:
-            print("le fall back a été activé..........................................................................")
-            logger.warning(f"⚠️ Fallback activé pour le document ID={doc_id}")
-            noms_uniques = fallback_nom_extraction(full_text, FORMS, doc_id)
-            if noms_uniques:
-                logger.info(f"✅ Fallback réussi pour ID={doc_id} : {noms_uniques}")
-            else:
-                logger.error(f"❌ Fallback échoué pour ID={doc_id} — aucun nom trouvé.")
+        logger.warning(f"⚠️ Fallback activé pour le document ID={doc_id}")
+        noms_uniques = fallback_nom_extraction(full_text, FORMS, doc_id)
+        if noms_uniques:
+            logger.info(f"✅ Fallback réussi pour ID={doc_id} : {noms_uniques}")
+        else:
+            logger.error(f"❌ Fallback échoué pour ID={doc_id} — aucun nom trouvé.")
 
     return noms_uniques

@@ -1,6 +1,23 @@
 import re
 
 def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
+    # --- DESIGNATION / REMPLACEMENT DE LIQUIDATEUR ---
+    pattern_designation_liquidateur = (
+        r"\ba\s+(?:été\s+)?d[ée]sign[ée]?(?:\s*,?\s*en\s+remplacement\s+de\s+\w+)?"
+        r".{0,80}?\ben\s+qualit[ée]\s+de\s+liquidateur\b"
+    )
+
+    # Variante simple pour capter "nommé liquidateur"
+    pattern_nomination_liquidateur = (
+        r"\b(?:nomm[ée]?|désign[ée]?)\b.{0,50}?\bliquidateur\b"
+    )
+
+    # 🆕 Spécifique à ton exemple :
+    # "a été désignée, en remplacement de Me X, en qualité de liquidateur"
+    pattern_designation_liquidateur_remplacement = (
+        r"a\s+été\s+d[ée]sign[ée]?\s*,?\s*en\s+remplacement\s+de\s+[^,]+,\s*en\s+qualit[ée]\s+de\s+liquidateur"
+    )
+
     # --- annulation ag
     pattern_annulation_ag = r"(?:prononc[ée]e?|d[ée]cid[ée]e?)\s+l[’']?annulation\s+de\s+la\s+d[ée]cision\s+de\s+l[’']?assembl[ée]e\s+g[ée]n[ée]rale"
     # --- FAILLITE ---
@@ -33,13 +50,6 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
         r"(?:cl[oô]tur[ée]?\s+(?:la\s+)?proc[ée]dure\s+de\s+r[ée]organisation\s+judiciaire)"  # clôture procédure RJ
     )
 
-    texte = """
-    Par un arrêt du 15 mai 2025, la Cour d 'appel de Bruxelles a refusé l'homologation du plan déposé le 18 décembre 2024, par la SRL Mamma Invest ... et clôturé la procédure de réorganisation judiciaire .
-    """
-
-    match = re.search(pattern_refus_homologation_cloture_reorg, texte, flags=re.IGNORECASE)
-    print("Match trouvé ✅" if match else "Pas de match ❌")
-
     pattern_reorg_generique = r"\bréorganisation\s+judiciaire\s+de\b"
     pattern_ouverture_reorg = r"\bouverture\s+de\s+la\s+réorganisation\s+judiciaire\b"
     pattern_prorogation_reorg = r"\bprorogation\s+du\s+sursis\s+de\s+la\s+réorganisation\s+judiciaire\b"
@@ -47,28 +57,52 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     pattern_accord_collectif = r"réorganisation\s+judiciaire\s+par\s+accord\s+collectif"
 
     # --- TRANSFERT SOUS AUTORITE DE JUSTICE ---
+    pattern_transfert_autorite_judiciaire_generique = (
+        r"\bproc[ée]dure\s+de\s+transfert\s+sous\s+l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)\b"
+    )
+    pattern_transfert_autorite_judiciaire_generique_bis = (
+        r"\btransfert\s+sous\s+l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)\b"
+    )
+
     pattern_ouverture_transfert = (
         r"\bouverture\s+du\s+transfert\s+sous\s+autorit[ée]\s+judiciaire(?:\s+\w+)?"
     )
     pattern_ouverture_transfert_bis = (
         r"ouverture\s+du\s+transfert\s+sous\s+autorit(?:é|e)\s+judiciaire"
     )
+    pattern_decision_ouverture_transfert = (
+        r"\ba\s+d[ée]cid[ée]?\s+de\s+d[ée]clarer\s+ouverte\s+la\s+proc[ée]dure\s+de\s+transfert\s+sous\s+l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)\b"
+    )
+    # 🆕 nouveau
+    pattern_declarer_ouverte_transfert = (
+        r"d[ée]clar[ée]?\s+ouverte\s+la\s+proc[ée]dure\s+de\s+transfert\s+sous\s+l?['’]?\s*autorit[ée]\s+(?:judiciaire|de\s+justice)"
+    )
 
     # --- information sur l'état de la procédure       ---
     pattern_suspend_effets_publication_pv_ag = r"\b(?:ordonne\s+de\s+)?suspend(?:re)?\s+les\s+effets?\s+à\s+l?['’]?égard\s+des\s+tiers\s+de\s+la\s+publication(?:\s+aux?\s+annexes?\s+du\s+moniteur\s+belge)?[\s\S]*?proc[èe]s[-\s]?verbaux\s+des?\s+assembl[ée]es?\s+g[ée]n[ée]rales?"
     pattern_administrateur_provisoire = r"administrateur\s+provisoire\s+d[ée]sign[ée]?"
+    pattern_administrateur_provisoire_droit_commun = (
+        r"\b(?:a\s+)?d[ée]sign[ée]?\s+en\s+qualit[ée]\s+d['’]?"
+        r"administrateur(?:s)?\s+provisoire(?:s)?\s+de\s+droit\s+commun\b"
+    )
+
     pattern_cloture = r"\b[cC](l[oô]|olo)ture\b"
     pattern_cloture_insuffisance_actif = r"\binsuffisance\s+d[’'\s]?actif\b"
     pattern_prolongation_administrateur_provisoire = (
         r"\bprolong\w*\s+le\s+mandat\b.{0,120}?\badministrateur\s+provisoire\b"
     )
+
     pattern_designation_mandataire = (
-        r"application\s+de\s+l['’]?art\.?\s*XX\.?(2\d{1,2}|3\d{1,2})\s*CDE"
+        r"en\s+application\s+de\s+l['’]?\s*(?:article|art\.?)\s*XX[\.\s]?(2\d{1,2}|3\d{1,2})"
+        r"(?:\s*(?:du\s*(?:CDE|code\s+de\s+droit\s+[ée]conomique))?)"
     )
     pattern_delai_modere = r"(?i)(délais?\s+modérés?.{0,80}article\s+5[.\s\-]?201)"
     pattern_homologation_plan = r"\bhomologation\s+du\s+plan\s+de\b"
     pattern_homologation_accord = r"\bhomologation\s+de\s+l[’']accord\s+amiable\s+de\b"
     pattern_rapporte_bis = r"\best\s+rapportée(s)?(\s+.*)?"
+    pattern_rapporte_dissolution = (
+        r"\brapport[ée]?\s+la\s+dissolution\b"
+    )
     pattern_effacement_partiel = r"(?:\b[lL]['’]?\s*)?[eé]ffacement\s+partiel\b"
     pattern_excusabilite = r"\ble\s+failli\s+est\s+déclaré\s+excusable\b[\.]?\s*"
     pattern_effacement_ter = r"(l['’]?\s*)?effacement\s+(est\s+)?accordé"
@@ -94,11 +128,19 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     pattern_report_cessation_paiement = r"report[\s\w,.'’():\-]{0,80}?cessation\s+des\s+paiements"
     if re.search(pattern_annulation_ag, texte_brut, flags=re.IGNORECASE):
         extra_keywords.append("annulation_decision_ag_tribunal_de_l_entreprise")
+    if re.search(pattern_designation_liquidateur_remplacement, texte_brut, flags=re.IGNORECASE):
+        extra_keywords.append("designation_liquidateur_remplacement_tribunal_de_l_entreprise")
+    elif re.search(pattern_designation_liquidateur, texte_brut, flags=re.IGNORECASE):
+        extra_keywords.append("designation_liquidateur_tribunal_de_l_entreprise")
+    elif re.search(pattern_nomination_liquidateur, texte_brut, flags=re.IGNORECASE):
+        extra_keywords.append("designation_liquidateur_tribunal_de_l_entreprise")
 
     if re.search(pattern_rapporte, texte_brut, flags=re.IGNORECASE) \
             or re.search(pattern_rapporte_bis, texte_brut) \
             or re.search(pattern_ordonne_rapporter_faillite, texte_brut, flags=re.IGNORECASE):
         extra_keywords.append("rapporte_faillite_tribunal_de_l_entreprise")
+    if re.search(pattern_rapporte_dissolution, texte_brut, flags=re.IGNORECASE):
+        extra_keywords.append("rapporte_dissolution_tribunal_de_l_entreprise")
 
     else:
         if re.search(r"\b[dD]ésignation\b", texte_brut, flags=re.IGNORECASE):
@@ -135,6 +177,14 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
             extra_keywords.append("ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise")
         elif re.search(pattern_ouverture_transfert_bis, texte_brut.replace("\xa0", " "), flags=re.IGNORECASE):
             extra_keywords.append("ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise")
+        elif re.search(pattern_decision_ouverture_transfert, texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise")
+        elif re.search(pattern_declarer_ouverte_transfert, texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise")
+        # 🆕 Cas générique sans "ouverture"
+        elif re.search(pattern_transfert_autorite_judiciaire_generique, texte_brut, flags=re.IGNORECASE) \
+                or re.search(pattern_transfert_autorite_judiciaire_generique_bis, texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("transfert_autorite_judiciaire_tribunal_de_l_entreprise")
         if re.search(pattern_interdiction, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("interdiction_gestion_tribunal_de_l_entreprise")
         elif re.search(pattern_interdiction_bis, texte_brut, flags=re.IGNORECASE):
@@ -203,8 +253,12 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
             extra_keywords.append("reorganisation_judiciaire_par_accord_collectif_tribunal_de_l_entreprise")
         # Autres
         if re.search(pattern_administrateur_provisoire, texte_brut, flags=re.IGNORECASE):
-            extra_keywords.append("administrateur_provisoire_tribunal_de_l_entreprise")
+            extra_keywords.append("designation_administrateur_provisoire_tribunal_de_l_entreprise")
+        if re.search(pattern_administrateur_provisoire_droit_commun, texte_brut, flags=re.IGNORECASE):
+            extra_keywords.append("designation_administrateur_provisoire_droit_commun_tribunal_de_l_entreprise")
         if re.search(pattern_suspend_effets_publication_pv_ag , texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("suspension_effets_ag")
         if re.search(pattern_excusabilite, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("excusable_tribunal_de_l_entreprise")
+
+        extra_keywords = list(dict.fromkeys(extra_keywords))
