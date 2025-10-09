@@ -529,18 +529,6 @@ def extract_nrn_variants(text: str):
     return list(dict.fromkeys(out))
 
 
-# transforme en format bce avec .
-def format_bce(n: str | None) -> str | None:
-    if not n:
-        return None
-    d = re.sub(r"\D", "", str(n))
-    if len(d) == 9:
-        d = "0" + d
-    if len(d) != 10:
-        return None
-    return f"{d[:4]}.{d[4:7]}.{d[7:]}"
-
-
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS DE TVA
 # ----------------------------------------------------------------------------------------------------------------------
@@ -768,19 +756,6 @@ def couper_fin_adresse(adresse: str) -> str:
         adresse
     )[0]
     return adresse.strip()
-
-
-# ----------------------------------------------------------------------------------------------------------------------
-#     Extrait l'index de page à partir de l'URL d'un PDF contenant '#page=X'.
-#     Retourne un entier indexé à 0 (utilisable avec PyMuPDF).
-#     Si aucun numéro de page n'est trouvé, retourne None.
-# ----------------------------------------------------------------------------------------------------------------------
-def extract_page_index_from_url(pdf_url):
-    match = re.search(r'#page=(\d+)', pdf_url)
-    if match:
-        page_number = int(match.group(1))
-        return page_number - 1  # PyMuPDF indexe à partir de 0
-    return None
 
 
 # va falloir étendre cela je pense

@@ -154,7 +154,8 @@ def extract_jugement_date(text):
     ]
 
     patterns += [
-        r"[Pp]ar\s+d[ée]cision\s+prononc[ée]e?\s+le\s+(\d{1,2}(?:er)?[\s/-]\w+[\s/-]\d{4}|\d{2}[-/]\d{2}[-/]\d{4}|\d{4}-\d{2}-\d{2})",
+        r"[Pp]ar\s+d[ée]cision\s+prononc[ée]e?\s+le\s+"
+        r"(\d{1,2}(?:er)?[\s/-]\w+[\s/-]\d{4}|\d{2}[-/]\d{2}[-/]\d{4}|\d{4}-\d{2}-\d{2})",
         r"[Dd]ate\s+du\s+jugement\s*[:\-]?\s*(\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2})",
         r"[Pp]ar\s+ordonnance\s+(?:rendue|prononcée)\s+le\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{2}/\d{2}/\d{4})",
         r"[Pp]ar\s+jugement\s+(?:rendu\s+)?(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{2}/\d{2}/\d{4})",

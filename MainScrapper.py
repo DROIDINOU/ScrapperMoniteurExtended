@@ -39,7 +39,7 @@ from tqdm import tqdm
 
 # --- Modules internes au projet ---
 from logger_config import setup_logger, setup_dynamic_logger
-from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET, POSTAL_RE, BCE_RE
+from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
 from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
 from Extraction.Adresses.extract_adresses_entreprises import extract_add_entreprises
@@ -60,13 +60,11 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     extract_clean_text, clean_url, generate_doc_hash_from_html, \
     clean_date_jugement, extract_nrn_variants, has_person_names, norm_er, \
     clean_nom_trib_entreprise, format_bce, chemin_csv, \
-    norm_spaces, digits_only, prioriser_adresse_proche_nom_struct, \
-    extract_page_index_from_url, has_cp_plus_other_number_aligned, nettoyer_adresses_par_keyword, \
-    remove_av_parentheses, to_list_dates, names_list_from_nom, \
-    remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, strip_accents, \
-    normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, corriger_tva_par_nom
+    prioriser_adresse_proche_nom_struct, nettoyer_adresses_par_keyword, \
+    remove_av_parentheses, remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, \
+    strip_accents, normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, corriger_tva_par_nom
 from Utilitaire.outils.MesOutils import charger_indexes_bce
-from ParserMB.MonParser import find_linklist_in_items, retry, convert_pdf_pages_to_text_range
+from ParserMB.MonParser import find_linklist_in_items, retry
 
 
 def main():
@@ -346,14 +344,13 @@ def main():
                 return None  # ⚠️ important : on sort si la page ne répond jamais
             soup = BeautifulSoup(response.text, 'html.parser')
             extra_keywords = []
-            extra_links = []
 
             main = soup.find("main", class_="page__inner page__inner--content article-text")
             if not main:
                 return (
                     numac, date_doc, langue, "", url, keyword,
                     None, title, subtitle, None, None, None, None, None,
-                    None, None, None, None, None, None, None, None, None, None, None
+                    None, None, None, None, None, None, None, None, None, None
                 )
 
             texte_brut = extract_clean_text(main, remove_links=False)
@@ -440,6 +437,7 @@ def main():
             # ENTREPRISES RADIEES
             #     > Les entreprises radiees ne sont que des Personnes Morales
             # ----------------------------------------------------------------
+            # verifier si ok de pas chercher l adresse ici !!!!!!!
             if re.search(r"Liste\s+des\s+entites\s+enregistrees", keyword.replace("+", " "), flags=re.IGNORECASE):
                 if not tvas_valides:
                     return None
@@ -514,7 +512,7 @@ def main():
                 numac, date_doc, langue, texte_brut, url, keyword,
                 tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
                 nom_trib_entreprise,
-                date_deces, extra_links, administrateur, doc_id, nom_interdit, denoms_by_bce,
+                date_deces, administrateur, doc_id, nom_interdit, denoms_by_bce,
                 adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice
             )
 
@@ -575,13 +573,13 @@ def main():
     index.update_searchable_attributes([
         "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
         "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-        "date_deces", "extra_links", "administrateur", "nom_interdit",
+        "date_deces", "administrateur", "nom_interdit",
         "text", "denoms_by_bce", "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
     ])
     index.update_displayed_attributes([
         "id", "date_doc", "title", "keyword", "extra_keyword", "nom",
         "date_jugement", "TVA", "num_nat", "date_naissance", "adresse",
-        "nom_trib_entreprise", "date_deces", "extra_links", "administrateur",
+        "nom_trib_entreprise", "date_deces", "administrateur",
         "text", "url", "nom_interdit",
         "denoms_by_bce", "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
     ])
@@ -617,13 +615,12 @@ def main():
                 "date_jugement": record[14],
                 "nom_trib_entreprise": record[15],
                 "date_deces": record[16],
-                "extra_links": record[17],
-                "administrateur": record[18],
-                "nom_interdit": record[20],
-                "denoms_by_bce": record[21],
-                "adresses_by_bce": record[22],
-                "adresses_by_ejustice": record[23],
-                "denoms_by_ejustice": record[24]
+                "administrateur": record[17],
+                "nom_interdit": record[19],
+                "denoms_by_bce": record[20],
+                "adresses_by_bce": record[21],
+                "adresses_by_ejustice": record[22],
+                "denoms_by_ejustice": record[23]
             }
 
             # rien a faire dans meili mettre dans postgre
@@ -1062,7 +1059,6 @@ def main():
                         date_jugement TEXT,
                         nom_trib_entreprise TEXT,
                         date_deces TEXT,
-                        extra_links TEXT,
                         administrateur TEXT,
                         nom_interdit TEXT,
                         denoms_by_bce TEXT[],
@@ -1099,12 +1095,12 @@ def main():
         cur.execute("""
                         INSERT INTO moniteur_documents_postgre (
                         date_doc, lang, text, url, keyword, tva, titre, num_nat, extra_keyword,nom, 
-                        date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, extra_links, 
+                        date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, 
                         administrateur, 
                         nom_interdit, denoms_by_bce,adresses_by_bce TEXT[]
                     
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s,%s, %s, %s, %s, %s,%s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s, %s, %s, %s, %s,%s)
                     ON CONFLICT (id) DO NOTHING
                     """, (
             doc["date_doc"],
@@ -1122,7 +1118,6 @@ def main():
             doc["date_jugement"],
             doc["nom_trib_entreprise"],
             doc["date_deces"],
-            doc.get("extra_links"),
             doc["administrateur"],
             doc["nom_interdit"],
             doc["denoms_by_bce"],
