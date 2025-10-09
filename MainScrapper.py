@@ -41,7 +41,6 @@ from tqdm import tqdm
 from logger_config import setup_logger, setup_dynamic_logger
 from Constante.mesconstantes import BASE_URL, ADRESSES_INSTITUTIONS_SET, NETTOIE_ADRESSE_SET
 from Extraction.NomPrenom.extraction_noms_personnes_physiques import extract_name_from_text
-from Extraction.NomPrenom.extraction_nom_interdit import extraire_personnes_interdites
 from Extraction.Adresses.extract_adresses_entreprises import extract_add_entreprises
 from Extraction.Denomination.extraction_entites_radiees import extract_noms_entreprises_radiees
 from Extraction.Adresses.extraction_adresses_moniteur import extract_address
@@ -62,9 +61,12 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     clean_nom_trib_entreprise, format_bce, chemin_csv, \
     prioriser_adresse_proche_nom_struct, nettoyer_adresses_par_keyword, \
     remove_av_parentheses, remove_duplicate_paragraphs, dedupe_phrases_ocr, tronque_texte_apres_adresse, \
-    strip_accents, normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, corriger_tva_par_nom
+    normaliser_espaces_invisibles, fetch_ejustice_article_names_by_tva, corriger_tva_par_nom
 from Utilitaire.outils.MesOutils import charger_indexes_bce
 from ParserMB.MonParser import find_linklist_in_items, retry
+# Base de données POSTGRE
+from BaseDeDonnees.creation_tables import create_table_moniteur
+from BaseDeDonnees.insertion_moniteur import insert_documents_moniteur
 
 
 def main():
@@ -73,7 +75,7 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2024-01-26")  # début
+    from_date = date.fromisoformat("2025-09-20")  # début
     to_date = date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
@@ -350,7 +352,7 @@ def main():
                 return (
                     numac, date_doc, langue, "", url, keyword,
                     None, title, subtitle, None, None, None, None, None,
-                    None, None, None, None, None, None, None, None, None, None
+                    None, None, None, None, None, None, None, None, None
                 )
 
             texte_brut = extract_clean_text(main, remove_links=False)
@@ -359,7 +361,6 @@ def main():
             nom = None
             nom_trib_entreprise = None
             date_deces = None
-            nom_interdit = None
             tvas = extract_numero_tva(texte_brut)
             tvas_valides = [t for t in tvas if format_bce(t)]
             denoms_by_bce = None
@@ -427,7 +428,6 @@ def main():
                 if not tvas_valides:
                     return None
                 # verifier à quoi sert id ici mais pense que peut etre utile
-                nom_interdit = extraire_personnes_interdites(texte_brut)  # va falloir deplacer dans fonction ?
                 nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
                 administrateur = extract_administrateur(texte_brut)
                 adresse = extract_add_entreprises(texte_brut, doc_id=doc_id)
@@ -452,7 +452,6 @@ def main():
             if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
                 if not tvas_valides:
                     return None
-                nom_interdit = extraire_personnes_interdites(texte_brut)
                 nom_trib_entreprise = extract_noms_entreprises(texte_brut, doc_id=doc_id)
                 detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
                 detect_courappel_keywords(texte_brut, extra_keywords)
@@ -512,7 +511,7 @@ def main():
                 numac, date_doc, langue, texte_brut, url, keyword,
                 tvas, title, subtitle, nns, extra_keywords, nom, date_naissance, adresse, date_jugement,
                 nom_trib_entreprise,
-                date_deces, administrateur, doc_id, nom_interdit, denoms_by_bce,
+                date_deces, administrateur, doc_id, denoms_by_bce,
                 adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice
             )
 
@@ -573,14 +572,14 @@ def main():
     index.update_searchable_attributes([
         "id", "date_doc", "title", "keyword", "nom", "date_jugement", "TVA",
         "extra_keyword", "num_nat", "date_naissance", "adresse", "nom_trib_entreprise",
-        "date_deces", "administrateur", "nom_interdit",
+        "date_deces", "administrateur",
         "text", "denoms_by_bce", "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
     ])
     index.update_displayed_attributes([
         "id", "date_doc", "title", "keyword", "extra_keyword", "nom",
         "date_jugement", "TVA", "num_nat", "date_naissance", "adresse",
         "nom_trib_entreprise", "date_deces", "administrateur",
-        "text", "url", "nom_interdit",
+        "text", "url",
         "denoms_by_bce", "adresses_by_bce", "adresses_by_ejustice", "denoms_by_ejustice"
     ])
 
@@ -616,11 +615,10 @@ def main():
                 "nom_trib_entreprise": record[15],
                 "date_deces": record[16],
                 "administrateur": record[17],
-                "nom_interdit": record[19],
-                "denoms_by_bce": record[20],
-                "adresses_by_bce": record[21],
-                "adresses_by_ejustice": record[22],
-                "denoms_by_ejustice": record[23]
+                "denoms_by_bce": record[19],
+                "adresses_by_bce": record[20],
+                "adresses_by_ejustice": record[21],
+                "denoms_by_ejustice": record[22]
             }
 
             # rien a faire dans meili mettre dans postgre
@@ -1019,117 +1017,8 @@ def main():
     #
     # --------------------------------------------------------------------------------------------------------------
     print("[📥] Connexion à PostgreSQL…")
-
-    conn = psycopg2.connect(
-        dbname="monsite_db",
-        user="postgres",
-        password="Jamesbond007colibri+",
-        host="localhost",
-        port="5432"
-    )
-    cur = conn.cursor()
-    cur.execute("SET search_path TO public;")
-    cur.execute("SELECT version();")
-    print(">> PostgreSQL connecté :", cur.fetchone()[0])
-
-    # 👇 Affiche le nom de la base de données connectée
-    cur.execute("SELECT current_database();")
-    print(">> Base utilisée :", cur.fetchone()[0])
-
-    # ➕ Active l'extension pgvector
-    # Nous supprimons cette ligne car il n'y a plus d'index de type `vector`
-    # cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-
-    print("🛠️ Recréation de la table PostgreSQL moniteur_documents...")
-    cur.execute("""
-                        CREATE TABLE IF NOT EXISTS moniteur_documents_postgre (
-                        id          SERIAL PRIMARY KEY,
-                        date_doc    DATE,
-                        lang        TEXT,
-                        text        TEXT,
-                        url         TEXT,
-                        keyword     TEXT,
-                        tva         TEXT[],
-                        titre       TEXT,
-                        num_nat     TEXT[],
-                        extra_keyword TEXT,
-                        nom         TEXT,
-                        date_naissance        TEXT,
-                        adresse        TEXT,
-                        date_jugement TEXT,
-                        nom_trib_entreprise TEXT,
-                        date_deces TEXT,
-                        administrateur TEXT,
-                        nom_interdit TEXT,
-                        denoms_by_bce TEXT[],
-                        adresses_by_bce TEXT[],
-                        denoms_by_ejustice TEXT[]
-                    
-                    
-                    );
-                    """)
-
-    conn.commit()
-    print("✅ Table recréée sans index GIN")
-
-    # Nous supprimons également la vérification des embeddings dans la table PostgreSQL
-    # cur.execute("""
-    #     SELECT t.typname
-    #     FROM pg_type t
-    #     JOIN pg_attribute a ON a.atttypid = t.oid
-    #     JOIN pg_class c ON a.attrelid = c.oid
-    #     WHERE c.relname = 'moniteur_documents' AND a.attname = 'embedding';
-    # """)
-    # print("[🧬] Type réel de 'embedding' dans PostgreSQL :", cur.fetchone())
-
-    print("[📦] Insertion dans PostgreSQL (sans vecteurs)…")
-
-    # Insertion des documents sans embeddings
-    for doc in tqdm(documents, desc="PostgreSQL Insert"):
-        text = doc.get("text", "").strip()
-
-        # Suppression de l'encodage des embeddings avec SentenceTransformer
-        # embedding = model.encode(text).tolist() if text else None
-
-        # Insertion des données dans la base PostgreSQL sans embeddings
-        cur.execute("""
-                        INSERT INTO moniteur_documents_postgre (
-                        date_doc, lang, text, url, keyword, tva, titre, num_nat, extra_keyword,nom, 
-                        date_naissance, adresse, date_jugement, nom_trib_entreprise, date_deces, 
-                        administrateur, 
-                        nom_interdit, denoms_by_bce,adresses_by_bce TEXT[]
-                    
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s, %s,%s, %s, %s, %s, %s,%s)
-                    ON CONFLICT (id) DO NOTHING
-                    """, (
-            doc["date_doc"],
-            doc["lang"],
-            text,
-            doc["url"],
-            doc["keyword"],
-            doc["TVA"],
-            doc["title"],
-            doc["num_nat"],
-            doc.get("extra_keyword"),
-            doc["nom"],
-            doc["date_naissance"],
-            doc["adresse"],
-            doc["date_jugement"],
-            doc["nom_trib_entreprise"],
-            doc["date_deces"],
-            doc["administrateur"],
-            doc["nom_interdit"],
-            doc["denoms_by_bce"],
-            doc["adresses_by_bce"],
-            doc["denoms_by_ejustice"]
-
-        ))
-
-    conn.commit()
-    cur.close()
-    conn.close()
-    print("[✅] Insertion PostgreSQL terminée.")
+    create_table_moniteur()
+    insert_documents_moniteur(documents)
 
     # --------------------------------------------------------------------------------------------------------------
     #                                 FICHIERS CSV CONTENANT LES DONNES INSEREES DANS MEILI
