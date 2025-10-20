@@ -72,7 +72,6 @@ def clean_admin_list(admins):
         if any(k in upper_val.split() for k in bruit_keywords):
             continue
 
-
         cleaned.append(val)
 
     # Supprimer doublons exacts en conservant l'ordre

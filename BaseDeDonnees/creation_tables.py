@@ -25,7 +25,6 @@ def create_table_moniteur():
             num_nat JSONB,
             extra_keyword JSONB,
             nom JSONB,
-            date_naissance JSONB,
             adresse JSONB,
             date_jugement TEXT,
             nom_trib_entreprise JSONB,
@@ -55,7 +54,6 @@ def create_table_moniteur():
         CREATE INDEX IF NOT EXISTS idx_moniteur_num_nat ON moniteur_documents_postgre USING GIN (num_nat);
         CREATE INDEX IF NOT EXISTS idx_moniteur_extra_keyword ON moniteur_documents_postgre USING GIN (extra_keyword);
         CREATE INDEX IF NOT EXISTS idx_moniteur_nom ON moniteur_documents_postgre USING GIN (nom);
-        CREATE INDEX IF NOT EXISTS idx_moniteur_date_naissance ON moniteur_documents_postgre USING GIN (date_naissance);
         CREATE INDEX IF NOT EXISTS idx_moniteur_adresse ON moniteur_documents_postgre USING GIN (adresse);
         CREATE INDEX IF NOT EXISTS idx_moniteur_nom_trib ON moniteur_documents_postgre USING GIN (nom_trib_entreprise);
         CREATE INDEX IF NOT EXISTS idx_moniteur_date_deces ON moniteur_documents_postgre USING GIN (date_deces);

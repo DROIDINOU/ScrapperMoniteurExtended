@@ -308,7 +308,7 @@ def detect_courappel_keywords(texte_brut, extra_keywords):
     if RX_INTERDIT_EXPLOITATION.search(texte_brut) : add ("interdiction_exploiter")
     if RX_MISE_A_NEANT.search(texte_brut) : add ("mise_neant_jugement")
     if RX_RAPPORT_REVO_PLAN_PRJ.search(texte_brut) : add("rapporte_revocation_plan_reorganisation")
-    if RX_SURSIS_MOIS_ACCORDE_A.search(texte_brut) : add("sans_domicile_connu")
+    if RX_SURSIS_MOIS_ACCORDE_A.search(texte_brut) : add("sursis")
     if RX_NON_EXCUSABLE.search(texte_brut):
         add("non_excusable")
     if RX_EXCUSABLE.search(texte_brut) and not re.search(r"\b(?:non[\s-]?|in)excusable\b", texte_brut, re.IGNORECASE):

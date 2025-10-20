@@ -3,6 +3,7 @@ import csv
 import re
 import os
 
+
 def _norm_ws(t: str) -> str:
     """Aplatit juste les espaces (sans NFKC)."""
     return re.sub(r"\s+", " ", t).strip()
@@ -25,14 +26,14 @@ RE_AVOCAT = re.compile(
     r"(?ix)"  # i=ignorecase, x=verbose pour lisibilité
     r"(?:ma[îi]tre|me)?\s*"
     r"(?P<nom>"
-        # 1er bloc (Titre-casse OU MAJUSCULES)
-        r"(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"
-        # séparateur (espace OU virgule)
-        r"(?:\s+|,\s*)"
-        # 2e bloc
-        r"(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"
-        # 0 à 2 blocs supplémentaires, mêmes règles, séparés par espace ou virgule
-        r"(?:(?:\s+|,\s*)(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})){0,2}"
+    # 1er bloc (Titre-casse OU MAJUSCULES)
+    r"(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"
+    # séparateur (espace OU virgule)
+    r"(?:\s+|,\s*)"
+    # 2e bloc
+    r"(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"
+    # 0 à 2 blocs supplémentaires, mêmes règles, séparés par espace ou virgule
+    r"(?:(?:\s+|,\s*)(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})){0,2}"
     r")"
     r"\s*,?\s*avocat(?:e)?\b"
 )
@@ -104,7 +105,6 @@ def variantes_nom(nom: str) -> set:
     particules = {"de", "du", "la", "le", "van", "von", "der"}
     variantes.add(" ".join(p for p in parts if p not in particules))
     return variantes
-
 
 
 # ─────────────────────────────

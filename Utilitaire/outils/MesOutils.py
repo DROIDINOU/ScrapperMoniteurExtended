@@ -45,7 +45,6 @@ def verifier_tva_belge(num_tva: str) -> bool:
     Returns:
         True si le numéro est valide, False sinon.
     """
-    import re
 
     # Supprimer tout sauf les chiffres
     chiffres = re.sub(r"\D", "", num_tva or "")
@@ -530,6 +529,22 @@ def extract_nrn_variants(text: str):
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+#                                 FONCTIONS UTILISE LORS DE L UTILISATION COMBINEE DES DEUX FICHIERS D EXTRACTION
+#                                 D ADMINISTRATEURS (curateur et autres)
+# ----------------------------------------------------------------------------------------------------------------------
+def dedupe_admins(*lists):
+    seen, out = set(), []
+    for lst in lists:
+        for name in (lst or []):
+            n = re.sub(r"\s+", " ", name.strip())
+            if len(n.split()) < 2:   # évite les mono-mots/bruit
+                continue
+            key = n.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(n)
+    return out or None
+# ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS DE TVA
 # ----------------------------------------------------------------------------------------------------------------------
 # transforme en format bce avec .
@@ -696,40 +711,7 @@ def is_entite_publique(entite_bce: str) -> bool:
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-# 1 Fonction pour tronquer tout texte après le début du récit
-def tronque_texte_apres_adresse(chaine):
-    marqueurs = [
-        " est décédé", " est décédée", " est morte",
-        " sans laisser", " Avant de statuer", " le Tribunal",
-        " article 4.33", " Tribunal de Première Instance"
-    ]
-    for m in marqueurs:
-        if m in chaine:
-            return chaine.split(m)[0].strip()
-    return chaine.strip()
 
-
-# 2 Nettoie une liste d'adresses selon un mot-clé thématique (keyword)
-def nettoyer_adresses_par_keyword(adresses, keyword):
-
-    if not adresses:
-        return []
-
-    nettoyees = []
-
-    for adr in adresses:
-        original = adr  # sauvegarde avant nettoyage
-        adr = normaliser_espaces_invisibles(adr)
-        # Normalisation espaces
-        cleaned = re.sub(r'\s+', ' ', adr).strip()
-
-        if cleaned:
-            nettoyees.append(cleaned)
-        else:
-            # fallback : garder version originale si nettoyage vide
-            nettoyees.append(original.strip())
-
-    return nettoyees
 
 
 # 3 Nettoie une adresse en supprimant un artefact fréquent :
@@ -961,46 +943,6 @@ def _window_tokens_score(texte: str, start: int, addr: str, window: int = 220) -
     return (total, first_pos)
 
 
-# ---------------------------
-# Fonction principale
-# ---------------------------
-def prioriser_adresse_proche_nom_struct(
-    nom: str,
-    texte: str,
-    adresses: List[str],
-) -> List[str]:
-    """
-    Règle :
-      1) CP le plus proche après le nom
-      2) si même CP → numéro d'adresse le plus proche après le nom
-      3) sinon ordre initial
-    """
-    if not adresses:
-        return adresses
-
-    T = _norm(texte)
-    name_end = _name_end_in_text(nom, texte)
-
-    scored = []
-    for idx, a in enumerate(adresses):
-        cp = _extract_cp(a)
-        hn = _extract_house_num(a)
-
-        cp_after = _first_after(T, cp, name_end) if cp else None
-        hn_after = _first_after(T, _norm(hn) if hn else None, name_end) if hn else None
-
-        # clé de tri simplifiée
-        key = (
-            0 if cp_after is not None else 1,
-            (cp_after - name_end) if cp_after is not None else 10**9,
-            0 if hn_after is not None else 1,
-            (hn_after - name_end) if hn_after is not None else 10**9,
-            idx  # fallback : ordre initial
-        )
-        scored.append((key, a))
-
-    scored.sort(key=lambda x: x[0])
-    return [a for _, a in scored]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1111,55 +1053,6 @@ def _format_address(row: dict, lang: str) -> str:
     return addr
 
 
-def fetch_ejustice_article_names_by_tva(tva: str, language: str = "fr") -> list[dict]:
-    """
-    Extrait (nom, forme juridique) des sociétés listées dans la recherche eJustice
-    Exemple : [{"nom": "AMD SERVICES", "forme": "SRL"}]
-    """
-    num = re.sub(r"\D", "", tva)
-    if not num:
-        return []
-
-    searches = ([num[1:]] if len(num) > 1 else []) + [num]
-    base = "https://www.ejustice.just.fgov.be/cgi_tsv/article.pl"
-
-    for search in searches:
-        url = f"{base}?{urlencode({'language': language, 'btw_search': search, 'page': 1, 'la_search': 'f', 'caller': 'list', 'view_numac': '', 'btw': num})}"
-        try:
-            resp = requests.get(url, timeout=20)
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"[article.pl] échec ({search}): {e}")
-            continue
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        main = soup.select_one("main.page__inner.page__inner--content.article-text")
-        if not main:
-            continue
-
-        out = []
-        for p in main.find_all("p"):
-            font_tag = p.find("font", {"color": "blue"})
-            if font_tag:
-                nom = font_tag.get_text(strip=True)
-
-                # tout le texte du <p> après le <font>
-                full_text = p.get_text(" ", strip=True)
-
-                # supprime le nom déjà capturé
-                reste = full_text.replace(nom, "").strip()
-
-                # capture forme juridique (SA, SRL, ASBL, etc.)
-                match_forme = re.search(r"\b(SA|SRL|SPRL|ASBL|SCRL|SNC|SCS|SC)\b", reste, flags=re.I)
-                forme = match_forme.group(1).upper() if match_forme else None
-
-                out.append({"nom": nom, "forme": forme})
-
-        if out:
-            return out
-
-    return []
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1542,61 +1435,5 @@ def _extraire_nom_majuscule(liste: list[str]) -> str | None:
         if uppers:
             return " ".join(uppers)
     return None
-
-
-# ----------------------------------------------------------------------------------------------------------------------
-# Correction des TVA si denoms_by_bce est vide (via DENOM_INDEX déjà construit)
-# ----------------------------------------------------------------------------------------------------------------------
-def corriger_tva_par_nom(doc: dict, denom_index: dict[str, set[str]], logger=None):
-    """
-    Si denoms_by_bce est vide :
-    - On prend le champ "nom"
-    - Si rien, on tente le champ "nom_trib_entreprise" (extraction des tokens UPPER sans forme juridique)
-    - On cherche dans DENOM_INDEX les EntityNumber où ce nom apparaît comme dénomination
-    - Si trouvé, on compare le TVA correspondant avec les TVA extraites
-    - Si différent → ajoute le bon numéro et met à jour denoms_by_bce
-    """
-
-    if doc.get("denoms_by_bce"):
-        return doc  # rien à faire
-
-    # 1️⃣ Essai avec champ "nom"
-    noms = names_list_from_nom(doc.get("nom"))
-    candidats = [n.strip() for n in noms if isinstance(n, str) and n.strip()]
-
-    # 2️⃣ Fallback avec champ "nom_trib_entreprise"
-    if not candidats and doc.get("nom_trib_entreprise"):
-        fallback_nom = _extraire_nom_majuscule(doc["nom_trib_entreprise"])
-        if fallback_nom:
-            candidats = [fallback_nom]
-
-    if not candidats:
-        return doc
-
-    nom_doc = candidats[0].strip().lower()
-
-    # Recherche dans index des dénominations
-    for ent, denoms in denom_index.items():
-        if any((d or "").strip().lower() == nom_doc for d in denoms):
-            tva_csv = format_bce(ent)
-            if not tva_csv:
-                continue
-
-            tva_extraites = [format_bce(t) for t in (doc.get("TVA") or []) if format_bce(t)]
-
-            if not tva_extraites or tva_csv not in tva_extraites:
-                msg = (f"[⚠️ Correction TVA par NOM/ENTREPRISE] DOC={doc.get('doc_hash')} | "
-                       f"Nom='{nom_doc}' | TVA extraite={tva_extraites} | TVA trouvé={tva_csv}")
-                if logger:
-                    logger.warning(msg)
-                else:
-                    print(msg)
-
-                doc.setdefault("TVA", []).append(tva_csv)
-                doc["denoms_by_bce"] = list(denoms)
-            break
-
-    return doc
-
 
 

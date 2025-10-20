@@ -34,14 +34,14 @@ def insert_documents_moniteur(documents):
         cur.execute("""
             INSERT INTO moniteur_documents_postgre (
                 date_doc, lang, text, url, keyword, tva, titre, num_nat,
-                extra_keyword, nom, date_naissance, adresse, date_jugement,
+                extra_keyword, nom, adresse, date_jugement,
                 nom_trib_entreprise, date_deces, administrateur,
                 denoms_by_bce, adresses_by_bce, denoms_by_ejustice
             )
             VALUES (
                 %s, %s, %s, %s, %s,
                 %s::jsonb, %s, %s::jsonb,
-                %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb,
+                %s::jsonb, %s::jsonb, %s::jsonb,
                 %s, %s::jsonb, %s::jsonb, %s::jsonb,
                 %s::jsonb, %s::jsonb, %s::jsonb
             )
@@ -57,7 +57,6 @@ def insert_documents_moniteur(documents):
             to_jsonb_safe(doc.get("num_nat")),
             to_jsonb_safe(doc.get("extra_keyword")),
             to_jsonb_safe(doc.get("nom")),
-            to_jsonb_safe(doc.get("date_naissance")),
             to_jsonb_safe(doc.get("adresse")),
             doc.get("date_jugement"),
             to_jsonb_safe(doc.get("nom_trib_entreprise")),
