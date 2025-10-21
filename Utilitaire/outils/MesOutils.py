@@ -5,6 +5,7 @@ import hashlib
 import csv
 import re
 import unicodedata
+from datetime import datetime
 import requests
 
 
@@ -285,6 +286,32 @@ def norm_er(x):
 # ----------------------------------------------------------------------------------------------------------------------
 #                                         FONCTIONS UTILISEES POUR OU SUR LES DATES
 # ----------------------------------------------------------------------------------------------------------------------
+def verifier_date_doc(date_doc, url=None, logger=None):
+    """
+    Vérifie que la date_doc est au format ISO (YYYY-MM-DD).
+    Si le format est invalide ou si la date n'existe pas,
+    on logge une erreur critique (si logger fourni) et on retourne None.
+    """
+    # Protection si la valeur est None
+    if not date_doc:
+        return None
+
+    # Vérifie la structure du format ISO
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_doc):
+        if logger:
+            logger.critical(f"[🚨 Format date_doc invalide] '{date_doc}' pour URL={url or 'inconnue'}")
+        return None
+
+    # Vérifie la validité de la date (ex : 2024-13-40)
+    try:
+        datetime.strptime(date_doc, "%Y-%m-%d")
+    except ValueError:
+        if logger:
+            logger.critical(f"[🚨 date_doc non valide] '{date_doc}' pour URL={url or 'inconnue'}")
+        return None
+
+    return date_doc
+
 def _clean_dates_and_grands_nombres(s: str) -> str:
     """Supprime les motifs de type dates + grands nombres (>6 chiffres, avec ou sans séparateur)."""
     months = r"(janvier|février|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|décembre)"
@@ -532,18 +559,101 @@ def extract_nrn_variants(text: str):
 #                                 FONCTIONS UTILISE LORS DE L UTILISATION COMBINEE DES DEUX FICHIERS D EXTRACTION
 #                                 D ADMINISTRATEURS (curateur et autres)
 # ----------------------------------------------------------------------------------------------------------------------
-def dedupe_admins(*lists):
-    seen, out = set(), []
-    for lst in lists:
-        for name in (lst or []):
-            n = re.sub(r"\s+", " ", name.strip())
-            if len(n.split()) < 2:   # évite les mono-mots/bruit
-                continue
-            key = n.lower()
-            if key not in seen:
-                seen.add(key)
-                out.append(n)
-    return out or None
+def _normaliser_admin(a):
+    """Normalise un élément (str ou dict) en dict {role, entity, raw}."""
+    if not a:
+        return None
+
+    if isinstance(a, dict):
+        role = a.get("role") or a.get("fonction") or a.get("type") or "inconnu"
+        entity = a.get("entity") or a.get("nom") or a.get("name") or a.get("personne") or a.get("label") or ""
+        raw = a.get("raw") or a.get("source") or entity
+
+        # Force en chaîne
+        if not isinstance(entity, str):
+            entity = str(entity)
+        if not isinstance(raw, str):
+            raw = str(raw)
+        if not isinstance(role, str):
+            role = str(role)
+
+        entity = entity.strip()
+        raw = raw.strip()
+        role = role.strip().lower()
+
+        if len(entity) < 2:
+            return None
+
+        return {"role": role or "inconnu", "entity": entity, "raw": raw}
+
+    # Si c’est une chaîne
+    s = str(a).strip()
+    if not s:
+        return None
+    return {"role": "inconnu", "entity": s, "raw": s}
+
+
+def _est_bruit(texte_upper):
+    """Filtre les lignes bruitées (adresses, mentions légales, etc.)."""
+    stop = {"LE", "LA", "DE", "DES", "DU", "S-", "C-", "L'", "D'"}
+    addr = {"RUE", "AVENUE", "CHAUSSÉE", "CHAUSSEE", "BOULEVARD", "PLACE", "CHEMIN", "QUAI", "IMPASSE", "SQUARE"}
+    bruit = {"DROIT", "PLEIN DROIT", "JURIDICTION", "TRIBUNAL", "JUSTICE", "INSTANCE"}
+
+    if len(texte_upper) < 3 or len(texte_upper.split()) == 1:
+        return True
+    if any(k in texte_upper for k in addr | bruit | stop):
+        return True
+    return False
+
+
+def dedupe_admins(admins_csv, admins_rx):
+    """
+    Fusionne et nettoie les deux sources d’administrateurs :
+      - admins_csv : list[str] ou list[dict]
+      - admins_rx  : list[dict] (nouveau format)
+    Retourne une liste de dicts uniformisés.
+    """
+
+    fusion = []
+
+    for source in (admins_csv or []), (admins_rx or []):
+        if not source:
+            continue
+        if isinstance(source, dict):
+            source = [source]
+        for elem in source:
+            norm = _normaliser_admin(elem)
+            if norm:
+                fusion.append(norm)
+
+    if not fusion:
+        return None
+
+    nettoyes = []
+    for a in fusion:
+        ent_up = a["entity"].upper()
+        if _est_bruit(ent_up):
+            continue
+        nettoyes.append(a)
+
+    if not nettoyes:
+        return None
+
+    def canon(s):
+        s = re.sub(r"\s+", " ", s, flags=re.UNICODE).strip().lower()
+        s = re.sub(r"[’'`]", "'", s)  # unifie les apostrophes
+        return s
+
+    vus = set()
+    resultat = []
+    for a in nettoyes:
+        cle = (a["role"], canon(a["entity"]))
+        if cle in vus:
+            continue
+        vus.add(cle)
+        resultat.append(a)
+
+    return resultat or None
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS DE TVA
 # ----------------------------------------------------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 
 # ------------------------------------------------------------------------------------------------------
-# A FAIRE
-# supprimer tqdm en prod
+# A FAIRE EN PRODUCTION
+# supprimer tqdm en prod - refaire un environnement virtuel avec requirement txt propre
+# ------------------------------------------------------------------------------------------------------
 # failed urls
 # faire les loggers
 # Pour ton cas (Moniteur belge, plusieurs juridictions, mêmes champs globaux) :
@@ -53,7 +54,7 @@ from Utilitaire.outils.MesOutils import detect_erratum, extract_numero_tva, \
     clean_date_jugement, extract_nrn_variants, norm_er, \
     format_bce, chemin_csv, dedupe_admins, \
     normaliser_espaces_invisibles, charger_indexes_bce, \
-    verifier_tva_belge
+    verifier_tva_belge, verifier_date_doc
 from ParserMB.MonParser import find_linklist_in_items, retry
 # Base de données POSTGRE
 from BaseDeDonnees.creation_tables import create_table_moniteur
@@ -66,8 +67,8 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2024-04-01")  # début
-    to_date = date.fromisoformat("2024-06-30")  # date.today()  # fin
+    from_date = date.fromisoformat("2024-10-01")  # début
+    to_date = date.fromisoformat("2024-10-15")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
@@ -90,20 +91,30 @@ def main():
     # **** LOGGER GENERAL
     logger = setup_logger("extraction", level=logging.DEBUG)
     logger.debug("✅ Logger initialisé dans le script principal.")
+    # !!!! LOGGER ERREURS CRITIQUES (le parser devra eventuellement être revu, changement structures pages moniteur)
+    logger_critical = setup_dynamic_logger(name="critical", keyword=keyword, level=logging.DEBUG)
+    logger_critical.debug("🔍 Logger 'critical' initialisé "
+                          "pour les champs"" obligatoires.")
 
-    # *** LOGGERS champs manquants obligatoires
-    logger_champs_manquants_obligatoires = setup_dynamic_logger(name="champs_manquants_obligatoires",
+    # ---- LOGGERS champs manquants
+    # -- Fichier bce n'a pas les champs correspondant au num de tva extrait
+    logger_champs_manquants_csv_bce = setup_dynamic_logger(name="champs_manquants_obligatoires",
                                                                 keyword=keyword, level=logging.DEBUG)
-    logger_champs_manquants_obligatoires.debug("🔍 Logger 'champs_manquants_obligatoires' initialisé "
+    logger_champs_manquants_csv_bce.debug("🔍 Logger 'champs_manquants_obligatoires' initialisé "
                                                "pour les champs"
                                                " obligatoires.")
-    # *** LOGGER Tva invalide
+    # -- Les champs de vérité à intégrer automatiquement dans Postgre ne sont pas présents
+    logger_champs_manquants_obligatoires = setup_dynamic_logger(name="champs_manquants_obligatoires1",
+                                                                 keyword=keyword, level=logging.DEBUG)
+
+    logger_champs_manquants_obligatoires.debug("🔍 Logger 'champs_manquants_obligatoires1' initialisé "
+                                                "pour les champs"
+                                                " obligatoires.")
+
+    # *** LOGGER Tva invalide Va falloir modifier ceci je pense
     logger_tva_invalide = setup_dynamic_logger(name="tva_invalide", keyword=keyword, level=logging.DEBUG)
     logger_tva_invalide.debug("🔍 Logger 'tva_invalide' initialisé ")
-    # verifier avant suppression
-    logged_adresses: set[tuple[str, str]] = set()
     print(">>> CODE À JOUR")
-
     # ---------------------------------------------------------------------------------------------------------------------
     #                                          VARIABLES D ENVIRONNEMENT
     # ----------------------------------------------------------------------------------------------------------------------
@@ -236,7 +247,11 @@ print(f"[✅] Index '{index_name}' prêt.")
     #             FONCTION PRINCIPALE EXTRACTION SCRAPER MONITEUR BELGE (publications tribunaux, listes radiation ...)
     # ------------------------------------------------------------------------------------------------------------------
     def scrap_informations_from_url(url, numac, date_doc, langue, keyword, title, subtitle):
-        # va certainement falloir enrichir ici
+        # 🚨 Validation critique AVANT TOUT
+        date_doc = verifier_date_doc(str(date_doc), url, logger_critical)
+        if not date_doc:
+            logger_critical.critical(f"[DROP] Document ignoré : date_doc invalide | URL={url}")
+            return None
         with requests.Session() as s:
 
             response = retry(url, session)
@@ -392,7 +407,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                     print(f"[⏰] Timeout sur {url}")
                     failed_urls.append(url)
                 except Exception as e:
-                    print(f"[❌] Erreur sur {url} : {type(e).__name__} – {e}")
+                    print(f"[❌] Erreur sur {url}: {type(e).__name__} – {e}")
                     failed_urls.append(url)
 
         print(f"[DEBUG] Futures terminées : {sum(f.done() for f in futures)} / {len(futures)}")
@@ -444,36 +459,52 @@ print(f"[✅] Index '{index_name}' prêt.")
             texte = record[3].strip()
             texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
             doc_hash = generate_doc_hash_from_html(record[3], record[1])  # ✅ Hash du texte brut + date
+            # ✅ Construction du document avec administrateurs structurés
+            admins = record[11] or []
+
+            # --- Conversion en format unifié pour Meili + Postgres ---
+            if isinstance(admins, list) and admins and isinstance(admins[0], dict):
+                # cas nouveau format [{role, entity, raw}]
+                admin_struct = [
+                    {
+                        "role": a.get("role", "inconnu"),
+                        "entity": a.get("entity") or a.get("nom") or "",
+                        "raw": a.get("raw", "")
+                    }
+                    for a in admins if isinstance(a, dict)
+                ]
+            elif isinstance(admins, list):
+                # ancien format liste de chaînes
+                admin_struct = [{"role": "inconnu", "entity": str(a), "raw": str(a)} for a in admins]
+            elif isinstance(admins, str):
+                # ancien format texte unique
+                admin_struct = [{"role": "inconnu", "entity": admins, "raw": admins}]
+            else:
+                admin_struct = None
+
             doc = {
-                "id": doc_hash,  # ✅ doc_id (hash unique généré)
-                "date_doc": record[1],  # date du document
-                "lang": record[2],  # langue
-                "text": record[3],  # texte brut
-                "url": cleaned_url,  # URL nettoyée
-                "keyword": record[5],  # mot-clé
-                "TVA": record[6],  # liste de TVA
+                "id": doc_hash,
+                "date_doc": record[1],
+                "lang": record[2],
+                "text": record[3],
+                "url": cleaned_url,
+                "keyword": record[5],
+                "TVA": record[6],
                 "title": record[7],
                 "subtitle": record[8],
-                "extra_keyword": record[9],  # mots-clés supplémentaires
+                "extra_keyword": record[9],
                 "date_jugement": record[10],
-                "administrateur": record[11],
+                "administrateur": admin_struct,  # 🆕 champ normalisé
                 "denoms_by_bce": record[13],
                 "adresses_by_bce": record[14],
                 "adresses_by_ejustice": record[15],
                 "denoms_by_ejustice": record[16],
-                "denom_fallback_bce": None  # 🆕 ajouté ici
+                "denom_fallback_bce": None,
             }
 
             documents.append(doc)
             # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
             print("🔍 Indexation des dénominations par TVA (1 seule lecture du CSV)…")
-            # ✅ Forcer administrateur à être une liste si ce n’est pas None
-            if isinstance(doc["administrateur"], str):
-                doc["administrateur"] = [doc["administrateur"]]
-            elif doc["administrateur"] is None:
-                doc["administrateur"] = None
-            elif not isinstance(doc["administrateur"], list):
-                doc["administrateur"] = [str(doc["administrateur"])]
 
     # --------------------------------------------------------------------------------------------------------------
     # LOGGERS EN CAS DE CHAMPS OBLIGATOIRE VIDE (Pour tous les mots clefs)
@@ -606,7 +637,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             )
 
             if not has_nom and not has_adresse:
-                logger_champs_manquants_obligatoires.warning(
+                logger_champs_manquants_csv_bce.warning(
                     f"[⚠️ BCE sans dénomination ni adresse] "
                     f"DOC={doc.get('id')} | BCE={bce} | keyword={keyword} | URL={doc.get('url')}"
                 )
