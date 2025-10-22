@@ -2,6 +2,7 @@
 # ------------------------------------------------------------------------------------------------------
 # A FAIRE EN PRODUCTION
 # supprimer tqdm en prod - refaire un environnement virtuel avec requirement txt propre
+# attention pour administrateur ceux qui vienne de csv ont pas de role mais on peut deduire de extra_keywords
 # ------------------------------------------------------------------------------------------------------
 # failed urls
 # faire les loggers
