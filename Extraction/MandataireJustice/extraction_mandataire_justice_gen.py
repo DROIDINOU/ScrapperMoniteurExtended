@@ -23,20 +23,22 @@ def _norm_ws(t: str) -> str:
 )"""
 
 RE_AVOCAT = re.compile(
-    r"(?ix)"  # i=ignorecase, x=verbose pour lisibilité
-    r"(?:ma[îi]tre|me)?\s*"
-    r"(?P<nom>"
-    # 1er bloc (Titre-casse OU MAJUSCULES)
-    r"(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"
-    # séparateur (espace OU virgule)
-    r"(?:\s+|,\s*)"
-    # 2e bloc
-    r"(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})"
-    # 0 à 2 blocs supplémentaires, mêmes règles, séparés par espace ou virgule
-    r"(?:(?:\s+|,\s*)(?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})){0,2}"
-    r")"
-    r"\s*,?\s*avocat(?:e)?\b"
+    r"""(?ix)               # i=ignorecase, x=verbose pour lisibilité
+    (?:ma[îi]tre|me)?\s*
+    (?P<nom>
+        (?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})
+        (?:\s+|,\s*)
+        (?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})
+        (?:
+            (?:\s+|,\s*)
+            (?:[A-ZÉÈÀÂÊÎÔÛÇ][a-zà-öø-ÿ'’\-]+|[A-ZÉÈÀÂÊÎÔÛÇ\-]{2,})
+        ){0,2}
+    )
+    \s*,?\s*avocat(?:e)?\b
+    """,
+    re.VERBOSE
 )
+
 
 
 RE_CABINET = re.compile(
@@ -135,7 +137,7 @@ def trouver_personne_dans_texte(texte: str, chemin_csv: str, mots_clefs: list) -
         for mot_clef_norm in mots_norm:
             for m in re.finditer(re.escape(mot_clef_norm), texte_norm):
                 pos = m.start()
-                fenetre = texte_norm[max(0, pos - 80): pos + 80]
+                fenetre = texte_norm[max(0, pos - 300): pos + 300]
                 for nom in noms_csv:
                     for variante in variantes_nom(nom):
                         if variante and variante in fenetre:

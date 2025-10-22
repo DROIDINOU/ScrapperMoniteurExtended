@@ -72,7 +72,9 @@ def extract_administrateur(text):
     Extrait les mandataires (liquidateurs, curateurs…)
     Retourne une liste de dictionnaires {role, entity, raw}
     """
-
+    text = re.sub(r"[\u00A0\u202F\u2009\u2002\u2003]+", " ", text)  # tous les espaces spéciaux
+    text = re.sub(r"[‐-‒–—―]", "-", text)
+    text = re.sub(r"\s+", " ", text)  # normalise tous les espaces multiples
     administrateurs = []
 
     def add_admin(role, entity, raw):
@@ -82,6 +84,7 @@ def extract_administrateur(text):
                 "entity": entity.strip(),
                 "raw": raw.strip()
             })
+
 
     # --- A. "a déchargé Me X Y de sa mission de curateur"
     m = re.search(
@@ -99,16 +102,34 @@ def extract_administrateur(text):
         r"\s*,\s*curateur(?:rice)?\b", text, flags=re.IGNORECASE):
         add_admin("curateur", nom, f"{nom}, curateur")
 
-    # --- 0. Multi-liquidateurs
-    m = re.search(
-        r"(?:liquidateur(?:s)?(?:\s+désigné\(s\))?\s*:?\s*)"
-        r"((?:\d+\.\s*(?:monsieur|madame|me|ma[iî]tre)?\s*[A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+?\s*-\s*)+)",
-        text, flags=re.IGNORECASE)
+    # --- 0. Multi-liquidateurs (ancien comportement conservé)
+    pattern_multi = (
+        r"(?:^|[\s,.;0-9])liquidateur(?:s)?(?:\s+désigné\(s\))?\s*:?\s*"
+        r"((?:\d+\.\s*(?:monsieur|madame|me|ma[iî]tre)?\s*[A-ZÉÈÀÂÊÎÔÛÇ]"
+        r"[A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+?\s*-\s*)+|"
+        r"(?:\d+\.\s*(?:monsieur|madame|me|ma[iî]tre)?\s*[A-ZÉÈÀÂÊÎÔÛÇ]"
+        r"[A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+))"
+    )
+    m = re.search(pattern_multi, text, flags=re.IGNORECASE)
+
+    # ➜ Nouveau : si pas de match, accepter un seul bloc "1. NOM - ..."
+    if not m:
+        pattern_single = (
+            r"(?:liquidateur(?:s)?(?:\s+désigné\(s\))?\s*:?\s*)"
+            r"(\d+\.\s*(?:monsieur|madame|me|ma[iî]tre)?\s*[A-ZÉÈÀÂÊÎÔÛÇ]"
+            r"[A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+)"
+        )
+        m = re.search(pattern_single, text, flags=re.IGNORECASE)
+
     if m:
         bloc = m.group(1)
+        # Ancien : (?=-)  ➜ Nouveau : (?:-|$) pour capter aussi la fin de ligne
         noms = re.findall(
-            r"(?:monsieur|madame|me|ma[iî]tre)?\s*([A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+?)\s*(?=-)",
-            bloc, flags=re.IGNORECASE)
+            r"(?:monsieur|madame|me|ma[iî]tre)?\s*"
+            r"([A-ZÉÈÀÂÊÎÔÛÇ][A-Za-zÉÈÀÂÊÎÔÛÇ\-\s']+?)\s*(?:-|$)",
+            bloc,
+            flags=re.IGNORECASE
+        )
         for n in noms:
             add_admin("liquidateur", n, n)
 

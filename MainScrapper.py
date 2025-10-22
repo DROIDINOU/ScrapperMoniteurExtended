@@ -67,7 +67,7 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2024-10-01")  # début
+    from_date = date.fromisoformat("2024-10-15")  # début
     to_date = date.fromisoformat("2024-10-15")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
@@ -301,7 +301,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 admins_csv = trouver_personne_dans_texte(
                     texte_brut,
                     chemin_csv("curateurs.csv"),
-                    ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur"]
+                    ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur", "liquidateur"]
                 )
                 admins_rx = extract_administrateur(texte_brut)
 
@@ -320,11 +320,15 @@ print(f"[✅] Index '{index_name}' prêt.")
                 admins_csv = trouver_personne_dans_texte(
                     texte_brut,
                     chemin_csv("curateurs.csv"),
-                    ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur"]
+                    ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur", "liquidateur"]
                 )
+                print("🧾 ADMIN CSV =", admins_csv)
+
                 admins_rx = extract_administrateur(texte_brut)
+                print("🧩 admins_rx =", admins_rx)
 
                 administrateur = dedupe_admins(admins_csv, admins_rx)
+                print("🎯 administrateur après merge =", administrateur)
                 detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
 
             # ----------------------------------------------------------------

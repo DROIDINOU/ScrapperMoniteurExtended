@@ -559,101 +559,100 @@ def extract_nrn_variants(text: str):
 #                                 FONCTIONS UTILISE LORS DE L UTILISATION COMBINEE DES DEUX FICHIERS D EXTRACTION
 #                                 D ADMINISTRATEURS (curateur et autres)
 # ----------------------------------------------------------------------------------------------------------------------
-def _normaliser_admin(a):
-    """Normalise un élément (str ou dict) en dict {role, entity, raw}."""
-    if not a:
+
+ADDR_WORDS = {"RUE", "AVENUE", "CHAUSSÉE", "CHAUSSEE", "BOULEVARD", "PLACE", "CHEMIN", "QUAI", "IMPASSE", "SQUARE"}
+
+def _normaliser_admin(x):
+    """Uniformise les entrées d’administrateurs en dict {role, entity, raw}."""
+    if isinstance(x, dict):
+        role = (x.get("role") or "inconnu").strip()
+        ent  = (x.get("entity") or x.get("nom") or "").strip()
+        raw  = (x.get("raw") or f"{role} {ent}").strip()
+    else:
+        ent  = str(x or "").strip()
+        role = "inconnu"
+        raw  = ent
+
+    # 🔧 Normalisation robuste des espaces / caractères invisibles
+    ent = re.sub(r"[\u00A0\u2000-\u200B\u202F\u205F\u3000]", " ", ent)  # espaces insécables
+    ent = re.sub(r"\s+", " ", ent).strip(" ,.;:\t\r\n")
+
+    if not ent or len(ent) < 2:
         return None
 
-    if isinstance(a, dict):
-        role = a.get("role") or a.get("fonction") or a.get("type") or "inconnu"
-        entity = a.get("entity") or a.get("nom") or a.get("name") or a.get("personne") or a.get("label") or ""
-        raw = a.get("raw") or a.get("source") or entity
-
-        # Force en chaîne
-        if not isinstance(entity, str):
-            entity = str(entity)
-        if not isinstance(raw, str):
-            raw = str(raw)
-        if not isinstance(role, str):
-            role = str(role)
-
-        entity = entity.strip()
-        raw = raw.strip()
-        role = role.strip().lower()
-
-        if len(entity) < 2:
-            return None
-
-        return {"role": role or "inconnu", "entity": entity, "raw": raw}
-
-    # Si c’est une chaîne
-    s = str(a).strip()
-    if not s:
-        return None
-    return {"role": "inconnu", "entity": s, "raw": s}
+    return {"role": role.lower(), "entity": ent, "raw": raw}
 
 
-def _est_bruit(texte_upper):
-    """Filtre les lignes bruitées (adresses, mentions légales, etc.)."""
-    stop = {"LE", "LA", "DE", "DES", "DU", "S-", "C-", "L'", "D'"}
-    addr = {"RUE", "AVENUE", "CHAUSSÉE", "CHAUSSEE", "BOULEVARD", "PLACE", "CHEMIN", "QUAI", "IMPASSE", "SQUARE"}
-    bruit = {"DROIT", "PLEIN DROIT", "JURIDICTION", "TRIBUNAL", "JUSTICE", "INSTANCE"}
-
-    if len(texte_upper) < 3 or len(texte_upper.split()) == 1:
+def _est_bruit(entity_upper):
+    # Ne considère "adresse" que si mot d’adresse + numéro de voie ou CP 4 chiffres
+    if any(k in entity_upper for k in ("TRIBUNAL","JURIDICTION","JUSTICE","INSTANCE")):
         return True
-    if any(k in texte_upper for k in addr | bruit | stop):
-        return True
+    if any(w in entity_upper for w in ADDR_WORDS):
+        if re.search(r"\b\d{1,4}\b", entity_upper) or re.search(r"\b\d{4}\b", entity_upper):
+            return True
     return False
-
 
 def dedupe_admins(admins_csv, admins_rx):
     """
-    Fusionne et nettoie les deux sources d’administrateurs :
-      - admins_csv : list[str] ou list[dict]
-      - admins_rx  : list[dict] (nouveau format)
-    Retourne une liste de dicts uniformisés.
+    Fusionne CSV (list[str] ou list[dict]) + regex (list[dict]).
+    CSV est considéré 'trusted' (pas filtré par _est_bruit).
+    Retourne toujours une liste (jamais None).
     """
-
     fusion = []
 
-    for source in (admins_csv or []), (admins_rx or []):
-        if not source:
-            continue
-        if isinstance(source, dict):
-            source = [source]
-        for elem in source:
-            norm = _normaliser_admin(elem)
-            if norm:
-                fusion.append(norm)
+    # 1) CSV → dict homogène, source=csv
+    for n in (admins_csv or []):
+        # 🔧 Conversion auto si le CSV contient des chaînes
+        if isinstance(n, str):
+            n = {"role": "inconnu", "entity": n, "raw": n}
+        norm = _normaliser_admin(n)
+        if norm:
+            norm["_source"] = "csv"
+            fusion.append(norm)
+
+    # 2) Regex → dict homogène, source=regex
+    for n in (admins_rx or []):
+        # 🔧 Conversion auto si le CSV contient des chaînes
+        if isinstance(n, str):
+            n = {"role": "inconnu", "entity": n, "raw": n}
+        norm = _normaliser_admin(n)
+        if norm:
+            norm["_source"] = "regex"
+            fusion.append(norm)
 
     if not fusion:
-        return None
+        return []
 
-    nettoyes = []
+    # 3) Filtrage (NE PAS filtrer CSV ; filtrer uniquement regex)
+    filtres = []
     for a in fusion:
-        ent_up = a["entity"].upper()
-        if _est_bruit(ent_up):
-            continue
-        nettoyes.append(a)
+        if a.get("_source") == "regex":
+            ent_up = a["entity"].upper()
+            if _est_bruit(ent_up):
+                continue
+        filtres.append(a)
 
-    if not nettoyes:
-        return None
+    if not filtres:
+        return []
 
+    # 4) Déduplication (rôle + nom canonique)
     def canon(s):
         s = re.sub(r"\s+", " ", s, flags=re.UNICODE).strip().lower()
-        s = re.sub(r"[’'`]", "'", s)  # unifie les apostrophes
+        s = re.sub(r"[’'`]", "'", s)
         return s
 
     vus = set()
-    resultat = []
-    for a in nettoyes:
+    out = []
+    for a in filtres:
         cle = (a["role"], canon(a["entity"]))
         if cle in vus:
             continue
         vus.add(cle)
-        resultat.append(a)
+        a.pop("_source", None)
+        out.append(a)
 
-    return resultat or None
+    return out
+
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS DE TVA
 # ----------------------------------------------------------------------------------------------------------------------
