@@ -166,4 +166,5 @@ def trouver_personne_dans_texte(texte: str, chemin_csv: str, mots_clefs: list) -
             seen.add(c2)
             propres.append(c2)
 
-    return sorted(propres)
+    # Retourne les regex fallback avec un "role" pour les différencier
+    return [{"nom": n, "role": "regex-fallback", "raw": n} for n in sorted(propres)]

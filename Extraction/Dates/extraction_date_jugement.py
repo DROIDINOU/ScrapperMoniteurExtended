@@ -73,28 +73,7 @@ def extract_jugement_date(text):
     text = re.sub(r'\s+', ' ', text.replace('\xa0', ' ').replace('\n', ' ').replace('\r', ' ')).strip()
     text = re.sub(r"\b1er\s+er\b", "1er", text)
 
-    # 🔹 2. Date dans les 100 caractères avant "le greffier"
-    match_greffier = re.search(r"(.{0,100})\ble\s+greffier", text, flags=re.IGNORECASE | re.DOTALL)
-    if match_greffier:
-        zone = match_greffier.group(1)
-        date_patterns = [
-            r"(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
-            r"(\d{2})[/-](\d{2})[/-](\d{4})",
-            r"(\d{4})[/-](\d{2})[/-](\d{2})"
-        ]
-        for pat in date_patterns:
-            match_date = re.search(pat, zone)
-            if match_date:
-                groups = match_date.groups()
-                if len(groups) == 3:
-                    if pat.startswith(r"(\d{4})[/-]"):
-                        yyyy, mm, dd = groups
-                    else:
-                        dd, mm, yyyy = groups
-                    return nettoyer_sortie(f"{int(dd)} {get_month_name(int(mm))} {yyyy}")
-                else:
-                    return nettoyer_sortie(match_date.group(1))
-
+    
     # 🔹 3. Après "division [Ville]" suivie de "le ..."
     match_division = re.search(
         r"division(?:\s+de)?\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+.{0,60}?\b(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
@@ -155,6 +134,16 @@ def extract_jugement_date(text):
         contexte_court = debut[max(0, position - 30):position]
         if "tribunal de première instance" in contexte_large and not re.search(r"\bn[ée]e?\b", contexte_court):
             return nettoyer_sortie(match_date.group(1))
+
+    # 🔹 Cas : "Par jugement rendu contradictoirement / par défaut / en dernier ressort le ..."
+    match_intro_jugement = re.search(
+        r"par\s+jugement\s+rendu(?:\s+contradictoirement|\s+par\s+d[ée]faut|\s+en\s+dernier\s+ressort)?\s+le\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
+        text[:800],
+        flags=re.IGNORECASE
+    )
+    if match_intro_jugement:
+        return nettoyer_sortie(match_intro_jugement.group(1))
+
 
     # 🔹 4. Formulations classiques
     patterns = [

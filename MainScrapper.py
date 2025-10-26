@@ -8,7 +8,7 @@
 # faire les loggers
 # Pour ton cas (Moniteur belge, plusieurs juridictions, mêmes champs globaux) :
 # ➤ Garde un seul index global.
-# ➤ Ajoute une pondération contextuelle dans la recherche,ou un champ fiabilité_nom_trib_entreprise.
+# ➤ Ajoute une pondération contextuelle dans la recherche ou un champ fiabilité_nom_trib_entreprise.
 # On va détailler calmement, car la différence entre raise et sys.exit() est fondamentale
 # en architecture logicielle, surtout en prod.
 # Commandes :
@@ -68,8 +68,8 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2024-10-15")  # début
-    to_date = date.fromisoformat("2024-10-15")  # date.today()  # fin
+    from_date = date.fromisoformat("2025-10-15")  # début
+    to_date = date.fromisoformat("2025-01-20")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
@@ -300,16 +300,15 @@ print(f"[✅] Index '{index_name}' prêt.")
                     return None
                 # recherche des administrateurs avec les deux fonctions complementaires d'extraction d'administrateurs
                 admins_csv = trouver_personne_dans_texte(
-                    texte_brut,
-                    chemin_csv("curateurs.csv"),
-                    ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur", "liquidateur"]
-                )
+                      texte_brut,
+                      chemin_csv("curateurs.csv"),
+                      ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur", "liquidateur"]
+                  )
                 admins_rx = extract_administrateur(texte_brut)
-
                 administrateur = dedupe_admins(admins_csv, admins_rx)
                 detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords)
                 if all("delai de contact" not in element for element in extra_keywords):
-                    detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
+                      detect_tribunal_entreprise_keywords(texte_brut, extra_keywords)
 
             # -----------------------------
             # TRIB ENTREPRISE
@@ -431,8 +430,11 @@ print(f"[✅] Index '{index_name}' prêt.")
     start_time = time.perf_counter()
 
     # ⚙️ 3️⃣ Configuration des attributs
-    index.update_filterable_attributes(["keyword", "denom_fallback_bce"])
-
+    index.update_filterable_attributes([
+        "keyword",
+        "denom_fallback_bce",
+        "admins_detectes"  # 👈 ici on ajoute le champ facetable
+    ])
     index.update_searchable_attributes([
         "id", "date_doc", "title", "keyword", "date_jugement", "TVA",
         "extra_keyword",
@@ -487,6 +489,9 @@ print(f"[✅] Index '{index_name}' prêt.")
             else:
                 admin_struct = None
 
+            admins_detectes = []
+            if admin_struct:
+                admins_detectes = [a["entity"] for a in admin_struct if a.get("entity")]
             doc = {
                 "id": doc_hash,
                 "date_doc": record[1],
@@ -505,6 +510,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 "adresses_by_ejustice": record[15],
                 "denoms_by_ejustice": record[16],
                 "denom_fallback_bce": None,
+                "admins_detectes": admins_detectes,  # ✅ nouveau champ pour MeiliSearch
             }
 
             documents.append(doc)
