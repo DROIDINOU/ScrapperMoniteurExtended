@@ -3,6 +3,11 @@
 # A FAIRE EN PRODUCTION
 # supprimer tqdm en prod - refaire un environnement virtuel avec requirement txt propre
 # attention pour administrateur ceux qui vienne de csv ont pas de role mais on peut deduire de extra_keywords
+# attention dans condamnation on a pas les personnes en général
+# verifier encore date jugement
+# fallback pour date jugement pas bon
+# !!!!! deplacer date jugement du debut dans tous les mots clefs
+# nettoyer date_jugement 99d6a1938b60818f1540fffcbae7b720425464704806fe472bd501966bc6a8eb
 # ------------------------------------------------------------------------------------------------------
 # failed urls
 # faire les loggers
@@ -69,7 +74,7 @@ def main():
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
     from_date = date.fromisoformat("2025-10-15")  # début
-    to_date = date.fromisoformat("2025-01-20")  # date.today()  # fin
+    to_date = date.fromisoformat("2025-10-29")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
@@ -284,11 +289,6 @@ print(f"[✅] Index '{index_name}' prêt.")
             if detect_erratum(texte_brut):
                 extra_keywords.append("erratum")
 
-            # Cas normal
-            # on va devoir deplacer nom
-            if not date_jugement:
-                date_jugement = extract_jugement_date(str(texte_brut))
-
             if re.search(r"tribunal[\s+_]+de[\s+_]+premiere[\s+_]+instance", keyword, flags=re.IGNORECASE | re.DOTALL):
                 if not tvas_valides:
                     return None
@@ -298,6 +298,8 @@ print(f"[✅] Index '{index_name}' prêt.")
                             texte_brut,
                             flags=re.IGNORECASE):
                     return None
+                date_jugement = extract_jugement_date(str(texte_brut))
+
                 # recherche des administrateurs avec les deux fonctions complementaires d'extraction d'administrateurs
                 admins_csv = trouver_personne_dans_texte(
                       texte_brut,
@@ -316,6 +318,8 @@ print(f"[✅] Index '{index_name}' prêt.")
             if re.search(r"tribunal\s+de\s+l", keyword.replace("+", " "), flags=re.IGNORECASE):
                 if not tvas_valides:
                     return None
+                date_jugement = extract_jugement_date(str(texte_brut))
+
                 # recherche des administrateurs avec les deux fonctions complementaires d'extraction d'administrateurs
                 admins_csv = trouver_personne_dans_texte(
                     texte_brut,
@@ -338,6 +342,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             if re.search(r"Liste\s+des\s+entites\s+enregistrees", keyword.replace("+", " "), flags=re.IGNORECASE):
                 if not tvas_valides:
                     return None
+                date_jugement = extract_jugement_date(str(texte_brut))
                 detect_radiations_keywords(texte_brut, extra_keywords)
 
             # ------------ -----------------
@@ -348,6 +353,14 @@ print(f"[✅] Index '{index_name}' prêt.")
             if re.search(r"cour\s+d", keyword.replace("+", " "), flags=re.IGNORECASE):
                 if not tvas_valides:
                     return None
+
+                if re.search(
+                            r"\bsuccessions?\s*(?:de|vacantes?|en\s+d[ée]sh[ée]rences?)\b",
+                            texte_brut,
+                            flags=re.IGNORECASE):
+                    return None
+                date_jugement = extract_jugement_date(str(texte_brut))
+
                 # recherche des administrateurs avec les deux fonctions complementaires d'extraction d'administrateurs
                 admins_csv = trouver_personne_dans_texte(
                     texte_brut,
@@ -460,9 +473,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             cleaned_url = clean_url(record[4])
             date_jugement = None  # Valeur par défaut si record[14] est None
             if record[10] is not None:
-                brut = clean_date_jugement(record[10])
-                date_jugement = convertir_date(brut)  # <= on récupère le résultat
-
+                date_jugement = convertir_date(record[10])
             texte = record[3].strip()
             texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
             doc_hash = generate_doc_hash_from_html(record[3], record[1])  # ✅ Hash du texte brut + date
@@ -503,7 +514,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 "title": record[7],
                 "subtitle": record[8],
                 "extra_keyword": record[9],
-                "date_jugement": record[10],
+                "date_jugement": date_jugement,
                 "administrateur": admin_struct,  # 🆕 champ normalisé
                 "denoms_by_bce": record[13],
                 "adresses_by_bce": record[14],

@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 
 MOIS = {
     "janvier": 1, "jan": 1, "january": 1,
@@ -15,28 +16,23 @@ MOIS = {
     "décembre": 12, "dec": 12, "déc": 12, "december": 12
 }
 
-
-# Convertit une date (numérique ou textuelle) en format 'YYYY-MM-DD'.
-# Retourne None si la date est vide ou invalide.
 def convertir_date(date_str):
-    # --- AJOUT : prise en charge des listes/tuples ---
-    if isinstance(date_str, (list, tuple)):
-        out = []
-        for s in date_str:
-            if not isinstance(s, str):
-                continue
-            iso = convertir_date(s)  # réutilise la logique existante
-            if iso:
-                out.append(iso)
-        return out or None
-    # -------------------------------------------------
 
     if not date_str or not isinstance(date_str, str):
-        return None  # On ne plante pas, on retourne None
+        return None
 
     date_str = date_str.strip().lower()
 
-    # Essai avec formats numériques classiques
+    # ✅ EXTRACTION AVANT CONVERSION (RÈGLE TON PROBLÈME)
+    m = re.search(
+        r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b"
+        r"|\b\d{1,2}\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4}\b",
+        date_str
+    )
+    if m:
+        date_str = m.group(0)
+
+    # ➤ Les formats numériques
     formats_possibles = [
         "%d/%m/%Y", "%Y/%m/%d",
         "%d-%m-%Y", "%Y-%m-%d",
@@ -49,12 +45,11 @@ def convertir_date(date_str):
         except ValueError:
             pass
 
-    # Essai avec noms de mois
+    # ➤ Format texte (ex: "20 octobre 2025")
     parties = date_str.replace(",", "").split()
     if len(parties) == 3:
         jour, mois_txt, annee = parties
         if mois_txt in MOIS:
-            mois_num = MOIS[mois_txt]
-            return f"{int(annee):04d}-{mois_num:02d}-{int(jour):02d}"
+            return f"{int(annee):04d}-{MOIS[mois_txt]:02d}-{int(jour):02d}"
 
-    return None  # Si aucun format ne correspond
+    return None

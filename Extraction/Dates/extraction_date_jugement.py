@@ -73,7 +73,82 @@ def extract_jugement_date(text):
     text = re.sub(r'\s+', ' ', text.replace('\xa0', ' ').replace('\n', ' ').replace('\r', ' ')).strip()
     text = re.sub(r"\b1er\s+er\b", "1er", text)
 
-    
+    # → ✅ Style 4 : "Cour d'appel de [Ville] Par arrêt du ..."
+    match_arret_simple = re.search(
+        r"(?i)\b cour \s+ d \s* ['’]? \s* appel"
+        r"(?: \s+ de \s+ [A-ZÉÈÂÊÎÔÛÇÀ-ÿ'\-]+ )?"
+        r"[^.\n]{0,100}? \b par \s+ arr[êe]t \s+ du \s+"
+        r"(\d{1,2}(?:er)? \s+ \w+ \s+ \d{4})",
+        text[:400], flags=re.IGNORECASE | re.VERBOSE
+    )
+    if match_arret_simple:
+        return nettoyer_sortie(match_arret_simple.group(1))
+
+    # → ✅ Style 5 : "Cour d'appel de [Ville] Arrêt du ..."
+    match_arret_direct = re.search(
+        r"(?i)\b cour \s+ d \s* ['’]? \s* appel"
+        r"(?: \s+ de \s+ [A-ZÉÈÂÊÎÔÛÇÀ-ÿ'\-]+ )?"
+        r"[^.\n]{0,100}? \b arr[êe]t \s+ du \s+"
+        r"(\d{1,2}(?:er)? \s+ \w+ \s+ \d{4})",
+        text, flags=re.IGNORECASE | re.VERBOSE
+    )
+    if match_arret_direct:
+        return nettoyer_sortie(match_arret_direct.group(1))
+
+    # ==========================================================
+    # 🔹 1. Cas spécifique : Cour d’Appel
+    # ==========================================================
+    # → ✅ Style 3 : "Arrêt rendu à l’audience publique (extraordinaire)? du ..."
+    match_arret_audience = re.search(
+        r"(?i)\b cour \s+ d \s* ['’]? \s* appel"
+        r"(?: \s+ de \s+ [A-ZÉÈÂÊÎÔÛÇÀ-ÿ'\-]+ )?"
+        r"[^.\n]{0,120}? "
+        r"arr[êe]t \s+ rendu \s+ à \s+ l \s* ['’] \s* audience \s+ publique"
+        r"(?: \s+ extraordinaire )? \s+ du \s+"
+        r"(\d{1,2}(?:er)? \s+ \w+ \s+ \d{4})",
+        text[:400], flags=re.IGNORECASE | re.VERBOSE
+    )
+    if match_arret_audience:
+        return nettoyer_sortie(match_arret_audience.group(1))
+
+    # 🔸 Variante sans “Cour d’appel” (texte tronqué)
+    match_arret_audience_simple = re.search(
+        r"(?i)\b arr[êe]t \s+ rendu \s+ à \s+ l \s* ['’] \s* audience \s+ publique"
+        r"(?: \s+ extraordinaire )? \s+ du \s+"
+        r"(\d{1,2}(?:er)? \s+ \w+ \s+ \d{4})",
+        text[400], flags=re.IGNORECASE | re.VERBOSE
+    )
+    if match_arret_audience_simple:
+        return nettoyer_sortie(match_arret_audience_simple.group(1))
+    # 🔹 Cas spécifique bis : "Cour d'Appel ... Extrait de l'arrêt du ..."
+    match_arret_extrait = re.search(
+        r"cour\s+d['’]appel\s+(?:de\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+\s+)?"
+        r"(?:.{0,50}?extrait\s+de\s+l['’]arr[êe]t\s+du\s+"
+        r"(\d{1,2}(?:er)?\s+\w+\s+\d{4}))",
+        text[:600],
+        flags=re.IGNORECASE
+    )
+    if match_arret_extrait:
+        return nettoyer_sortie(match_arret_extrait.group(1))
+
+    # Variante sans "Cour d’Appel" (texte tronqué)
+    match_arret_extrait_simple = re.search(
+        r"extrait\s+de\s+l['’]arr[êe]t\s+du\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
+        text[:600],
+        flags=re.IGNORECASE
+    )
+    if match_arret_extrait_simple:
+        return nettoyer_sortie(match_arret_extrait_simple.group(1))
+
+    # Variante sans "Cour d’Appel" (texte tronqué)
+    match_arret_simple = re.search(
+        r"de\s+l['’]arr[êe]t(?:\s+(?:contradictoire|par\s+d[ée]faut))?\s+rendu\s+le\s+"
+        r"(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
+        text[:600],
+        flags=re.IGNORECASE
+    )
+    if match_arret_simple:
+        return nettoyer_sortie(match_arret_simple.group(1))
     # 🔹 3. Après "division [Ville]" suivie de "le ..."
     match_division = re.search(
         r"division(?:\s+de)?\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+.{0,60}?\b(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
@@ -144,7 +219,6 @@ def extract_jugement_date(text):
     if match_intro_jugement:
         return nettoyer_sortie(match_intro_jugement.group(1))
 
-
     # 🔹 4. Formulations classiques
     patterns = [
         r"[Pp]ar\s+d[ée]cision\s+prononc[ée]e?\s+le\s+(\d{1,2}(?:er)?[\s/-]\w+[\s/-]\d{4})",
@@ -158,17 +232,28 @@ def extract_jugement_date(text):
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             return nettoyer_sortie(match.group(1))
+    print("on arrive ici au moins une fois !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    # 🔹 Fallback universel : première date trouvée dans les 500 premiers caractères
+    zone_recherche = text[:500]  # ✅ on limite la recherche au début du texte
 
-    # 🔹 Fallback universel : dernière date trouvée
-    match_final = re.findall(
+    match_final = re.finditer(
         r"\b(\d{1,2}(?:er)?\s+(?:janvier|février|fevrier|mars|avril|mai|juin|"
         r"juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4})",
-        text,
+        zone_recherche,
         flags=re.IGNORECASE
     )
-    # Puis tu filtres après coup :
-    dates_filtrees = [d for d in match_final if not re.search(r"n[ée]e?\s+le\s+" + re.escape(d), text, re.IGNORECASE)]
+
+    # On récupère date + position pour vraiment prendre la première dans le texte
+    dates_positionnees = [(m.group(1), m.start()) for m in match_final]
+
+    # Filtrer les dates du type "née le"
+    dates_filtrees = [
+        d for d, pos in dates_positionnees
+        if not re.search(r"n[ée]e?\s+le\s+" + re.escape(d), zone_recherche, re.IGNORECASE)
+    ]
+
     if dates_filtrees:
-        return nettoyer_sortie(dates_filtrees[-1])
+        return nettoyer_sortie(dates_filtrees[0])  # ✅ première date dans le texte
 
     return None
+
