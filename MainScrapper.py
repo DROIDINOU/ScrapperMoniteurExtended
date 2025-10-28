@@ -7,7 +7,6 @@
 # verifier encore date jugement
 # fallback pour date jugement pas bon
 # !!!!! deplacer date jugement du debut dans tous les mots clefs
-# nettoyer date_jugement 99d6a1938b60818f1540fffcbae7b720425464704806fe472bd501966bc6a8eb
 # ------------------------------------------------------------------------------------------------------
 # failed urls
 # faire les loggers
