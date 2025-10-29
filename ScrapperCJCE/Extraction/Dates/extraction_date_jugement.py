@@ -4,10 +4,11 @@ from datetime import datetime
 
 # --- Modules internes au projet ---
 from Constante.mesconstantes import VILLES
-# ==========================================================
+# =====================================================================================================================
 # REMARQUES GENERALES
 # TODO : FORTE DEPENDANCE A la forme de la date -> 20 octobre 2025. A tenir a l'oeil
-# ==========================================================
+# Tous les regex ont des returns si les regex marche pas fallback (score de fiabilité moins important)
+# =====================================================================================================================
 
 
 # ==========================================================
@@ -70,7 +71,7 @@ def normaliser_date_iso(texte):
 
     try:
         return datetime(int(annee), mois_num, int(jour)).strftime("%Y-%m-%d")
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -88,12 +89,24 @@ def nettoyer_sortie(texte):
 # 🔹 Fonction principale d’extraction
 # ==========================================================
 def extract_jugement_date(text):
+    #  Nettoyage complet des espaces Unicode invisibles
+    text = (
+        text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+            .replace("\xa0", " ")
+            .replace("\u202f", " ")
+            .replace("\u2009", " ")
+            .replace("\u2007", " ")
+            .replace("\u2002", " ")
+            .replace("\u2003", " ")
+            .replace("\u200b", "")
+    )
 
-    text = text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
-    text = re.sub(r'\s+', ' ', text.replace('\xa0', ' ').replace('\n', ' ').replace('\r', ' ')).strip()
+    text = re.sub(r'\s+', ' ', text).strip()
     text = re.sub(r"\b1er\s+er\b", "1er", text)
-
-    # → ✅ Style 4 : "Cour d'appel de [Ville] Par arrêt du ..."
+    # ==========================================================
+    # 🔹 0. Cas spécifique : Cour d’Appel
+    # ==========================================================
+    # → ✅ "Cour d'appel de [Ville] Par arrêt du ..."
     match_arret_simple = re.search(
         r"(?i)\b cour \s+ d \s* ['’]? \s* appel"
         r"(?: \s+ de \s+ [A-ZÉÈÂÊÎÔÛÇÀ-ÿ'\-]+ )?"
@@ -104,7 +117,7 @@ def extract_jugement_date(text):
     if match_arret_simple:
         return make_date_result(nettoyer_sortie(match_arret_simple.group(1)), "regex", 0.9)
 
-    # → ✅ Style 5 : "Cour d'appel de [Ville] Arrêt du ..."
+    # → ✅ "Cour d'appel de [Ville] Arrêt du ..."
     match_arret_direct = re.search(
         r"(?i)\b cour \s+ d \s* ['’]? \s* appel"
         r"(?: \s+ de \s+ [A-ZÉÈÂÊÎÔÛÇÀ-ÿ'\-]+ )?"
@@ -114,10 +127,7 @@ def extract_jugement_date(text):
     )
     if match_arret_direct:
         return make_date_result(nettoyer_sortie(match_arret_direct.group(1)), "regex", 0.9)
-    # ==========================================================
-    # 🔹 1. Cas spécifique : Cour d’Appel
-    # ==========================================================
-    # → ✅ Style 3 : "Arrêt rendu à l’audience publique (extraordinaire)? du ..."
+    # → ✅ "Arrêt rendu à l’audience publique (extraordinaire)? du ..."
     match_arret_audience = re.search(
         r"(?i)\b cour \s+ d \s* ['’]? \s* appel"
         r"(?: \s+ de \s+ [A-ZÉÈÂÊÎÔÛÇÀ-ÿ'\-]+ )?"
@@ -129,8 +139,6 @@ def extract_jugement_date(text):
     )
     if match_arret_audience:
         return make_date_result(nettoyer_sortie(match_arret_audience.group(1)), "regex", 0.9)
-
-
     # 🔸 Variante sans “Cour d’appel” (texte tronqué)
     match_arret_audience_simple = re.search(
         r"(?i)\b arr[êe]t \s+ rendu \s+ à \s+ l \s* ['’] \s* audience \s+ publique"
@@ -143,8 +151,8 @@ def extract_jugement_date(text):
 
     # 🔹 Cas spécifique bis : "Cour d'Appel ... Extrait de l'arrêt du ..."
     match_arret_extrait = re.search(
-        r"cour\s+d['’]appel\s+(?:de\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+\s+)?"
-        r"(?:.{0,50}?extrait\s+de\s+l['’]arr[êe]t\s+du\s+"
+        r"cour\s+d['’]appel\s+(?:de\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+\s+)?" # noqa
+        r"(?:.{0,50}?extrait\s+de\s+l['’]arr[êe]t\s+du\s+"  
         r"(\d{1,2}(?:er)?\s+\w+\s+\d{4}))",
         text[:600],
         flags=re.IGNORECASE
@@ -171,7 +179,10 @@ def extract_jugement_date(text):
     if match_arret_simple:
         return make_date_result(nettoyer_sortie(match_arret_simple.group(1)), "regex", 0.9)
 
-    # 🔹 3. Après "division [Ville]" suivie de "le ..."
+    # ==========================================================
+    # 🔹 1. Cas tribunaux
+    # ==========================================================
+    # 🔹 Après "division [Ville]" suivie de "le ..."
     match_division = re.search(
         r"division(?:\s+de)?\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+.{0,60}?\b(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
         text, flags=re.IGNORECASE
@@ -205,13 +216,13 @@ def extract_jugement_date(text):
 
     # 🔹 Ville à la fin
     match_ville_date_fin = re.search(
-        rf"\.{{0,5}}\s*(?:{VILLES})\b[^a-zA-Z0-9]{{1,5}}le\s+(\d{{1,2}}(?:er)?\s+\w+\s+\d{{4}})\.",  # noqa: E231
+        rf"\.{{0,5}}\s*(?:{VILLES})\b[^a-zA-Z0-9]{{1,5}}le\s+(\d{{1,2}}(?:er)?\s+\w+\s+\d{{4}})\.",  # noqa
         text[-300:], flags=re.IGNORECASE
     )
     if match_ville_date_fin:
         return make_date_result(nettoyer_sortie(match_ville_date_fin.group(1)), "regex", 0.9)
 
-    # 🔹 Cas "tribunal de première instance"
+    # 🔹 Cas "jugement du"
     match = re.search(
         r"par\s+jugement\s+du\s+(\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{1,2}(?:er)?\s+\w+\s+\d{4})",
         text, flags=re.IGNORECASE
@@ -242,7 +253,9 @@ def extract_jugement_date(text):
     if match_intro_jugement:
         return make_date_result(nettoyer_sortie(match_intro_jugement.group(1)), "regex", 0.9)
 
-    # 🔹 4. Formulations classiques
+    # ==========================================================
+    # 🔹 2. Cas génériques
+    # ==========================================================
     patterns = [
         r"[Pp]ar\s+d[ée]cision\s+prononc[ée]e?\s+le\s+(\d{1,2}(?:er)?[\s/-]\w+[\s/-]\d{4})",
         r"[Pp]ar\s+jugement\s+(?:rendu\s+)?(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
@@ -256,7 +269,9 @@ def extract_jugement_date(text):
         if match:
             return make_date_result(nettoyer_sortie(match.group(1)), "regex", 0.9)
     print("on arrive ici au moins une fois !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
+    # ==========================================================
+    # 🔹 3. FALLBACK
+    # ==========================================================
     # 🔹 Fallback universel : première date trouvée dans les 500 premiers caractères
     zone_recherche = text[:500]  # ✅ on limite la recherche au début du texte
 
@@ -280,4 +295,3 @@ def extract_jugement_date(text):
         return make_date_result(nettoyer_sortie(dates_filtrees[0]), "regex", 0.6)
 
     return None
-

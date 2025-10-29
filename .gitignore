@@ -7,6 +7,12 @@ venv/
 logs/
 *.log
 
+# --- Django ---
+/staticfiles/
+/media/
+/db.sqlite3
+
+
 # ▶️ Python bytecode et cache
 __pycache__/
 *.pyc
