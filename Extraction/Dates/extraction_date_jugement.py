@@ -3,13 +3,15 @@ import re
 from datetime import datetime
 
 # --- Modules internes au projet ---
-from Utilitaire.outils.MesOutils import get_month_name, convert_french_text_date_to_numeric
 from Constante.mesconstantes import VILLES
 
 
 # ==========================================================
 # 🔹 Fonctions utilitaires communes
 # ==========================================================
+# patch pour mettre la source et confidence en plus de la date
+# si date vient regex reguliers confiance haute (0.9)
+# si provient du fallback confiance basse (0.6)
 def make_date_result(date_iso, source, confidence):
     return {
         "date": date_iso,
@@ -18,8 +20,9 @@ def make_date_result(date_iso, source, confidence):
     }
 
 
+# Renvoie uniquement la date 'JJ mois AAAA' du texte brut
+# sous fonction de nettoyer_sortie
 def extraire_date_propre(texte):
-    """Renvoie uniquement la date 'JJ mois AAAA' du texte brut."""
     if not texte:
         return None
     m = re.search(
@@ -31,8 +34,11 @@ def extraire_date_propre(texte):
     return m.group(1).strip() if m else texte.strip()
 
 
+# Convertit une date française '13 décembre 2023' en ISO '2023-12-13'
+# sous fonction de nettoyer_sortie
+
 def normaliser_date_iso(texte):
-    """Convertit une date française '13 décembre 2023' en ISO '2023-12-13'."""
+
     if not texte:
         return None
 
@@ -63,8 +69,9 @@ def normaliser_date_iso(texte):
         return None
 
 
+# Nettoie et normalise la date avant de la renvoyer
 def nettoyer_sortie(texte):
-    """Nettoie et normalise la date avant de la renvoyer."""
+
     if not texte:
         return None
     texte = extraire_date_propre(str(texte))
