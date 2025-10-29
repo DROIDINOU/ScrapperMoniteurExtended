@@ -4,6 +4,10 @@ from datetime import datetime
 
 # --- Modules internes au projet ---
 from Constante.mesconstantes import VILLES
+# ==========================================================
+# REMARQUES GENERALES
+# TODO : FORTE DEPENDANCE A la forme de la date -> 20 octobre 2025. A tenir a l'oeil
+# ==========================================================
 
 
 # ==========================================================
@@ -12,6 +16,7 @@ from Constante.mesconstantes import VILLES
 # patch pour mettre la source et confidence en plus de la date
 # si date vient regex reguliers confiance haute (0.9)
 # si provient du fallback confiance basse (0.6)
+# noqa: E231
 def make_date_result(date_iso, source, confidence):
     return {
         "date": date_iso,
@@ -109,10 +114,6 @@ def extract_jugement_date(text):
     )
     if match_arret_direct:
         return make_date_result(nettoyer_sortie(match_arret_direct.group(1)), "regex", 0.9)
-
-        
-
-
     # ==========================================================
     # 🔹 1. Cas spécifique : Cour d’Appel
     # ==========================================================
@@ -204,7 +205,7 @@ def extract_jugement_date(text):
 
     # 🔹 Ville à la fin
     match_ville_date_fin = re.search(
-        rf"\.{{0,5}}\s*(?:{VILLES})\b[^a-zA-Z0-9]{{1,5}}le\s+(\d{{1,2}}(?:er)?\s+\w+\s+\d{{4}})\.",
+        rf"\.{{0,5}}\s*(?:{VILLES})\b[^a-zA-Z0-9]{{1,5}}le\s+(\d{{1,2}}(?:er)?\s+\w+\s+\d{{4}})\.",  # noqa: E231
         text[-300:], flags=re.IGNORECASE
     )
     if match_ville_date_fin:
@@ -233,7 +234,8 @@ def extract_jugement_date(text):
 
     # 🔹 Cas : "Par jugement rendu contradictoirement / par défaut / en dernier ressort le ..."
     match_intro_jugement = re.search(
-        r"par\s+jugement\s+rendu(?:\s+contradictoirement|\s+par\s+d[ée]faut|\s+en\s+dernier\s+ressort)?\s+le\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
+        r"par\s+jugement\s+rendu(?:\s+contradictoirement|\s+par\s+d[ée]faut|\s+en\s+dernier\s+ressort)?\s+"
+        r"le\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
         text[:800],
         flags=re.IGNORECASE
     )
