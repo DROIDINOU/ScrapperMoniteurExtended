@@ -10,6 +10,14 @@ from Constante.mesconstantes import VILLES
 # ==========================================================
 # 🔹 Fonctions utilitaires communes
 # ==========================================================
+def make_date_result(date_iso, source, confidence):
+    return {
+        "date": date_iso,
+        "source": source,
+        "confidence": confidence
+    }
+
+
 def extraire_date_propre(texte):
     """Renvoie uniquement la date 'JJ mois AAAA' du texte brut."""
     if not texte:
@@ -82,7 +90,7 @@ def extract_jugement_date(text):
         text[:400], flags=re.IGNORECASE | re.VERBOSE
     )
     if match_arret_simple:
-        return nettoyer_sortie(match_arret_simple.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_simple.group(1)), "regex", 0.9)
 
     # → ✅ Style 5 : "Cour d'appel de [Ville] Arrêt du ..."
     match_arret_direct = re.search(
@@ -93,7 +101,10 @@ def extract_jugement_date(text):
         text, flags=re.IGNORECASE | re.VERBOSE
     )
     if match_arret_direct:
-        return nettoyer_sortie(match_arret_direct.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_direct.group(1)), "regex", 0.9)
+
+        
+
 
     # ==========================================================
     # 🔹 1. Cas spécifique : Cour d’Appel
@@ -109,7 +120,8 @@ def extract_jugement_date(text):
         text[:400], flags=re.IGNORECASE | re.VERBOSE
     )
     if match_arret_audience:
-        return nettoyer_sortie(match_arret_audience.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_audience.group(1)), "regex", 0.9)
+
 
     # 🔸 Variante sans “Cour d’appel” (texte tronqué)
     match_arret_audience_simple = re.search(
@@ -119,7 +131,8 @@ def extract_jugement_date(text):
         text[400], flags=re.IGNORECASE | re.VERBOSE
     )
     if match_arret_audience_simple:
-        return nettoyer_sortie(match_arret_audience_simple.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_audience_simple.group(1)), "regex", 0.9)
+
     # 🔹 Cas spécifique bis : "Cour d'Appel ... Extrait de l'arrêt du ..."
     match_arret_extrait = re.search(
         r"cour\s+d['’]appel\s+(?:de\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+\s+)?"
@@ -129,7 +142,7 @@ def extract_jugement_date(text):
         flags=re.IGNORECASE
     )
     if match_arret_extrait:
-        return nettoyer_sortie(match_arret_extrait.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_extrait.group(1)), "regex", 0.9)
 
     # Variante sans "Cour d’Appel" (texte tronqué)
     match_arret_extrait_simple = re.search(
@@ -138,7 +151,7 @@ def extract_jugement_date(text):
         flags=re.IGNORECASE
     )
     if match_arret_extrait_simple:
-        return nettoyer_sortie(match_arret_extrait_simple.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_extrait.group(1)), "regex", 0.9)
 
     # Variante sans "Cour d’Appel" (texte tronqué)
     match_arret_simple = re.search(
@@ -148,14 +161,15 @@ def extract_jugement_date(text):
         flags=re.IGNORECASE
     )
     if match_arret_simple:
-        return nettoyer_sortie(match_arret_simple.group(1))
+        return make_date_result(nettoyer_sortie(match_arret_simple.group(1)), "regex", 0.9)
+
     # 🔹 3. Après "division [Ville]" suivie de "le ..."
     match_division = re.search(
         r"division(?:\s+de)?\s+[A-ZÉÈÊËÀÂÇÎÏÔÙÛÜA-Za-zà-ÿ'\-]+.{0,60}?\b(?:le|du)\s+(\d{1,2}(?:er)?\s+\w+\s+\d{4})",
         text, flags=re.IGNORECASE
     )
     if match_division:
-        return nettoyer_sortie(match_division.group(1))
+        return make_date_result(nettoyer_sortie(match_division.group(1)), "regex", 0.9)
 
     # 🔹 "Date du jugement : ..."
     match_date_jugement_label = re.search(
@@ -163,7 +177,7 @@ def extract_jugement_date(text):
         text, flags=re.IGNORECASE
     )
     if match_date_jugement_label:
-        return nettoyer_sortie(match_date_jugement_label.group(1))
+        return make_date_result(nettoyer_sortie(match_date_jugement_label.group(1)), "regex", 0.9)
 
     # 🔹 "par ordonnance prononcée en date du ..."
     match_intro = re.search(
@@ -171,7 +185,7 @@ def extract_jugement_date(text):
         text[:500], flags=re.IGNORECASE
     )
     if match_intro:
-        return nettoyer_sortie(match_intro.group(1))
+        return make_date_result(nettoyer_sortie(match_intro.group(1)), "regex", 0.9)
 
     # 🔹 "Par jugement du ..."
     match_jugement_intro = re.search(
@@ -179,7 +193,7 @@ def extract_jugement_date(text):
         text[:400], flags=re.IGNORECASE
     )
     if match_jugement_intro:
-        return nettoyer_sortie(match_jugement_intro.group(1))
+        return make_date_result(nettoyer_sortie(match_jugement_intro.group(1)), "regex", 0.9)
 
     # 🔹 Ville à la fin
     match_ville_date_fin = re.search(
@@ -187,7 +201,7 @@ def extract_jugement_date(text):
         text[-300:], flags=re.IGNORECASE
     )
     if match_ville_date_fin:
-        return nettoyer_sortie(match_ville_date_fin.group(1))
+        return make_date_result(nettoyer_sortie(match_ville_date_fin.group(1)), "regex", 0.9)
 
     # 🔹 Cas "tribunal de première instance"
     match = re.search(
@@ -198,7 +212,7 @@ def extract_jugement_date(text):
         start_pos = match.start()
         context = text[max(0, start_pos - 100):start_pos].lower()
         if "tribunal de première instance" in context:
-            return nettoyer_sortie(match.group(1))
+            return make_date_result(nettoyer_sortie(match.group(1)), "regex", 0.9)
 
     # 🔹 Cas avec contexte
     debut = text[:300].lower()
@@ -208,7 +222,7 @@ def extract_jugement_date(text):
         contexte_large = debut[max(0, position - 150):position]
         contexte_court = debut[max(0, position - 30):position]
         if "tribunal de première instance" in contexte_large and not re.search(r"\bn[ée]e?\b", contexte_court):
-            return nettoyer_sortie(match_date.group(1))
+            return make_date_result(nettoyer_sortie(match_date.group(1)), "regex", 0.9)
 
     # 🔹 Cas : "Par jugement rendu contradictoirement / par défaut / en dernier ressort le ..."
     match_intro_jugement = re.search(
@@ -217,7 +231,7 @@ def extract_jugement_date(text):
         flags=re.IGNORECASE
     )
     if match_intro_jugement:
-        return nettoyer_sortie(match_intro_jugement.group(1))
+        return make_date_result(nettoyer_sortie(match_intro_jugement.group(1)), "regex", 0.9)
 
     # 🔹 4. Formulations classiques
     patterns = [
@@ -231,8 +245,9 @@ def extract_jugement_date(text):
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return nettoyer_sortie(match.group(1))
+            return make_date_result(nettoyer_sortie(match.group(1)), "regex", 0.9)
     print("on arrive ici au moins une fois !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
     # 🔹 Fallback universel : première date trouvée dans les 500 premiers caractères
     zone_recherche = text[:500]  # ✅ on limite la recherche au début du texte
 
@@ -253,7 +268,7 @@ def extract_jugement_date(text):
     ]
 
     if dates_filtrees:
-        return nettoyer_sortie(dates_filtrees[0])  # ✅ première date dans le texte
+        return make_date_result(nettoyer_sortie(dates_filtrees[0]), "regex", 0.6)
 
     return None
 

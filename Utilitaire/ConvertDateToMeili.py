@@ -16,14 +16,24 @@ MOIS = {
     "décembre": 12, "dec": 12, "déc": 12, "december": 12
 }
 
-def convertir_date(date_str):
+def convertir_date(date_input):
+
+    # ✅ Si on reçoit un dict { value, source, confidence }
+    if isinstance(date_input, dict):
+        date_str = date_input.get("date") or date_input.get("value")
+    else:
+        date_str = date_input
 
     if not date_str or not isinstance(date_str, str):
         return None
 
     date_str = date_str.strip().lower()
 
-    # ✅ EXTRACTION AVANT CONVERSION (RÈGLE TON PROBLÈME)
+    # ✅ si déjà ISO -> NE PAS RECONVERTIR
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        return date_str
+
+    # ✅ Extraction avant conversion
     m = re.search(
         r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b"
         r"|\b\d{1,2}\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4}\b",
@@ -32,7 +42,7 @@ def convertir_date(date_str):
     if m:
         date_str = m.group(0)
 
-    # ➤ Les formats numériques
+    # ➤ Formats numériques
     formats_possibles = [
         "%d/%m/%Y", "%Y/%m/%d",
         "%d-%m-%Y", "%Y-%m-%d",
@@ -45,10 +55,11 @@ def convertir_date(date_str):
         except ValueError:
             pass
 
-    # ➤ Format texte (ex: "20 octobre 2025")
+    # ➤ Format texte ("20 octobre 2025")
     parties = date_str.replace(",", "").split()
     if len(parties) == 3:
         jour, mois_txt, annee = parties
+        mois_txt = mois_txt.replace("é", "e")  # simplification accents
         if mois_txt in MOIS:
             return f"{int(annee):04d}-{MOIS[mois_txt]:02d}-{int(jour):02d}"
 

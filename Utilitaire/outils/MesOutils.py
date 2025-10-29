@@ -594,64 +594,60 @@ def _est_bruit(entity_upper):
 
 def dedupe_admins(admins_csv, admins_rx):
     """
-    Fusionne CSV (list[str] ou list[dict]) + regex (list[dict]).
-    CSV est considéré 'trusted' (pas filtré par _est_bruit).
-    Retourne toujours une liste (jamais None).
+    Fusionne CSV (trusted) + regex (moins sûr).
+    Garde le nom du CSV + le rôle venant de regex si présent.
+    Retourne une liste homogène de dicts {role, entity, raw}.
     """
+
     fusion = []
 
-    # 1) CSV → dict homogène, source=csv
+    # --- 1) Injection CSV (source sûre)
     for n in (admins_csv or []):
-        # 🔧 Conversion auto si le CSV contient des chaînes
         if isinstance(n, str):
             n = {"role": "inconnu", "entity": n, "raw": n}
-        norm = _normaliser_admin(n)
-        if norm:
-            norm["_source"] = "csv"
-            fusion.append(norm)
+        n["_source"] = "csv"
+        fusion.append(n)
 
-    # 2) Regex → dict homogène, source=regex
+    # --- 2) Injection regex (avec rôle détecté)
     for n in (admins_rx or []):
-        # 🔧 Conversion auto si le CSV contient des chaînes
         if isinstance(n, str):
-            n = {"role": "inconnu", "entity": n, "raw": n}
-        norm = _normaliser_admin(n)
-        if norm:
-            norm["_source"] = "regex"
-            fusion.append(norm)
+            n = {"role": "regex-fallback", "entity": n, "raw": n}
+        n["_source"] = "regex"
+        fusion.append(n)
 
     if not fusion:
         return []
 
-    # 3) Filtrage (NE PAS filtrer CSV ; filtrer uniquement regex)
-    filtres = []
-    for a in fusion:
-        if a.get("_source") == "regex":
-            ent_up = a["entity"].upper()
-            if _est_bruit(ent_up):
-                continue
-        filtres.append(a)
-
-    if not filtres:
-        return []
-
-    # 4) Déduplication (rôle + nom canonique)
+    # --- 3) Déduplication intelligente :
+    # clé = entity canonicalisée (pas le rôle)
     def canon(s):
-        s = re.sub(r"\s+", " ", s, flags=re.UNICODE).strip().lower()
-        s = re.sub(r"[’'`]", "'", s)
-        return s
+        s = (
+            unicodedata.normalize("NFD", s)
+            .encode("ascii", "ignore")
+            .decode()
+            .lower()
+        )
+        return re.sub(r"\s+", " ", s)
 
-    vus = set()
-    out = []
-    for a in filtres:
-        cle = (a["role"], canon(a["entity"]))
-        if cle in vus:
-            continue
-        vus.add(cle)
-        a.pop("_source", None)
-        out.append(a)
+    # priorité de la source
+    priorité = {"liquidateur": 2, "curateur": 2, "inconnu": 1, "regex-fallback": 3}
 
-    return out
+    final = {}
+    for adm in fusion:
+        key = canon(adm["entity"])
+        current = final.get(key)
+
+        if not current or priorité[adm["role"]] > priorité[current["role"]]:
+            final[key] = {
+                "entity": adm["entity"],
+                "role": adm["role"],
+                "raw": adm["raw"],
+                "origin": adm["_source"],      # <— trace provenance CSV/regex
+                "confidence": priorité[adm["role"]] * 25 + (75 if adm["_source"] == "csv" else 0)
+            }
+
+    return list(final.values())
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 #                                 FONCTIONS UTILISEES POUR LES NUMEROS DE TVA

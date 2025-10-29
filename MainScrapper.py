@@ -470,8 +470,18 @@ print(f"[✅] Index '{index_name}' prêt.")
     with requests.Session() as session:
         for record in tqdm(final, desc="Préparation Meilisearch"):
             cleaned_url = clean_url(record[4])
-            date_jugement = None  # Valeur par défaut si record[14] est None
-            if record[10] is not None:
+            date_input = record[10]
+
+            if isinstance(record[10], dict):
+                # On transforme juste record[10]["date"], mais on garde l'objet complet
+                date_iso = convertir_date(record[10].get("date"))
+                date_jugement = {
+                    "date": date_iso,
+                    "source": record[10].get("source"),
+                    "confidence": record[10].get("confidence")
+                }
+            else:
+                # ancien format (sans metadata)
                 date_jugement = convertir_date(record[10])
             texte = record[3].strip()
             texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
@@ -479,17 +489,11 @@ print(f"[✅] Index '{index_name}' prêt.")
             # ✅ Construction du document avec administrateurs structurés
             admins = record[11] or []
 
-            # --- Conversion en format unifié pour Meili + Postgres ---
+            # ✅ Si déjà structuré (résultat de dedupe_admins), on garde tel quel
             if isinstance(admins, list) and admins and isinstance(admins[0], dict):
-                # cas nouveau format [{role, entity, raw}]
-                admin_struct = [
-                    {
-                        "role": a.get("role", "inconnu"),
-                        "entity": a.get("entity") or a.get("nom") or "",
-                        "raw": a.get("raw", "")
-                    }
-                    for a in admins if isinstance(a, dict)
-                ]
+                admin_struct = admins
+
+
             elif isinstance(admins, list):
                 # ancien format liste de chaînes
                 admin_struct = [{"role": "inconnu", "entity": str(a), "raw": str(a)} for a in admins]
