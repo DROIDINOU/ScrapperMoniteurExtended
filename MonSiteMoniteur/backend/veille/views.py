@@ -197,22 +197,16 @@ def api_search(request):
     query = request.GET.get('q', '').strip()
     print(f"[🔍] Requête utilisateur brute : {query}")
 
-    # ✅ Normalisation intelligente
-    search_term = (
-        query.lstrip('=')      # enlève "=" si c'est une recherche TVA
-             .replace('.', '') # enlève les points
-             .replace(' ', '') # enlève les espaces
-    )
+    # ✅ Recherche globale : conserver espaces pour la fuzzy search
+    search_term = query.lstrip('=')  # juste enlever "=" mais garder les espaces
 
     print(f"[🔎] Terme envoyé à MeiliSearch : {search_term}")
 
-    # ✅ Connexion Meilisearch via settings
     client = MeiliClient(
         settings.MEILI_URL,
         settings.MEILI_SEARCH_KEY
     )
 
-    # ✅ Utilise INDEX_NAME défini dans settings.py (.env)
     hits = client.index(settings.INDEX_NAME).search(
         search_term,
         {"limit": 20}
@@ -232,44 +226,6 @@ def api_search(request):
     }
 
     return JsonResponse(results)
-
-def api_search_niss(request):
-    query = request.GET.get('q', '').strip()
-    print(f"NISS query: {query}")
-    client = Client(
-        settings.MEILI_URL,
-        settings.MEILI_SEARCH_KEY  # ---> la clé de recherche
-    )
-    # Ne modifie pas la structure
-    search_term = query  # Pas de transformation ici
-
-    indexes = {
-        'moniteur': 'moniteur_documents',
-        #'eurlex': 'eurlex_docs',
-        #'CEtat': 'conseil_etat_arrets100',
-        #'CA': 'constcourtjudgments2025',
-        #'Annexe': 'annexes_juridique'
-    }
-
-    results = {}
-
-    for key, index_name in indexes.items():
-        try:
-            raw_hits = client.index(settings.INDEX_NAME).search(search_term).get('hits', [])
-        except Exception as e:
-            print(f"[ERREUR] Index '{key}' → {e}")
-            raw_hits = []
-
-        # Match textuellement
-        filtered_hits = [
-            hit for hit in raw_hits
-            if search_term in hit.get("text", "")
-        ]
-
-        results[key] = filtered_hits
-
-    return JsonResponse(results)
-
 
 
 def api_search_tva(request):

@@ -12,7 +12,6 @@ urlpatterns = [
     path("api/search/rue/", views.api_search_rue, name="api_search_rue"),
     path("api/autocomplete/rue/", views.api_autocomplete_rue, name="autocomplete_rue"),
     path('api/search/tva/', views.api_search_tva, name='api_search_tva'),
-    path('api/search/niss/', views.api_search_niss, name='api_search_niss'),
     path('contact/', views.contact, name='contact'),
     path('fonctionnalites/', views.fonctionnalites, name='fonctionnalites'),
     path('recherches/', views.recherches, name='recherches'),
