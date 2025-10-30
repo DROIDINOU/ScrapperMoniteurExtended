@@ -15,9 +15,9 @@ def detect_radiations_keywords(texte_brut: str, extra_keywords):
         # On ne regarde que les 500 premiers caractères pour les headers
         head_text = texte_brut[:450]
 
-        # ------------------------------------------------------------------------------------------------------------------
+        # --------------------------------------------------------------------------------------------------------------
         # --- PATTERNS critiques : détection directe (on quitte si trouvé)
-        # ------------------------------------------------------------------------------------------------------------------
+        # --------------------------------------------------------------------------------------------------------------
         # ***** RETRAITS
         retrait_non_depot_pattern = re.compile(
             r"liste\s+des\s+entit[ée]s?\s+enregistr[ée]es?.{0,200}?"
@@ -82,9 +82,9 @@ def detect_radiations_keywords(texte_brut: str, extra_keywords):
             extra_keywords.append("radiation_office_ubo")
             return extra_keywords
 
-        # ------------------------------------------------------------------------------------------------------------------
+        # --------------------------------------------------------------------------------------------------------------
         # --- PATTERNS en série (moins critiques)
-        # ------------------------------------------------------------------------------------------------------------------
+        # --------------------------------------------------------------------------------------------------------------
         if re.search(
             r"pour\s+cause\s+de\s+dou+blons?.{0,100}?a\s+été\s+an+ul+ée",
             texte_brut, flags=re.IGNORECASE
@@ -133,13 +133,15 @@ def detect_radiations_keywords(texte_brut: str, extra_keywords):
             extra_keywords.append("annulation_ou_arret_radiation_succursale_siege")
 
         if re.search(
-            r"(annulation|arr[êe]t|retrait)\s+de\s+la\s+radiation.{0,80}?office.{0,80}?non[- ]?respect.{0,80}?formalit[ée]s?.{0,80}?ubo",
+            r"(annulation|arr[êe]t|retrait)\s+de\s+la\s+radiation.{0,80}?office.{0,80}?non[- ]?respect.{0,80}?"
+            r"formalit[ée]s?.{0,80}?ubo",
             texte_brut, flags=re.IGNORECASE
         ):
             extra_keywords.append("retrait_radiation_ubo")
 
         if re.search(
-            r"(annulation|arr[êe]t|retrait)\s+de\s+la\s+radiation.{0,80}?office.{0,80}?pour.{0,40}?non[-\s]?d[ée]p[oô]t.{0,80}?comptes\s+annuels",
+            r"(annulation|arr[êe]t|retrait)\s+de\s+la\s+radiation.{0,80}?office.{0,80}?pour.{0,40}?non[-\s]?"
+            r"d[ée]p[oô]t.{0,80}?comptes\s+annuels",
             texte_brut, flags=re.IGNORECASE
         ):
             extra_keywords.append("retrait_radiation_non_depot_comptes")

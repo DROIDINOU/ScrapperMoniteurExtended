@@ -2,8 +2,8 @@ import re
 from Utilitaire.outils.MesOutils import normalize_mois, normalize_annees
 
 DATE_RX = r"(?:\d{1,2}(?:er)?\s+\w+\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{2,4})"
-DATE_OPT  = rf"(?:\s+du\s+{DATE_RX})?"   # ← rend la date optionnelle
-RG_TOKEN  = r"\(RG"
+DATE_OPT = rf"(?:\s+du\s+{DATE_RX})?"   # ← rend la date optionnelle
+RG_TOKEN = r"\(RG"
 
 
 APOST = r"[’']"  # apostrophe droite ou typographique
