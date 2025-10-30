@@ -11,7 +11,6 @@ APOST = r"[’']"  # apostrophe droite ou typographique
 
 RX_APPEL = re.compile(r"(?:statuant|siégeant)\s+en\s+degr[ée]?\s+d[’']?appel|requête\s+d[’']?appel", re.IGNORECASE)
 RX_CONDAMN = re.compile(r"\b(?:condamn[ée]?(?:es)?|emprisonnement|réclusion|peine\s+privative\s+de\s+liberté)\b", re.IGNORECASE)
-RX_SANS_DOM = re.compile(r"\bsans\s+(?:résidence|domicile)\s+ni\s+(?:résidence|domicile)(?:\s+connu[e]?s?)?", re.IGNORECASE)
 RX_DESIGN = re.compile(
     r"[,:\s]*\bdésign(?:é|ée|ation)\b(.*?)(?:en\s+qualité\s+de\s+)?\b(?:administrateur|administratrice|curateur|liquidateur)\b",
     re.IGNORECASE | re.DOTALL
@@ -83,18 +82,6 @@ RX_DELAI_CONTACT = re.compile(
     re.IGNORECASE | re.DOTALL | re.VERBOSE
 )
 
-RX_SANS_DOMICILE = re.compile(
-    r"""
-    (?:
-        actuellement\s+)?            # "actuellement" est optionnel
-    (?:n['’]a\s+)?                   # "n'a" (forme contractée) est optionnelle
-    (?:sans\s+)?                     # parfois on dit juste "sans résidence..."
-    (?:ni\s+)?                       # pour couvrir "ni résidence"
-    résidence\s+(?:ni\s+)?domicile\s+connu
-    """,
-    re.IGNORECASE | re.VERBOSE
-)
-
 
 # 1. Nettoyage du texte pour éviter les problèmes d'encodage
 def normalize(text):
@@ -134,8 +121,6 @@ def detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords):
         add("levee_mesure")
     if RX_CONDAMN.search(texte_brut):
         add("condamnation")
-    if RX_SANS_DOM.search(texte_brut):
-        add("sans_domicile_connu")
     if RX_DESIGN.search(texte_brut):
         add("désignation")
     if RX_DISSOLUTION.search(texte_brut):
@@ -148,9 +133,6 @@ def detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords):
         add("nommination_administrateur")
     if RX_ANNULATION_AG.search(texte_brut):
         add("annulation_decision_AG")
-
-    if RX_SANS_DOMICILE.search(texte_brut):
-        add("sans_domicile_connu")
     match = RX_DELAI_CONTACT.search(texte_brut)
     if match:
         mois = normalize_mois(match.group('nb'))
