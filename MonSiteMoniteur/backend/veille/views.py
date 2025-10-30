@@ -39,11 +39,9 @@ def api_autocomplete_rue(request):
     for h in hits:
         print(" ➡️ ", h)
 
-    # ✅ correction → champs "name"
     suggestions = [
-        {"name": h.get("name"), "city": h.get("city"), "postcode": h.get("postcode")}
+        {"label": h.get("label")}  # ✅ on renvoie le label complet "Rue… (XXXX Embourg)"
         for h in hits
-        if h.get("name") not in (None, "", " ")
     ]
 
     print("📤 SUGGESTIONS RETOURNÉES :", suggestions)
