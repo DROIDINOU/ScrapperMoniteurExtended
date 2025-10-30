@@ -12,6 +12,47 @@ from meilisearch import Client as MeiliClient
 import os
 import psycopg2
 
+def api_search_keyword(request):
+    query = request.GET.get("q", "").strip()
+
+    print(f"🔍 SEARCH KEYWORD — reçu : {query}")
+
+    if not query:
+        return JsonResponse({"moniteur": []})
+
+    client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
+
+    try:
+        response = client.index(settings.INDEX_NAME).search(
+            query,
+            {
+                "attributesToSearchOn": ["extra_keyword"],   # ✅ essentiel
+                "limit": 50
+            }
+        )
+    except Exception as e:
+        print("❌ ERREUR MeiliSearch :", e)
+        return JsonResponse({"moniteur": []})
+
+    hits = response.get("hits", [])
+
+    results = {
+        "moniteur": [
+            {
+                "text": h.get("text", ""),
+                "url": h.get("url", ""),
+                "title": h.get("title", ""),
+                "date_document": h.get("date_doc", ""),
+                "extra_keyword": h.get("extra_keyword", []),   # ✅ retourne la liste telle quelle
+            }
+            for h in hits
+        ]
+    }
+
+    print(f"✅ {len(results['moniteur'])} résultats trouvés pour keyword")
+
+    return JsonResponse(results)
+
 
 def api_autocomplete_rue(request):
     query = request.GET.get("q", "").strip()
@@ -19,7 +60,6 @@ def api_autocomplete_rue(request):
     print("🔍 AUTOCOMPLETE RUE - Query reçue :", query)
 
     if not query:
-        print("⚠️ Aucun terme fourni")
         return JsonResponse([], safe=False)
 
     client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
@@ -35,18 +75,123 @@ def api_autocomplete_rue(request):
 
     hits = response.get("hits", [])
 
-    print(f"✅ Hits reçus ({len(hits)}): ")
+    suggestions = []
     for h in hits:
-        print(" ➡️ ", h)
+        label = h.get("label", "")
 
-    suggestions = [
-        {"label": h.get("label")}  # ✅ on renvoie le label complet "Rue… (XXXX Embourg)"
-        for h in hits
-    ]
+        # ✅ NE PREND QUE LA PARTIE AVANT LE "-"
+        clean_label = label.split("-")[0].strip()
 
-    print("📤 SUGGESTIONS RETOURNÉES :", suggestions)
+        suggestions.append({"label": clean_label})
+
+    print("📤 AUTOCOMPLETE RETOURNÉ :", suggestions)
 
     return JsonResponse(suggestions, safe=False)
+
+
+def api_search_rue(request):
+    import unicodedata, re
+
+    query = request.GET.get("q", "").strip()
+    print(f"🏠 SEARCH RUE — reçu : {query}")
+
+    if not query:
+        return JsonResponse({"moniteur": []})
+
+    # ✅ Normalisation (minuscules + suppression accents + espaces uniformisés)
+    def norm(s: str) -> str:
+        if not isinstance(s, str):
+            return ""
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))  # enlève les accents
+        s = re.sub(r"\s+", " ", s)  # espaces multiples -> espace unique
+        return s.lower().strip()
+
+    query_norm = norm(query)
+
+    client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
+
+    try:
+        response = client.index(settings.INDEX_NAME).search(
+            query,  # 🟢 recherche large
+            {
+                "attributesToSearchOn": ["adresses_all_flat"],
+                "limit": 200
+            }
+        )
+    except Exception as e:
+        print("❌ ERREUR MeiliSearch :", e)
+        return JsonResponse({"moniteur": []})
+
+    raw_hits = response.get("hits", [])
+
+    # 🔥 Post-filter strict (contient exactement la chaîne tapée ou sélectionnée)
+    filtered_hits = []
+    for h in raw_hits:
+        adresses = h.get("adresses_all_flat") or []
+
+        if any(query_norm in norm(addr) for addr in adresses):
+            filtered_hits.append(h)
+
+    print(f"✅ {len(filtered_hits)} résultats après filtre strict insensible à la casse/accents")
+
+    return JsonResponse({
+        "moniteur": [
+            {
+                "text": h.get("text", ""),
+                "url": h.get("url", ""),
+                "title": h.get("title", ""),
+                "date_document": h.get("date_doc", ""),
+                "adresses_all_flat": h.get("adresses_all_flat", []),
+                "denoms_by_bce": h.get("denoms_by_bce", []),
+                "denoms_by_ejustice": h.get("denoms_by_ejustice", [])
+            }
+            for h in filtered_hits
+        ]
+    })
+
+
+
+def api_autocomplete_keyword(request):
+    query = request.GET.get("q", "").strip()
+
+    print(f"🔍 AUTOCOMPLETE KEYWORD — reçu : {query}")
+
+    if not query:
+        return JsonResponse([], safe=False)
+
+    client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
+
+    try:
+        response = client.index(settings.INDEX_NAME).search(
+            query,
+            {
+                "attributesToSearchOn": ["extra_keyword"],
+                "limit": 10
+            }
+        )
+    except Exception as e:
+        print("❌ ERREUR MeiliSearch :", e)
+        return JsonResponse([], safe=False)
+
+    hits = response.get("hits", [])
+
+    # ✅ NE RETOURNER QUE LES MOTS-CLÉS
+    suggestions = []
+    for h in hits:
+        kws = h.get("extra_keyword", [])
+        for kw in kws:
+            if query.lower() in kw.lower():
+                suggestions.append({"label": kw})
+
+    # ✅ éviter doublons
+    suggestions = list({d["label"]: d for d in suggestions}.values())
+
+    print("📤 AUTOCOMPLETE RETOURNÉ :", suggestions)
+    return JsonResponse(suggestions, safe=False)
+
+
+
 
 def api_search(request):
     query = request.GET.get('q', '').strip()

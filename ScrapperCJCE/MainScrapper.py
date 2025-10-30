@@ -462,7 +462,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "administrateur", "text",
         "denoms_by_bce", "adresses_by_bce",
         "adresses_by_ejustice", "denoms_by_ejustice",
-        "denom_fallback_bce"  # 🆕 ajouté ici
+        "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
     ])
 
     index.update_displayed_attributes([
@@ -470,8 +470,8 @@ print(f"[✅] Index '{index_name}' prêt.")
         "date_jugement", "TVA",
         "administrateur", "text", "url",
         "denoms_by_bce", "adresses_by_bce",
-        "adresses_by_ejustice", "denoms_by_ejustice",
-        "denom_fallback_bce"  # 🆕 ajouté ici aussi
+        "adresses_by_ejustice", "denoms_by_ejustice", "extra_keyword",
+        "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
     ])
 
     print(f"[⚙️] Index '{index_name}' prêt en {time.perf_counter() - start_time:.2f}s.")
@@ -539,6 +539,8 @@ print(f"[✅] Index '{index_name}' prêt.")
             documents.append(doc)
             # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
             print("🔍 Indexation des dénominations par TVA (1 seule lecture du CSV)…")
+
+
 
     # --------------------------------------------------------------------------------------------------------------
     # LOGGERS EN CAS DE CHAMPS OBLIGATOIRE VIDE (Pour tous les mots clefs)
@@ -630,6 +632,37 @@ print(f"[✅] Index '{index_name}' prêt.")
 
         # ⚠️ On garde ce champ vide ici pour le prochain script
         doc["denom_fallback_bce"] = None
+
+        # ----------------------------------------------------------
+        # ✅ FLATTEN des adresses et dénominations pour MeiliSearch
+        # ----------------------------------------------------------
+        adresses_ejustice_flat = []
+        if isinstance(doc.get("adresses_by_ejustice"), list):
+            for entry in doc["adresses_by_ejustice"]:
+                adr = entry.get("adresse")
+                if adr:
+                    adresses_ejustice_flat.append(adr.strip())
+
+        adresses_bce_flat = []
+        if isinstance(doc.get("adresses_by_bce"), list):
+            for entry in doc["adresses_by_bce"]:
+                for a in entry.get("adresses", []):
+                    adr = a.get("adresse")
+                    if adr:
+                        adresses_bce_flat.append(adr.strip())
+
+        denoms_bce_flat = []
+        if isinstance(doc.get("denoms_by_bce"), list):
+            for entry in doc["denoms_by_bce"]:
+                for name in entry.get("noms", []):
+                    if name:
+                        denoms_bce_flat.append(name.strip())
+
+        # ✅ champs finaux envoyés à MeiliSearch
+        doc["adresses_all_flat"] = list(dict.fromkeys(adresses_ejustice_flat + adresses_bce_flat))
+        doc["adresses_ejustice_flat"] = list(dict.fromkeys(adresses_ejustice_flat))
+        doc["adresses_bce_flat"] = list(dict.fromkeys(adresses_bce_flat))
+        doc["denoms_bce_flat"] = list(dict.fromkeys(denoms_bce_flat))
 
     # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste
     # ================================================================
