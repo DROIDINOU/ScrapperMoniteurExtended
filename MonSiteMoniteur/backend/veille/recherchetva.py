@@ -1,8 +1,24 @@
 from meilisearch import Client
+from django.conf import settings
 
-client = Client('http://127.0.0.1:7700')  # mets l'URL de prod ici si besoin
+# --------------------------------------------------
+# Connexion à Meilisearch (clé + URL depuis settings.py)
+# --------------------------------------------------
+client = Client(
+    settings.MEILI_URL,          # http://127.0.0.1:7700
+    settings.MEILI_MASTER_KEY    # Jamesbond007colibri+
+)
 
-# Nouvelle config sans "."
-new_separators = [" ", "\t", "\n", ",", ";", "-", "_", "(", ")", "[", "]", "{", "}", ":", "/", "\\", "?", "!", "@", "#", "$", "%", "&", "*", "+", "=", "<", ">", "|", "~", "`", "^"]
+# ⚠️ Ne jamais modifier directement dans les templates
+index = client.index(settings.INDEX_NAME)
 
-client.index('moniteur_docs').update_separator_tokens(new_separators)
+# Définition des séparateurs (avec le + inclut)
+new_separators = [
+    " ", "\t", "\n", ",", ";", "-", "_", "(", ")", "[", "]", "{", "}",
+    ":", "/", "\\", "?", "!", "@", "#", "$", "%", "&", "*", "+", "=",
+    "<", ">", "|", "~", "`", "^"
+]
+
+index.update_separator_tokens(new_separators)
+
+print("✅ Config Meilisearch appliquée : séparateurs mis à jour")

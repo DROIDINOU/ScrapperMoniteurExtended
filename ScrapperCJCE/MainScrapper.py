@@ -31,7 +31,7 @@ import sys
 import csv
 from collections import defaultdict
 from datetime import date
-from functools import wraps
+from pathlib import Path
 
 # --- Bibliothèques tierces ---
 import meilisearch
@@ -123,7 +123,16 @@ def main():
     # ---------------------------------------------------------------------------------------------------------------------
     #                                          VARIABLES D ENVIRONNEMENT
     # ----------------------------------------------------------------------------------------------------------------------
-    load_dotenv()
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    print(f"🔍 Loading .env from: {env_path}")
+
+    # ✅ Force le chargement du .env, même si un .env existe ailleurs
+    load_dotenv(dotenv_path=env_path, override=True)
+    print("RAW KEY =", repr(os.getenv("MEILI_MASTER_KEY")))
+    # 🚨 Debug (temporaires)
+    print("➡️ MEILI_URL =", os.getenv("MEILI_URL"))
+    print("➡️ MEILI_MASTER_KEY =", os.getenv("MEILI_MASTER_KEY"))
+    print("➡️ INDEX_NAME =", os.getenv("INDEX_NAME"))
     meili_url = os.getenv("MEILI_URL")
     meili_key = os.getenv("MEILI_MASTER_KEY")
     index_name = os.getenv("INDEX_NAME")

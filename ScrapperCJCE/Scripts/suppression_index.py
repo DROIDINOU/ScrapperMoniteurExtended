@@ -1,12 +1,23 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import meilisearch
 
-# 🔹 Charger les variables d'environnement
-load_dotenv()
+# ✅ Localise le fichier .env dans le dossier parent
+env_path = Path(__file__).resolve().parents[2] / ".env"
+print(f"🔍 Loading .env from: {env_path}")
+
+# ✅ Force le chargement du .env, même si un .env existe ailleurs
+load_dotenv(dotenv_path=env_path, override=True)
+
+# 🚨 Debug (temporaires)
+print("➡️ MEILI_URL =", os.getenv("MEILI_URL"))
+print("➡️ MEILI_MASTER_KEY =", os.getenv("MEILI_MASTER_KEY"))
+print("➡️ INDEX_NAME =", os.getenv("INDEX_NAME"))
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
-
+print("➡️ DEBUG MEILI_URL =", os.getenv("MEILI_URL"))
+print("➡️ DEBUG MEILI_MASTER_KEY =", os.getenv("MEILI_MASTER_KEY"))
 # 🔹 Connexion
 client = meilisearch.Client(MEILI_URL, MEILI_KEY)
 

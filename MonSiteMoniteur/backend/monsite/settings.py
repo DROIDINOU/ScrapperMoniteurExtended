@@ -1,14 +1,29 @@
+from dotenv import load_dotenv
 from pathlib import Path
 import os
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+# backend/settings.py --> /MonProjetFinalMoniteur/MonSiteMoniteur/backend/settings.py
+BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-7yj+gzat15m40er!d#(ci*#@c=rt=$()y0u7tr05c01euoe$l7'
-
+# >>> MONTER D'UN SEUL NIVEAU <<<
+ENV_PATH = BASE_DIR.parent.parent / ".env"
+load_dotenv(ENV_PATH, override=True)
+# --- MeiliSearch ---
+MEILI_URL = os.getenv("MEILI_URL")
+MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY")
+MEILI_SEARCH_KEY = os.getenv("MEILI_MASTER_KEY")  # si tu n’as pas de clé SEARCH séparée
+INDEX_NAME = os.getenv("INDEX_NAME")
+INDEX_RUE_NAME = os.getenv("INDEX_RUE_NAME", "mesrues_be")
+print("✅ .env utilisé :", ENV_PATH)
+print("SECRET_KEY =", os.getenv("SECRET_KEY"))
+print("DB USER/PASS =", os.getenv("DB_USER"), os.getenv("DB_PASSWORD"))
+print("BASE_DIR =", BASE_DIR)
+print("BASE_DIR.parent =", BASE_DIR.parent)
+print("BASE_DIR.parent.parent =", BASE_DIR.parent.parent)
+SECRET_KEY = os.getenv("SECRET_KEY")
+print("SECRET_KEY:", SECRET_KEY)
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['juriscope.onrender.com', 'localhost', '127.0.0.1', '6297ec3f0568.ngrok-free.app']
 
@@ -65,13 +80,15 @@ TEMPLATES = [
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'monsite_db',
-        'USER': 'postgres',
-        'PASSWORD': 'Jamesbond007colibri+',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv("DB_NAME"),
+        'USER': os.getenv("DB_USER"),
+'PASSWORD': os.getenv("DB_PASSWORD") or "",
+
+        'HOST': os.getenv("DB_HOST"),
+        'PORT': os.getenv("DB_PORT"),
     }
 }
+
 
 
 # Password validation

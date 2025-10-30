@@ -6,106 +6,97 @@ from django.contrib.auth import authenticate, login
 import re
 from django.http import JsonResponse
 from meilisearch import Client
-from sentence_transformers import SentenceTransformer
 from django.http import JsonResponse
+from django.conf import settings
 from meilisearch import Client as MeiliClient
+import os
 import psycopg2
-import numpy as np
 
-# Chargement du modèle d'embedding
-model = SentenceTransformer(
-    "dangvantuan/sentence-camembert-large",
-    trust_remote_code=True,
-    use_auth_token=False
-)
+
+def api_autocomplete_rue(request):
+    query = request.GET.get("q", "").strip()
+
+    print("🔍 AUTOCOMPLETE RUE - Query reçue :", query)
+
+    if not query:
+        print("⚠️ Aucun terme fourni")
+        return JsonResponse([], safe=False)
+
+    client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
+
+    try:
+        response = client.index(settings.INDEX_RUE_NAME).search(
+            query,
+            {"limit": 7}
+        )
+    except Exception as e:
+        print("❌ ERREUR connexion MeiliSearch :", e)
+        return JsonResponse([], safe=False)
+
+    hits = response.get("hits", [])
+
+    print(f"✅ Hits reçus ({len(hits)}): ")
+    for h in hits:
+        print(" ➡️ ", h)
+
+    # ✅ correction → champs "name"
+    suggestions = [
+        {"name": h.get("name"), "city": h.get("city"), "postcode": h.get("postcode")}
+        for h in hits
+        if h.get("name") not in (None, "", " ")
+    ]
+
+    print("📤 SUGGESTIONS RETOURNÉES :", suggestions)
+
+    return JsonResponse(suggestions, safe=False)
 
 def api_search(request):
     query = request.GET.get('q', '').strip()
-    print(f"[🔍] Requête utilisateur : {query}")
+    print(f"[🔍] Requête utilisateur brute : {query}")
 
-    is_meili = query.startswith('=')
-    search_term = query.lstrip('=').lower()
+    # ✅ Normalisation intelligente
+    search_term = (
+        query.lstrip('=')      # enlève "=" si c'est une recherche TVA
+             .replace('.', '') # enlève les points
+             .replace(' ', '') # enlève les espaces
+    )
+
+    print(f"[🔎] Terme envoyé à MeiliSearch : {search_term}")
+
+    # ✅ Connexion Meilisearch via settings
+    client = MeiliClient(
+        settings.MEILI_URL,
+        settings.MEILI_SEARCH_KEY
+    )
+
+    # ✅ Utilise INDEX_NAME défini dans settings.py (.env)
+    hits = client.index(settings.INDEX_NAME).search(
+        search_term,
+        {"limit": 20}
+    ).get("hits", [])
 
     results = {
-        "moniteur": []
+        "moniteur": [
+            {
+                "text": h.get("text", ""),
+                "url": h.get("url", ""),
+                "title": h.get("title", ""),
+                "subtitle": h.get("subtitle", ""),
+                "date_document": h.get("date_document", "")
+            }
+            for h in hits
+        ]
     }
 
-    if is_meili:
-        # 🚀 Recherche rapide MeiliSearch
-        print("[🔎] Mode MeiliSearch (texte)")
-        try:
-            client = MeiliClient('http://127.0.0.1:7700')
-            hits = client.index("moniteur_documents").search(
-                search_term,
-                {
-                    "limit": 20
-                }
-            ).get("hits", [])
-
-            print(f"[📄] Résultats MeiliSearch : {len(hits)}")
-            results["moniteur"] = [
-                {
-                    "text": h.get("text", ""),
-                    "url": h.get("url", ""),
-                    "title": h.get("title", ""),
-                    "subtitle": h.get("subtitle", ""),
-                    "date_document": h.get("date_document", "")
-                }
-                for h in hits
-            ]
-        except Exception as e:
-            print("[❌ MeiliSearch] Erreur :", e)
-
-    else:
-        # 🧠 Recherche vectorielle sémantique
-        print("[🧠] Mode Embedding PostgreSQL (vectoriel)")
-        try:
-            embedding = model.encode(search_term).tolist()
-            print("[📐] Embedding généré avec succès")
-
-            conn = psycopg2.connect(
-                dbname="monsite_db",
-                user="postgres",
-                password="Jamesbond007colibri+",
-                host="localhost",
-                port="5432"
-            )
-            cur = conn.cursor()
-
-            cur.execute("""
-                SELECT texte, url, title, subtitle, date_document
-                FROM moniteur_documents
-                ORDER BY embedding <-> %s
-                LIMIT 20;
-            """, (embedding,))
-            rows = cur.fetchall()
-            print(f"[📦] Résultats PostgreSQL : {len(rows)}")
-
-            results["moniteur"] = [
-                {
-                    "texte": r[0],
-                    "url": r[1],
-                    "title": r[2],
-                    "subtitle": r[3],
-                    "date_document": str(r[4])
-                }
-                for r in rows
-            ]
-
-            cur.close()
-            conn.close()
-        except Exception as e:
-            print("[❌ PostgreSQL] Erreur :", e)
-            return JsonResponse({"error": f"PostgreSQL error: {str(e)}"}, status=500)
-
-    print("[✅] Résultats renvoyés :", {k: len(v) for k, v in results.items()})
     return JsonResponse(results)
 
 def api_search_niss(request):
     query = request.GET.get('q', '').strip()
     print(f"NISS query: {query}")
-    client = Client('http://127.0.0.1:7700')
-
+    client = Client(
+        settings.MEILI_URL,
+        settings.MEILI_SEARCH_KEY  # ---> la clé de recherche
+    )
     # Ne modifie pas la structure
     search_term = query  # Pas de transformation ici
 
@@ -121,7 +112,7 @@ def api_search_niss(request):
 
     for key, index_name in indexes.items():
         try:
-            raw_hits = client.index(index_name).search(search_term).get('hits', [])
+            raw_hits = client.index(settings.INDEX_NAME).search(search_term).get('hits', [])
         except Exception as e:
             print(f"[ERREUR] Index '{key}' → {e}")
             raw_hits = []
@@ -140,21 +131,27 @@ def api_search_niss(request):
 
 def api_search_tva(request):
     query = request.GET.get('q', '').strip()
-    print(f"TVA query: {query}")
-    client = Client('http://127.0.0.1:7700')
+    print(f"TVA query (entrant) : {query}")
 
-    search_term = query.lstrip('=').lower()
+    # 🔧 Normalisation complète du format TVA pour la recherche
+    search_term = (
+        query.lstrip('=')      # enlève "=" au début
+             .replace('.', '') # enlève les . entre les chiffres
+             .replace(' ', '') # enlève les espaces
+    )
+
+    print(f"TVA envoyée à MeiliSearch : {search_term}")
+
+    client = Client(
+        settings.MEILI_URL,
+        settings.MEILI_SEARCH_KEY
+    )
 
     indexes = {
-        'moniteur': 'moniteur_documents',
-        #'eurlex': 'eurlex_docs',
-        #'CEtat': 'conseil_etat_arrets100',
-        #'CA': 'constcourtjudgments2025',
-        #'Annexe': 'annexes_juridique'
+        'moniteur': settings.INDEX_NAME,
     }
 
     results = {}
-
     for key, index_name in indexes.items():
         try:
             raw_hits = client.index(index_name).search(search_term).get('hits', [])
@@ -164,13 +161,12 @@ def api_search_tva(request):
 
         filtered_hits = [
             hit for hit in raw_hits
-            if search_term in hit.get("text", "").lower()
+            if search_term in hit.get("text", "").replace('.', '').replace(' ', '')
         ]
 
         results[key] = filtered_hits
 
     return JsonResponse(results)
-
 
 def home(request):
     return render(request, 'veille/home.html')
