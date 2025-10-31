@@ -16,7 +16,6 @@ from .keywords import KEYWORD_GROUPS, KEYWORD_LABELS
 
 def api_search_keyword(request):
     query = request.GET.get("q", "").strip()
-
     print(f"🔍 SEARCH KEYWORD — reçu : {query}")
 
     if not query:
@@ -32,6 +31,7 @@ def api_search_keyword(request):
                 "limit": 50
             }
         )
+        
     except Exception as e:
         print("❌ ERREUR MeiliSearch :", e)
         return JsonResponse({"moniteur": []})
@@ -46,6 +46,8 @@ def api_search_keyword(request):
                 "title": h.get("title", ""),
                 "date_document": h.get("date_doc", ""),
                 "extra_keyword": h.get("extra_keyword", []),   # ✅ retourne la liste telle quelle
+                "denoms_bce_flat": h.get("denoms_bce_flat"),
+                "num_tva": h.get("num_tva")
             }
             for h in hits
         ]
@@ -146,7 +148,9 @@ def api_search_rue(request):
                 "date_document": h.get("date_doc", ""),
                 "adresses_all_flat": h.get("adresses_all_flat", []),
                 "denoms_by_bce": h.get("denoms_by_bce", []),
-                "denoms_by_ejustice": h.get("denoms_by_ejustice", [])
+                "denoms_by_ejustice": h.get("denoms_by_ejustice", []),
+                "denoms_bce_flat": h.get("denoms_bce_flat"),
+                "num_tva": h.get("num_tva"),
             }
             for h in filtered_hits
         ]
@@ -206,7 +210,9 @@ def api_search(request):
                 "url": h.get("url", ""),
                 "title": h.get("title", ""),
                 "subtitle": h.get("subtitle", ""),
-                "date_document": h.get("date_document", "")
+                "date_document": h.get("date_document", ""),
+                "denoms_bce_flat": h.get("denoms_bce_flat"),
+                "num_tva": h.get("num_tva"),
             }
             for h in hits
         ]
