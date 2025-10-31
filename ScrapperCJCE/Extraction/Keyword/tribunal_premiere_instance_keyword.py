@@ -10,9 +10,11 @@ RG_TOKEN = r"\(RG"
 APOST = r"[’']"  # apostrophe droite ou typographique
 
 RX_APPEL = re.compile(r"(?:statuant|siégeant)\s+en\s+degr[ée]?\s+d[’']?appel|requête\s+d[’']?appel", re.IGNORECASE)
-RX_CONDAMN = re.compile(r"\b(?:condamn[ée]?(?:es)?|emprisonnement|réclusion|peine\s+privative\s+de\s+liberté)\b", re.IGNORECASE)
+RX_CONDAMN = re.compile(r"\b(?:condamn[ée]?"
+                        r"(?:es)?|emprisonnement|réclusion|peine\s+privative\s+de\s+liberté)\b", re.IGNORECASE)
 RX_DESIGN = re.compile(
-    r"[,:\s]*\bdésign(?:é|ée|ation)\b(.*?)(?:en\s+qualité\s+de\s+)?\b(?:administrateur|administratrice|curateur|liquidateur)\b",
+    r"[,:\s]*\bdésign(?:é|ée|ation)\b(.*?)(?:en\s+qualité\s+de\s+)?"
+    r"\b(?:administrateur|administratrice|curateur|liquidateur)\b",
     re.IGNORECASE | re.DOTALL
 )
 RX_DISSOLUTION = re.compile(r"\bdissolution\s+judiciaire\b", re.IGNORECASE)
@@ -28,13 +30,13 @@ RX_NOMME_ADMIN = re.compile(
     r"a\s+été\s+nomm[ée]?\s+en\s+qualité\s+d['’]administrateur\s+provisoire",
     re.IGNORECASE
 )
-
+# noinspection RegExpUnnecessaryNonCapturingGroup
 RX_REFORME_DECISION_JP = re.compile(
     r"""
-    r[ée]forme\s+                     # "réforme" ou "reforme"
-    (?:la\s+)?d[ée]cision\s+         # "la décision" ou "décision"
+    r[ée]forme\s+                     # "réforme" ou "reforme" 
+    (?:la\s+)?d[ée]cision\s+         # "la décision" ou "décision" 
     (?:rendue\s+par\s+)?             # optionnel : "rendue par"
-    (?:
+    (?: 
         (?:la|le|du|de\s+la)\s+      # articles "la", "le", "du", "de la"
         (?:justice|juge)\s+de\s+paix # "justice de paix" ou "juge de paix"
     )
@@ -57,8 +59,16 @@ PAT_LEVEE_SIMPLE = re.compile(
     r"lev[ée]e\s+de\s+la\s+mesure(?:\s+de\s+protection)?",
     re.IGNORECASE
 )
-PAT_LEVEE = re.compile(rf"lev[ée]e\s+de\s+la\s+mesure(?:\s+de\s+protection)?[^.,:\n]{{0,80}}{DATE_OPT}[^.\n]{{0,50}}\(RG", re.IGNORECASE)
-PAT_REFORME_NEANT = re.compile(rf"réforme\s+et\s+met\s+à\s+néant\s+la\s+d[ée]cision{DATE_OPT}(?:,\s+du\s+juge\s+de\s+paix)?", re.IGNORECASE)
+PAT_LEVEE = re.compile(rf"lev[ée]e\s+de\s+la\s+mesure(?:\s+de\s+protection)?[^.,:\n]{{0,80}}"
+                       rf"{DATE_OPT}[^.\n]{{0,50}}\(RG", re.IGNORECASE)
+PAT_REFORME_NEANT = re.compile(
+    (
+        rf"réforme\s+et\s+met\s+à\s+néant\s+la\s+d[ée]cision"
+        rf"{DATE_OPT}"
+        r"(?:,\s+du\s+juge\s+de\s+paix)?"
+    ),
+    re.IGNORECASE,
+)
 PAT_MET_NEANT = re.compile(rf"\bmet\s+à\s+néant\s+la\s+d[ée]cision{DATE_OPT}", re.IGNORECASE)
 PAT_REFORME_ORD = re.compile(rf"réforme\s+l[’']?ordonnance{DATE_OPT}", re.IGNORECASE)
 PAT_DECHARGE_MISSION = re.compile(

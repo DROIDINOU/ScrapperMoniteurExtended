@@ -12,6 +12,91 @@ from meilisearch import Client as MeiliClient
 import os
 import psycopg2
 
+# veille/keywords.py
+
+KEYWORD_GROUPS = {
+
+    # 🔹 Procédures collectives (faillite, liquidation, réorganisation, effacement)
+    "procedures_collectives": [
+        "rapporte_faillite",
+        "rapporte_faillite_tribunal_de_l_entreprise",
+        "rapporte_dissolution_tribunal_de_l_entreprise",
+        "dissolution_judiciaire",
+        "dissolution_judiciaire_tribunal_de_l_entreprise",
+        "cloture_liquidation",
+        "cloture_liquidation_tribunal_de_l_entreprise",
+        "cloture_faillite_tribunal_de_l_entreprise",
+        "cloture_reorganisation_judiciaire",
+        "ouverture_liquidation_judiciaire_tribunal_de_l_entreprise",
+        "ouverture_faillite_tribunal_de_l_entreprise",
+        "liquidation_tribunal_de_l_entreprise",
+        "effacement_dette",
+        "effacement_partiel_tribunal_de_l_entreprise",
+        "effacement_tribunal_de_l_entreprise",
+        "sans_effacement_tribunal_de_l_entreprise",
+        "refus_effacement_dette",
+        "delai_modere_tribunal_de_l_entreprise",
+        "non_excusable",   # ✅ ajouté ici (faillite non excusable)
+    ],
+
+    # 🔹 Administration et mandataires judiciaires
+    "administration_mandataires": [
+        "designation_liquidateur_remplacement_tribunal_de_l_entreprise",
+        "designation_liquidateur_tribunal_de_l_entreprise",
+        "remplacement_juge_commissaire_tribunal_de_l_entreprise",
+        "remplacement_administrateur_tribunal_de_l_entreprise",
+        "designation_mandataire_tribunal_de_l_entreprise",
+        "prolongation_administrateur_tribunal_de_l_entreprise",
+        "designation_administrateur_provisoire_tribunal_de_l_entreprise",
+        "designation_administrateur_provisoire_droit_commun_tribunal_de_l_entreprise",
+        "decharge_administrateur_provisoire_tribunal_de_l_entreprise",
+        "report_cessation_paiement_tribunal_de_l_entreprise",
+        "fin_de_mission",
+        "désignation",
+    ],
+
+    # 🔹 Décisions judiciaires et jugements
+    "decisions_judiciaires": [
+        "reforme_mise_a_neant",
+        "reforme_ordonnance",
+        "reforme_jugement",
+        "reforme_decision_jp",
+        "mise_a_neant",
+        "mise_neant_jugement",
+        "homologation_plan_apres_reforme",
+        "retractation_dissolution",
+        "annulation_decision_AG",
+        "annulation_decision_ag_tribunal_de_l_entreprise",
+        "levee_mesure",
+        "levee_mesure_observation",
+        "fin_mesure",
+        "sursis",
+        "rejet_demande",
+        "condamnation",      # ✅ conservé
+        "non_excusable",     # ✅ aussi présent ici (pertinent pour décisions)
+    ],
+
+    # 🔹 Radiations / BCE / UBO / Adresses / Corrections
+    "radiations_bce_ubo": [
+        "retrait_radiation_non_depot_comptes",
+        "retrait_ou_annulation_radiation_office",
+        "annulation_ou_retrait_radiation_ubo",
+        "radiation_office_ubo",
+        "radiation_adresse_siege",
+        "liste_radiations_adresse_siege",
+        "annulation_ou_arret_radiation_adresse_siege",
+        "annulation_ou_arret_radiation_succursale_siege",
+        "annulation_doublon",
+        "annulation_remplacement_numero_doublon",
+        "remplacement_numero_bce",
+        "correction_date_radiation_adresse_siege_ou_succursale",
+        "ouverture_transfert_autorite_judiciaire_tribunal_de_l_entreprise",
+        "transfert_autorite_judiciaire_tribunal_de_l_entreprise",
+    ],
+}
+
+
+
 def api_search_keyword(request):
     query = request.GET.get("q", "").strip()
 
@@ -151,43 +236,35 @@ def api_search_rue(request):
     })
 
 
-
 def api_autocomplete_keyword(request):
-    query = request.GET.get("q", "").strip()
-
+    query = request.GET.get("q", "").strip().lower()
     print(f"🔍 AUTOCOMPLETE KEYWORD — reçu : {query}")
 
     if not query:
-        return JsonResponse([], safe=False)
+        # Si aucun terme n'est saisi, retourne tous les mots-clés (ou un échantillon)
+        suggestions = [
+            {"label": kw, "category": cat}
+            for cat, kws in KEYWORD_GROUPS.items()
+            for kw in kws
+        ][:30]
+        return JsonResponse(suggestions, safe=False)
 
-    client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
+    # Filtrage simple insensible à la casse
+    matches = []
+    for category, keywords in KEYWORD_GROUPS.items():
+        for kw in keywords:
+            if query in kw.lower():
+                matches.append({"label": kw, "category": category})
 
-    try:
-        response = client.index(settings.INDEX_NAME).search(
-            query,
-            {
-                "attributesToSearchOn": ["extra_keyword"],
-                "limit": 10
-            }
-        )
-    except Exception as e:
-        print("❌ ERREUR MeiliSearch :", e)
-        return JsonResponse([], safe=False)
-
-    hits = response.get("hits", [])
-
-    # ✅ NE RETOURNER QUE LES MOTS-CLÉS
+    # Supprimer les doublons et limiter la taille
+    seen = set()
     suggestions = []
-    for h in hits:
-        kws = h.get("extra_keyword", [])
-        for kw in kws:
-            if query.lower() in kw.lower():
-                suggestions.append({"label": kw})
+    for m in matches:
+        if m["label"] not in seen:
+            seen.add(m["label"])
+            suggestions.append(m)
 
-    # ✅ éviter doublons
-    suggestions = list({d["label"]: d for d in suggestions}.values())
-
-    print("📤 AUTOCOMPLETE RETOURNÉ :", suggestions)
+    print(f"📤 {len(suggestions)} suggestions pour '{query}'")
     return JsonResponse(suggestions, safe=False)
 
 
