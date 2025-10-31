@@ -11,7 +11,7 @@ from django.conf import settings
 from meilisearch import Client as MeiliClient
 import os
 import psycopg2
-from .keywords import KEYWORD_GROUPS
+from .keywords import KEYWORD_GROUPS, KEYWORD_LABELS
 
 
 def api_search_keyword(request):
@@ -155,36 +155,29 @@ def api_search_rue(request):
 
 def api_autocomplete_keyword(request):
     query = request.GET.get("q", "").strip().lower()
-    print(f"🔍 AUTOCOMPLETE KEYWORD — reçu : {query}")
 
-    if not query:
-        # Si aucun terme n'est saisi, retourne tous les mots-clés (ou un échantillon)
-        suggestions = [
-            {"label": kw, "category": cat}
-            for cat, kws in KEYWORD_GROUPS.items()
-            for kw in kws
-        ][:30]
-        return JsonResponse(suggestions, safe=False)
+    suggestions = []
 
-    # Filtrage simple insensible à la casse
-    matches = []
     for category, keywords in KEYWORD_GROUPS.items():
         for kw in keywords:
-            if query in kw.lower():
-                matches.append({"label": kw, "category": category})
 
-    # Supprimer les doublons et limiter la taille
+            # si rien tapé → retourne tout
+            if not query or query in kw.lower():
+                suggestions.append({
+                    "value": kw,                         # identifiant interne envoyé au backend
+                    "label": KEYWORD_LABELS.get(kw, kw), # affiché à l'utilisateur
+                    "category": category,                # pour regrouper visuellement
+                })
+
+    # Suppression des doublons
     seen = set()
-    suggestions = []
-    for m in matches:
-        if m["label"] not in seen:
-            seen.add(m["label"])
-            suggestions.append(m)
+    final = []
+    for sug in suggestions:
+        if sug["value"] not in seen:
+            seen.add(sug["value"])
+            final.append(sug)
 
-    print(f"📤 {len(suggestions)} suggestions pour '{query}'")
-    return JsonResponse(suggestions, safe=False)
-
-
+    return JsonResponse(final, safe=False)
 
 
 def api_search(request):
