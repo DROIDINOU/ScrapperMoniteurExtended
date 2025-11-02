@@ -453,7 +453,8 @@ print(f"[✅] Index '{index_name}' prêt.")
     index.update_filterable_attributes([
         "keyword",
         "denom_fallback_bce",
-        "admins_detectes"  # 👈 ici on ajoute le champ facetable
+        "admins_detectes", "denoms_fallback_bce_flat",
+        "adresses_fallback_bce_flat"  # 👈 ici on ajoute le champ facetable
     ])
     index.update_searchable_attributes([
         "id", "date_doc", "title", "keyword", "date_jugement", "TVA",
@@ -462,6 +463,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "denoms_by_bce", "adresses_by_bce",
         "adresses_by_ejustice", "denoms_by_ejustice_flat",
         "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
+        "denoms_fallback_bce_flat", "adresses_fallback_bce_flat"
     ])
 
     index.update_displayed_attributes([
@@ -471,6 +473,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "denoms_by_bce", "adresses_by_bce",
         "adresses_by_ejustice", "denoms_by_ejustice_flat", "extra_keyword",
         "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
+        "denoms_fallback_bce_flat", "adresses_fallback_bce_flat"
     ])
 
     print(f"[⚙️] Index '{index_name}' prêt en {time.perf_counter() - start_time:.2f}s.")
@@ -660,6 +663,29 @@ print(f"[✅] Index '{index_name}' prêt.")
         doc["adresses_ejustice_flat"] = list(dict.fromkeys(adresses_ejustice_flat))
         doc["adresses_bce_flat"] = list(dict.fromkeys(adresses_bce_flat))
         doc["denoms_bce_flat"] = list(dict.fromkeys(denoms_bce_flat))
+
+        # ✅ FLATTEN fallback BCE dans champs séparés
+        if isinstance(doc.get("denom_fallback_bce"), list):
+            doc["denoms_fallback_bce_flat"] = [
+                x.get("nom").strip()
+                for x in doc["denom_fallback_bce"]
+                if x.get("nom")
+            ]
+            doc["adresses_fallback_bce_flat"] = [
+                x.get("adresse").strip()
+                for x in doc["denom_fallback_bce"]
+                if x.get("adresse")
+            ]
+        else:
+            doc["denoms_fallback_bce_flat"] = []
+            doc["adresses_fallback_bce_flat"] = []
+
+        # ✅ Flatten Fallback BCE (adresse)
+        if isinstance(doc.get("denom_fallback_bce"), list):
+            for entry in doc["denom_fallback_bce"]:
+                adr = entry.get("adresse")
+                if adr:
+                    doc.setdefault("adresses_bce_flat", []).append(adr.strip())
 
     # 🧼 Nettoyage des champs adresse : suppression des doublons dans la liste
     # ================================================================
