@@ -31,7 +31,7 @@ def api_search_keyword(request):
                 "limit": 50
             }
         )
-        
+
     except Exception as e:
         print("❌ ERREUR MeiliSearch :", e)
         return JsonResponse({"moniteur": []})
@@ -47,7 +47,8 @@ def api_search_keyword(request):
                 "date_document": h.get("date_doc", ""),
                 "extra_keyword": h.get("extra_keyword", []),   # ✅ retourne la liste telle quelle
                 "denoms_bce_flat": h.get("denoms_bce_flat"),
-                "num_tva": h.get("num_tva")
+                "num_tva": h.get("num_tva"),
+                "denoms_by_ejustice_flat": h.get("denoms_by_ejustice_flat"),
             }
             for h in hits
         ]

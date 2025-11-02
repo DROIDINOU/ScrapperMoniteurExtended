@@ -72,8 +72,8 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2025-10-15")  # début
-    to_date = date.fromisoformat("2025-10-29")  # date.today()  # fin
+    from_date = date.fromisoformat("2025-07-25")  # début
+    to_date = date.fromisoformat("2025-07-29")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
@@ -290,7 +290,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             tvas_valides = [t for t in tvas if format_bce(t)]
             denoms_by_bce = None
             adresses_by_bce = None
-            denoms_by_ejustice = None
+            denoms_by_ejustice_flat = None
             adresses_by_ejustice = None
 
             doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
@@ -395,7 +395,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 numac, date_doc, langue, texte_brut, url, keyword,
                 tvas, title, subtitle, extra_keywords, date_jugement,
                 administrateur, doc_id, denoms_by_bce,
-                adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice
+                adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice_flat
             )
 
     final = []
@@ -461,7 +461,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "extra_keyword",
         "administrateur", "text",
         "denoms_by_bce", "adresses_by_bce",
-        "adresses_by_ejustice", "denoms_by_ejustice",
+        "adresses_by_ejustice", "denoms_by_ejustice_flat",
         "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
     ])
 
@@ -470,7 +470,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "date_jugement", "TVA",
         "administrateur", "text", "url",
         "denoms_by_bce", "adresses_by_bce",
-        "adresses_by_ejustice", "denoms_by_ejustice", "extra_keyword",
+        "adresses_by_ejustice", "denoms_by_ejustice_flat", "extra_keyword",
         "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
     ])
 
@@ -531,7 +531,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 "denoms_by_bce": record[13],
                 "adresses_by_bce": record[14],
                 "adresses_by_ejustice": record[15],
-                "denoms_by_ejustice": record[16],
+                "denoms_by_ejustice_flat": record[16],
                 "denom_fallback_bce": None,
                 "admins_detectes": admins_detectes,  # ✅ nouveau champ pour MeiliSearch
             }
