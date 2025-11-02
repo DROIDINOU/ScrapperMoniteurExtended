@@ -72,8 +72,8 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2025-07-25")  # début
-    to_date = date.fromisoformat("2025-07-29")  # date.today()  # fin
+    from_date = date.fromisoformat("2024-11-25")  # début
+    to_date = date.fromisoformat("2024-11-29")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
@@ -98,21 +98,20 @@ def main():
     logger.debug("✅ Logger initialisé dans le script principal.")
     # !!!! LOGGER ERREURS CRITIQUES (le parser devra eventuellement être revu, changement structures pages moniteur)
     logger_critical = setup_dynamic_logger(name="critical", keyword=keyword, level=logging.DEBUG)
-    logger_critical.debug("🔍 Logger 'critical' initialisé "
-                          "pour les champs"" obligatoires.")
+    logger_critical.debug("🔍 Logger 'critical' initialisé ")
 
     # ---- LOGGERS champs manquants
     # -- Fichier bce n'a pas les champs correspondant au num de tva extrait
-    logger_champs_manquants_csv_bce = setup_dynamic_logger(name="champs_manquants_obligatoires",
+    logger_champs_manquants_csv_bce = setup_dynamic_logger(name="champs_manquants_obligatoires_csv_bce",
                                                                 keyword=keyword, level=logging.DEBUG)
     logger_champs_manquants_csv_bce.debug("🔍 Logger 'champs_manquants_obligatoires' initialisé "
-                                               "pour les champs"
-                                               " obligatoires.")
+                                          "pour les champs "
+                                          " obligatoires.")
     # -- Les champs de vérité à intégrer automatiquement dans Postgre ne sont pas présents
-    logger_champs_manquants_obligatoires = setup_dynamic_logger(name="champs_manquants_obligatoires1",
+    logger_champs_manquants_obligatoires = setup_dynamic_logger(name="champs_manquants_obligatoires_general",
                                                                  keyword=keyword, level=logging.DEBUG)
 
-    logger_champs_manquants_obligatoires.debug("🔍 Logger 'champs_manquants_obligatoires1' initialisé "
+    logger_champs_manquants_obligatoires.debug("🔍 Logger 'champs_manquants_obligatoires_general' initialisé "
                                                 "pour les champs"
                                                 " obligatoires.")
 
@@ -540,8 +539,6 @@ print(f"[✅] Index '{index_name}' prêt.")
             # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
             print("🔍 Indexation des dénominations par TVA (1 seule lecture du CSV)…")
 
-
-
     # --------------------------------------------------------------------------------------------------------------
     # LOGGERS EN CAS DE CHAMPS OBLIGATOIRE VIDE (Pour tous les mots clefs)
     # Champs obligatoires : id - date_doc - text - keyword -extra_keyword - TVA
@@ -702,7 +699,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                     for addr in adrs
                 )
             )
-
+            # verifier si on ratte pas des adresses ici
             if not has_nom and not has_adresse:
                 logger_champs_manquants_csv_bce.warning(
                     f"[⚠️ BCE sans dénomination ni adresse] "
