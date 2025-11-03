@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from pathlib import Path
 import os
+import sys
 
 # backend/settings.py --> /MonProjetFinalMoniteur/MonSiteMoniteur/backend/settings.py
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
@@ -22,6 +23,13 @@ print("BASE_DIR.parent =", BASE_DIR.parent)
 print("BASE_DIR.parent.parent =", BASE_DIR.parent.parent)
 SECRET_KEY = os.getenv("SECRET_KEY")
 print("SECRET_KEY:", SECRET_KEY)
+# ✅ ScrapperCJCE se trouve au même niveau que MonSiteMoniteur
+SCRAPPER_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "ScrapperCJCE"))
+
+if SCRAPPER_PATH not in sys.path:
+    sys.path.append(SCRAPPER_PATH)
+
+print("✅ ScrapperCJCE ajouté au PYTHONPATH:", SCRAPPER_PATH)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 

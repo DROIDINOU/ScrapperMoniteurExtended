@@ -34,7 +34,7 @@ def create_table_moniteur():
     -- =====================================================================
     CREATE TABLE societe (
         id SERIAL PRIMARY KEY,
-        bce VARCHAR(20),
+        bce VARCHAR(20) UNIQUE,
         nom TEXT,
         adresse TEXT,
         source TEXT,
@@ -75,6 +75,41 @@ def create_table_moniteur():
         admin_id INT REFERENCES administrateur(id) ON DELETE CASCADE,
         PRIMARY KEY (societe_id, admin_id)
     );
+    """)
+
+    # ---- VIEW fiche société (JOIN des infos) ----
+    cur.execute("""
+        CREATE OR REPLACE VIEW vue_fiche_societe AS
+SELECT
+    s.id AS societe_id,
+    regexp_replace(s.bce, '[^0-9]', '', 'g') AS bce_clean,  -- ✅ BCE sans points/espaces/BE
+    s.bce AS bce_original,                                 -- (optionnel, si tu veux garder l'affichage exact)
+    s.nom AS societe_nom,
+    s.adresse,
+    s.source AS societe_source,
+
+    d.id AS decision_id,
+    d.date_doc,
+    d.titre,
+    d.keyword,
+    d.url,
+
+    json_agg(
+        json_build_object(
+            'nom', a.nom,
+            'role', a.role,
+            'source', a.source,
+            'confidence', a.confidence
+        )
+    ) FILTER (WHERE a.id IS NOT NULL) AS administrateurs
+
+FROM societe s
+LEFT JOIN decision_societe ds ON s.id = ds.societe_id
+LEFT JOIN decision d ON ds.decision_id = d.id
+LEFT JOIN societe_admin sa ON s.id = sa.societe_id
+LEFT JOIN administrateur a ON sa.admin_id = a.id
+GROUP BY s.id, d.id;
+
     """)
 
     conn.commit()
