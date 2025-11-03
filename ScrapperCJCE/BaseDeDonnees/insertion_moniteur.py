@@ -1,73 +1,124 @@
-import json
+from psycopg2.extras import Json
 from tqdm import tqdm
 from BaseDeDonnees.connexion_postgre import get_postgre_connection
 
 
 def insert_documents_moniteur(documents):
-    """
-    Insère une liste de documents dans la table PostgreSQL moniteur_documents_postgre
-    en convertissant correctement les champs JSONB.
-    """
     conn = get_postgre_connection()
     cur = conn.cursor()
 
-    print(f"[📦] Insertion de {len(documents)} documents dans PostgreSQL (JSONB)…")
+    print(f"[📦] Insertion de {len(documents)} décisions…")
 
-    def to_jsonb_safe(value):
-        """Convertit les valeurs en JSONB valide pour PostgreSQL."""
-        if value is None:
-            return None
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
-        if isinstance(value, str):
-            # Vérifie si c’est déjà du JSON valide
-            try:
-                json.loads(value)
-                return value
-            except json.JSONDecodeError:
-                return json.dumps(value, ensure_ascii=False)
-        return json.dumps(str(value), ensure_ascii=False)
+    for doc in tqdm(documents, desc="Insert PostgreSQL"):
 
-    for doc in tqdm(documents, desc="Insertion PostgreSQL"):
-        text = (doc.get("text") or "").strip()
-
+        # ---------------------------------------------------------
+        # 1️⃣  INSERT dans decision
+        # ---------------------------------------------------------
         cur.execute("""
-            INSERT INTO moniteur_documents_postgre (
-                date_doc, lang, text, url, keyword, tva, titre, num_nat,
-                extra_keyword, nom, adresse, date_jugement,
-                nom_trib_entreprise, date_deces, administrateur,
-                denoms_by_bce, adresses_by_bce, denoms_by_ejustice
-            )
-            VALUES (
-                %s, %s, %s, %s, %s,
-                %s::jsonb, %s, %s::jsonb,
-                %s::jsonb, %s::jsonb, %s::jsonb,
-                %s, %s::jsonb, %s::jsonb, %s::jsonb,
-                %s::jsonb, %s::jsonb, %s::jsonb
-            )
-            ON CONFLICT (url) DO NOTHING;
+            INSERT INTO decision (id, date_doc, lang, text, url, keyword, titre, extra_keyword, date_jugement)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                text = EXCLUDED.text,
+                extra_keyword = EXCLUDED.extra_keyword,
+                date_jugement = EXCLUDED.date_jugement;
         """, (
+            doc.get("id"),
             doc.get("date_doc"),
             doc.get("lang"),
-            text,
+            (doc.get("text") or "").strip(),
             doc.get("url"),
             doc.get("keyword"),
-            to_jsonb_safe(doc.get("TVA")),
             doc.get("title"),
-            to_jsonb_safe(doc.get("num_nat")),
-            to_jsonb_safe(doc.get("extra_keyword")),
-            to_jsonb_safe(doc.get("nom")),
-            to_jsonb_safe(doc.get("adresse")),
-            doc.get("date_jugement"),
-            to_jsonb_safe(doc.get("nom_trib_entreprise")),
-            to_jsonb_safe(doc.get("date_deces")),
-            to_jsonb_safe(doc.get("administrateur")),
-            to_jsonb_safe(doc.get("denoms_by_bce")),
-            to_jsonb_safe(doc.get("adresses_by_bce")),
-            to_jsonb_safe(doc.get("denoms_by_ejustice")),
+            Json(doc.get("extra_keyword")),
+            Json(doc.get("date_jugement")),
         ))
 
+        decision_id = doc.get("id")
+
+        # ---------------------------------------------------------
+        # 2️⃣  INSERT sociétés (ejustice / bce / fallback)
+        #     doc["adresses_by_ejustice"], doc["denom_fallback_bce"], ...
+        # ---------------------------------------------------------
+        all_societes = []
+
+        # 🟢 eJustice
+        if isinstance(doc.get("adresses_by_ejustice"), list):
+            for s in doc["adresses_by_ejustice"]:
+                all_societes.append({
+                    "bce": s.get("bce"),
+                    "nom": s.get("nom"),
+                    "adresse": s.get("adresse"),
+                    "source": "ejustice",
+                    "confidence": 1.00,
+                    "raw": s
+                })
+
+        # 🟡 BCE CSV
+        if isinstance(doc.get("denoms_by_bce"), list):
+            for group in doc["denoms_by_bce"]:
+                for nom in group.get("noms", []):
+                    all_societes.append({
+                        "bce": group.get("bce"),
+                        "nom": nom,
+                        "adresse": None,
+                        "source": "bce",
+                        "confidence": 0.90,
+                        "raw": group
+                    })
+
+        # 🟠 fallback BCE (scrape)
+        if isinstance(doc.get("denom_fallback_bce"), list):
+            for s in doc["denom_fallback_bce"]:
+                all_societes.append({
+                    "bce": s.get("bce"),
+                    "nom": s.get("nom"),
+                    "adresse": s.get("adresse"),
+                    "source": "fallback",
+                    "confidence": 0.60,
+                    "raw": s
+                })
+
+        for soc in all_societes:
+
+            cur.execute("""
+                INSERT INTO societe (bce, nom, adresse, source, confidence, json_source)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id;
+            """, (
+                soc.get("bce"),
+                soc.get("nom"),
+                soc.get("adresse"),
+                soc.get("source"),
+                soc.get("confidence"),
+                Json(soc.get("raw")),
+            ))
+
+            societe_id = cur.fetchone()[0]
+
+            # liaison décision ⇆ société
+            cur.execute("""
+                INSERT INTO decision_societe (decision_id, societe_id)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING;
+            """, (decision_id, societe_id))
+
+        # ---------------------------------------------------------
+        # 3️⃣  INSERT administrateurs (si présents)
+        # ---------------------------------------------------------
+        admins = doc.get("administrateur") or []
+
+        for admin in admins:
+            cur.execute("""
+                INSERT INTO administrateur (nom, role, source, confidence)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id;
+            """, (
+                admin.get("entity"),
+                admin.get("role"),
+                admin.get("raw", "auto"),
+                0.8,
+            ))
+
     conn.commit()
-    cur.close()
     conn.close()
-    print("✅ Insertion terminée avec champs JSONB.")
+    print("✅ Insertion FINIE (normalisation complète)")
