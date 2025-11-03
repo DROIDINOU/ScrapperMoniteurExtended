@@ -49,6 +49,7 @@ def api_search_keyword(request):
                 "denoms_bce_flat": h.get("denoms_bce_flat"),
                 "num_tva": h.get("num_tva"),
                 "denoms_by_ejustice_flat": h.get("denoms_by_ejustice_flat"),
+                "denoms_fallback_bce_flat": h.get("denoms_fallback_bce_flat"),
             }
             for h in hits
         ]
