@@ -47,44 +47,59 @@ def api_autocomplete_rue(request):
 # ✅ FICHE SOCIETÉ (BCE)
 # ------------------------------------------------------------
 def fiche_societe(request, bce):
-    conn = get_postgre_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    """
+    Affiche la fiche d’une société (nom, adresse, administrateurs, décisions liées)
+    """
+    with connection.cursor() as cur:
+        # récupérer la société
+        cur.execute("""
+            SELECT id, bce, nom, adresse, source, confidence
+            FROM societe
+            WHERE bce = %s
+        """, [bce])
+        row = cur.fetchone()
 
-    cur.execute("""
-        SELECT *
-        FROM vue_fiche_societe
-        WHERE bce_clean = %s;
-    """, (bce,))
+        if not row:
+            return render(request, "veille/fiche_societe.html", {"not_found": True})
 
-    rows = cur.fetchall()
+        societe = {
+            "id": row[0],
+            "bce": row[1],
+            "nom": row[2],
+            "adresse": row[3],
+            "source": row[4],
+            "confidence": row[5],
+        }
 
-    if not rows:
-        raise Http404("Société inconnue")
-
-    societe = {
-        "bce": rows[0].get("bce_original") or rows[0]["bce_clean"],  # ✅ affichage propre
-        "nom": rows[0]["societe_nom"],
-        "adresse": rows[0]["adresse"],
-        "source": rows[0]["societe_source"],
-        "administrateurs": rows[0]["administrateurs"],
-        "decisions": [
-            {
-                "id": r["decision_id"],
-                "date_doc": r["date_doc"],
-                "titre": r["titre"],
-                "keyword": r["keyword"],
-                "url": r["url"],
-            }
-            for r in rows
+        # administrateurs liés
+        cur.execute("""
+            SELECT a.nom, a.role, a.confidence
+            FROM administrateur a
+            JOIN societe_admin sa ON sa.admin_id = a.id
+            WHERE sa.societe_id = %s
+        """, [societe["id"]])
+        admins = [
+            {"nom": nom, "role": role, "confidence": conf}
+            for (nom, role, conf) in cur.fetchall()
         ]
-    }
 
-    cur.close()
-    conn.close()
+        # ✅ décisions liées
+        cur.execute("""
+            SELECT d.id, d.date_doc, d.titre, d.url
+            FROM decision d
+            JOIN decision_societe ds ON ds.decision_id = d.id
+            WHERE ds.societe_id = %s
+            ORDER BY d.date_doc DESC
+        """, [societe["id"]])
+        decisions = [
+            {"id": id, "date": date, "titre": titre, "url": url}
+            for (id, date, titre, url) in cur.fetchall()
+        ]
+
+    societe["administrateurs"] = admins
+    societe["decisions"] = decisions
 
     return render(request, "veille/fiche_societe.html", {"societe": societe})
-
-
 
 # ------------------------------------------------------------
 # ✅ AUTOCOMPLETE MOT-CLÉ

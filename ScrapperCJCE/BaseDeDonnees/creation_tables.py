@@ -79,13 +79,38 @@ def create_table_moniteur():
 
     # ---- VIEW fiche société (JOIN des infos) ----
     cur.execute("""
-        CREATE OR REPLACE VIEW vue_fiche_societe AS
+CREATE OR REPLACE VIEW vue_fiche_societe AS
 SELECT
     s.id AS societe_id,
-    regexp_replace(s.bce, '[^0-9]', '', 'g') AS bce_clean,  -- ✅ BCE sans points/espaces/BE
-    s.bce AS bce_original,                                 -- (optionnel, si tu veux garder l'affichage exact)
-    s.nom AS societe_nom,
-    s.adresse,
+    regexp_replace(s.bce, '[^0-9]', '', 'g') AS bce_clean,
+    s.bce AS bce_original,
+
+        COALESCE(
+        -- ✅ 1. nom BCE officiel
+        s.json_source -> 'denoms_by_bce' -> 0 -> 'noms' ->> 0,
+
+        -- ✅ 2. nom détecté dans adresses_by_ejustice
+        s.json_source -> 'adresses_by_ejustice' -> 'array' -> 0 ->> 'nom',
+
+        -- ✅ 3. fallback trouvé par Meili
+        s.json_source -> 'denom_fallback_bce' -> 0 ->> 'nom',
+
+        -- ✅ 4. nom stocké dans table societe (fallback moniteur)
+        s.nom
+    ) AS societe_nom,
+
+    COALESCE(
+        -- ✅ adresse BCE
+        s.json_source -> 'adresses_by_bce' -> 0 -> 'adresses' -> 0 ->> 'adresse',
+
+        -- ✅ adresse eJustice
+        s.json_source -> 'adresses_by_ejustice' -> 'array' -> 0 ->> 'adresse',
+
+        -- ✅ fallback ancien champ
+        s.adresse
+    ) AS adresse,
+
+
     s.source AS societe_source,
 
     d.id AS decision_id,
@@ -109,6 +134,10 @@ LEFT JOIN decision d ON ds.decision_id = d.id
 LEFT JOIN societe_admin sa ON s.id = sa.societe_id
 LEFT JOIN administrateur a ON sa.admin_id = a.id
 GROUP BY s.id, d.id;
+
+
+
+
 
     """)
 
