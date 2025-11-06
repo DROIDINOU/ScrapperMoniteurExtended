@@ -1,0 +1,61 @@
+/* ----- BANDE BLEUE ----- */
+.societe-header {
+    background: #0054A6;          /* bleu BCE */
+    color: white;
+    padding: 12px 18px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* ----- CARD ----- */
+.societe-card {
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    overflow: hidden;             /* <-- important pour que la bande bleue colle */
+}
+
+/* ----- TABLE BCE ----- */
+.societe-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.societe-table td {
+    padding: 10px 14px;
+}
+
+.societe-table tr:nth-child(even) {
+    background: #f7f7f7;
+}
+
+.societe-table tr:nth-child(odd) {
+    background: #ececec;
+}
+
+.label {
+    font-weight: bold;
+    width: 260px;
+}
+
+.no-event {
+    text-align: center;
+    padding: 15px;
+    color: #888;
+}
+
+/* ----- BOUTON SCAN ----- */
+.btn-scan {
+    background: white;
+    color: #0054A6;
+    padding: 6px 14px;
+    border-radius: 5px;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.btn-scan:hover {
+    background: #d6e8ff;
+}

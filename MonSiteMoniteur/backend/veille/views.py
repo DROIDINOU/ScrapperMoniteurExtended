@@ -2,21 +2,80 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.contrib.auth import authenticate, login
+from django.contrib.auth import logout
 
 from django.http import JsonResponse, Http404
 from django.conf import settings
 from psycopg2.extras import RealDictCursor
-
+from .models import  VeilleEvenement
 from meilisearch import Client as MeiliClient
+from django.db import connection
+from .models import UserProfile
+from django.db.models import Prefetch
+from .keywords import KEYWORD_GROUPS, KEYWORD_LABELS
+from .models import VeilleSociete
 
+from BaseDeDonnees.connexion_postgre import get_postgre_connection
 import re
 import psycopg2
-from django.db import connection
+from django.core.management import call_command
+from django.contrib.auth.decorators import login_required
 
-from .models import UserProfile
-from .keywords import KEYWORD_GROUPS, KEYWORD_LABELS
-from BaseDeDonnees.connexion_postgre import get_postgre_connection
 
+def lancer_scan(request, tva):
+    call_command("scan_annexes", tva=tva)
+    return redirect("veille_dashboard")
+
+
+@login_required
+def maveille(request):
+    if request.method == "POST":
+        raw = request.POST.get("tva_list", "")
+        tva_numbers = raw.split()
+
+        for tva in tva_numbers:
+            tva = re.sub(r"\D", "", tva)
+
+            # ➤ Toujours récupérer l’unique société pour ce TVA
+            societe = VeilleSociete.objects.filter(numero_tva=tva).first()
+
+            if societe:
+                # ➤ juste l’associer à l’utilisateur actuel
+                societe.user = request.user
+                societe.save()
+
+            else:
+                # ➤ sinon on la crée
+                societe = VeilleSociete.objects.create(
+                    numero_tva=tva,
+                    user=request.user
+                )
+
+        return redirect("veille_dashboard")
+
+    return render(request, "veille/maveille.html")
+
+
+@login_required
+def veille_dashboard(request):
+
+    societes = VeilleSociete.objects.filter(user=request.user).prefetch_related(
+        Prefetch(
+            "evenements",
+            queryset=VeilleEvenement.objects
+                .exclude(rubrique="INCONNUE")
+                .order_by("-date_publication"),  # ✅ TRI PAR DATE (plus RÉCENT en premier)
+            to_attr="evenements_valides"
+        )
+    )
+
+    return render(request, "veille/dashboard_veille.html", {
+        "societes": societes
+    })
+
+def lancer_scan(request, tva):
+    call_command("veille_scan", tva=tva)
+    return redirect("veille_dashboard")
 
 # ------------------------------------------------------------
 # ✅ AUTOCOMPLETE RUE
@@ -100,6 +159,27 @@ def fiche_societe(request, bce):
     societe["decisions"] = decisions
 
     return render(request, "veille/fiche_societe.html", {"societe": societe})
+
+
+# ------------------------------------------------------------
+# ✅ API : renvoie la liste des sociétés (JSON)
+# ------------------------------------------------------------
+def api_societes(request):
+    bces = request.GET.get("n", "").split(",")
+
+    if not bces or bces == [""]:
+        return JsonResponse([], safe=False)
+
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT bce, nom
+            FROM societe
+            WHERE bce = ANY(%s)
+        """, [bces])
+
+        data = [{"bce": row[0], "nom": row[1]} for row in cur.fetchall()]
+
+    return JsonResponse(data, safe=False)
 
 # ------------------------------------------------------------
 # ✅ AUTOCOMPLETE MOT-CLÉ
@@ -279,9 +359,8 @@ def contact(request): return render(request, "veille/contact.html")
 def fonctionnalites(request): return render(request, "veille/fonctionnalites.html")
 def recherches(request): return render(request, "veille/recherches.html")
 def resultats(request): return render(request, "veille/resultats.html")
-def maveille(request): return render(request, "veille/maveille.html")
-def premium(request): return render(request, "veille/premium.html")
 
+def premium(request): return render(request, "veille/premium.html")
 
 # ------------------------------------------------------------
 # ✅ REGISTER & LOGIN
@@ -325,3 +404,11 @@ def login_view(request):
         messages.error(request, "Email ou mot de passe incorrect.")
 
     return render(request, "veille/login.html")
+
+
+
+def logout_view(request):
+    logout(request)
+    return redirect("home")
+
+
