@@ -36,13 +36,20 @@ class Command(BaseCommand):
         saved = 0
         for ev in events:
             print("🔎 EVENT SCRAPÉ →", ev)
-            url = ev.get("url") or f"no-url-{ev['date_publication']}"
+
+            # ❌ ignorer les événements fantômes
+            if not ev.get("url") or ev.get("societe") == "INCONNU":
+                print("   ⛔ IGNORÉ : événement sans PDF / société inconnue")
+                continue
+
+            url = ev.get("url")
+
             print(f"👉 Tentative insertion : {ev['date_publication']} | {url}")
 
             try:
                 event, created = VeilleEvenement.objects.get_or_create(
                     veille=veille,
-                    societe=societe,  # ✅ associe à la bonne société de la bonne veille
+                    societe=societe,
                     type="ANNEXE",
                     date_publication=ev["date_publication"],
                     source=url,
@@ -51,7 +58,9 @@ class Command(BaseCommand):
                         "titre": ev.get("titre") or "",
                     }
                 )
+
                 print("   ✅ CREATED" if created else "   ⚠️ ALREADY EXISTS")
+
                 if created:
                     saved += 1
 
@@ -60,3 +69,4 @@ class Command(BaseCommand):
                 continue
 
         print(f"💾 TOTAL AJOUTÉS = {saved}")
+
