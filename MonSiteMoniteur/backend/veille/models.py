@@ -24,44 +24,45 @@ class Veille(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="listes_veille")
     nom = models.CharField(max_length=255)
-    type = models.CharField(max_length=10, choices=TYPE)   # ✅ obligatoire
+    type = models.CharField(max_length=10, choices=TYPE)
     date_creation = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.nom} ({self.user.username})"
 
-# ✅ Veille TVA : listes de sociétés par veille
+
 class VeilleSociete(models.Model):
-    veille = models.ForeignKey(Veille, on_delete=models.CASCADE, related_name="societes")  # ⬅️ CHANGÉ
+    veille = models.ForeignKey(Veille, on_delete=models.CASCADE, related_name="societes")
     numero_tva = models.CharField(max_length=20)
+
+    class Meta:
+        unique_together = ("veille", "numero_tva")  # ✅ empêche duplicata TVA dans une même veille
 
     def __str__(self):
         return f"{self.numero_tva}"
 
 
 class VeilleEvenement(models.Model):
-    TYPE = [
-        ("ANNEXE", "Annexe Moniteur"),
-        ("DECISION", "Décision judiciaire"),
-    ]
-
     veille = models.ForeignKey(Veille, on_delete=models.CASCADE, related_name="evenements")
-    societe = models.ForeignKey("VeilleSociete", on_delete=models.CASCADE, null=True, blank=True)
+    societe = models.ForeignKey(VeilleSociete, on_delete=models.CASCADE, null=True, blank=True)
 
-    type = models.CharField(max_length=10, choices=TYPE)
-    rubrique = models.CharField(max_length=500)
-    titre = models.CharField(max_length=1000, blank=True)
-    date_publication = models.DateField()
-    source = models.URLField(max_length=2000)
+    type = models.CharField(max_length=20)  # ANNEXE ou DECISION
+    date_publication = models.DateField(null=True, blank=True)
+    source = models.URLField(max_length=500)
+
+    rubrique = models.CharField(max_length=500, blank=True, null=True)
+    titre = models.CharField(max_length=500, blank=True, null=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["veille", "type", "date_publication", "source"],
+                fields=["veille", "societe", "type", "date_publication", "source"],
                 name="uniq_event_by_veille",
             )
         ]
 
+    def __str__(self):
+        return f"{self.type} - {self.titre or self.rubrique}"
 # *****************************************
 # partie insertion scrapper (tu ne touches pas)
 # *****************************************

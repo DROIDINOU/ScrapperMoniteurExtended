@@ -1,8 +1,6 @@
-# veille/management/commands/scan_keywords.py
-
 from django.core.management.base import BaseCommand
-from veille.models import Veille, VeilleEvenement
 from django.conf import settings
+from veille.models import Veille, VeilleEvenement
 from meilisearch import Client as MeiliClient
 from django.db import IntegrityError
 
@@ -37,27 +35,24 @@ class Command(BaseCommand):
         saved = 0
 
         for kw in keywords:
-            result = index.search(kw, {"limit": 50, "matchingStrategy": "all"})
+            result = index.search(kw, {"limit": 100, "matchingStrategy": "all"})
 
             for hit in result.get("hits", []):
                 try:
                     _, created = VeilleEvenement.objects.get_or_create(
                         veille=veille,
+                        societe=None,
                         type="DECISION",
                         date_publication=hit.get("date_doc"),
                         source=hit.get("url") or "",
                         defaults={
-                            "societe": None,  # ✅ indispensable pour dashboard
                             "rubrique": ", ".join(hit.get("extra_keyword") or []),
                             "titre": hit.get("title") or kw,
                         }
                     )
-
                     if created:
                         saved += 1
-
                 except IntegrityError:
-                    # ⛔ doublon détecté malgré get_or_create
                     continue
 
         self.stdout.write(self.style.SUCCESS(f"✅ {saved} résultat(s) ajouté(s)"))

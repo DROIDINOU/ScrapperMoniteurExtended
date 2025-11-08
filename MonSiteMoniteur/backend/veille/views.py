@@ -90,24 +90,27 @@ def maveille(request):
             from datetime import datetime
             nom_veille = f"Veille TVA {datetime.now().strftime('%d/%m/%Y')} - {request.user.username}"
 
-        # ✅ Création de la veille TVA
-        veille_obj = Veille.objects.create(
+        # ✅ Rechercher une veille existante AVANT de créer
+        veille_obj, created = Veille.objects.get_or_create(
             user=request.user,
-            nom=nom_veille,
             type="TVA",
+            nom=nom_veille,  # ou tu peux utiliser f"Veille TVA {tva}"
         )
 
+        # ✅ Ajouts des sociétés surveillées + scan automatique
         # ✅ Ajouts des sociétés surveillées + scan automatique
         for tva in raw.split():
             tva = re.sub(r"\D", "", tva)
 
-            VeilleSociete.objects.create(
+            societe, _ = VeilleSociete.objects.get_or_create(
                 numero_tva=tva,
                 veille=veille_obj
             )
 
             print(f"🚀 lancement du scan TVA pour {tva}")  # DEBUG
-            call_command("veille_scan", tva=tva)
+
+            # ✅ ON PASSE L'ID DE LA VEILLE À LA COMMANDE
+            call_command("veille_scan", tva=tva, veille=veille_obj.id)
 
         messages.success(request, "✅ Veille TVA créée et scan lancé automatiquement !")
         return redirect("dashboard_veille")
@@ -126,7 +129,10 @@ def veille_dashboard(request):
         Veille.objects.filter(user=request.user)
         .prefetch_related(
             "societes",
-            Prefetch("evenements", queryset=VeilleEvenement.objects.order_by("-date_publication"))
+            Prefetch(
+                "evenements",
+                queryset=VeilleEvenement.objects.select_related("societe").order_by("-date_publication")
+            ),
         )
         .order_by("-date_creation")
     )
@@ -139,10 +145,10 @@ def veille_dashboard(request):
         print(f"\n🔔 Veille ID={veille.id} ({veille.type}) : {veille.nom}")
 
         if veille.type == "KEYWORD":
-            annexes = veille.evenements.filter(type="ANNEXE")
-            decisions = veille.evenements.filter(type="DECISION")
+            annexes = veille.evenements.filter(type="ANNEXE", societe__isnull=True)
+            decisions = veille.evenements.filter(type="DECISION", societe__isnull=True)
 
-            # ✅ COMPTE total des résultats
+            # attribut dynamique utilisé dans le template
             veille.result_count = annexes.count() + decisions.count()
 
             tableau.append({
@@ -152,9 +158,11 @@ def veille_dashboard(request):
                 "decisions": decisions,
             })
 
-        if veille.type == "TVA":
+        elif veille.type == "TVA":
             print(f"    -> TVA : {veille.societes.count()} sociétés surveillées")
+            # total (tous évènements, toutes sociétés de cette veille)
             veille.result_count = veille.evenements.count()
+
             for societe in veille.societes.all():
                 print(f"        🔎 Société : {societe.numero_tva} (ID={societe.id})")
 
@@ -194,13 +202,32 @@ def lancer_scan(request, tva):
     print(f">>> TVA reçue = {tva}")
 
     try:
-        call_command("veille_scan", tva=tva)
-        messages.success(request, f"✅ Scan lancé pour TVA {tva}")
+        # ✅ retrouver la veille de l'utilisateur liée à cette TVA
+        soc = VeilleSociete.objects.filter(
+            veille__user=request.user,
+            numero_tva=re.sub(r"\D", "", tva)
+        ).select_related("veille").first()
+
+        if not soc:
+            messages.error(request, "❌ Cette TVA n'est pas dans vos veilles.")
+            return redirect("dashboard_veille")
+
+        print(f"➡️ Scan déclenché pour TVA {soc.numero_tva} sur veille ID={soc.veille.id}")
+
+        # ✅ on passe l'ID de la veille
+        call_command("veille_scan", tva=soc.numero_tva, veille=soc.veille.id)
+
+        messages.success(
+            request,
+            f"✅ Scan lancé pour TVA {soc.numero_tva} (Veille : {soc.veille.nom})"
+        )
+
     except Exception as e:
         print(f"❌ ERREUR veille_scan : {e}")
         messages.error(request, f"❌ Erreur lors du scan TVA : {e}")
 
     return redirect("dashboard_veille")
+
 
 def scan_decisions(request, tva):
 
@@ -215,12 +242,12 @@ def scan_decisions(request, tva):
 
     for soc in societes:
         for doc in results["hits"]:
-
             VeilleEvenement.objects.get_or_create(
-                veille=soc.veille,     # ✅ association à la VEILLE
+                veille=soc.veille,
+                societe=soc,  # ✅ c’est CE paramètre qui manque
                 type="DECISION",
                 date_publication=doc.get("date_doc"),
-                source=doc.get("url"),
+                source=doc.get("url") or f"no-url-{doc.get('date_doc')}",
                 defaults={
                     "rubrique": ", ".join(doc.get("extra_keyword") or []),
                     "titre": doc.get("title") or "",
