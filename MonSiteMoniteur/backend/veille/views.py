@@ -1,57 +1,116 @@
-from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
-from django.contrib import messages
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import logout
+from datetime import datetime
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from .models import Veille, UserProfile
 
 from django.http import JsonResponse, Http404
-from django.conf import settings
-from psycopg2.extras import RealDictCursor
-from .models import  VeilleEvenement
+from django.db.models import Q
 from meilisearch import Client as MeiliClient
 from django.db import connection
 from .models import UserProfile
-from django.db.models import Prefetch
 from .keywords import KEYWORD_GROUPS, KEYWORD_LABELS
-from .models import VeilleSociete
+# views.py
+from django.db.models import Prefetch
+from django.shortcuts import redirect
+from django.contrib import messages
+from django.conf import settings
+import meilisearch
+from .models import VeilleSociete, VeilleEvenement
+from django.http import HttpResponse
 
-from BaseDeDonnees.connexion_postgre import get_postgre_connection
 import re
 import psycopg2
 from django.core.management import call_command
 from django.contrib.auth.decorators import login_required
+from django.utils.timezone import now
 
 
-def lancer_scan(request, tva):
-    call_command("scan_annexes", tva=tva)
-    return redirect("veille_dashboard")
+
+def home_marketing(request):
+    return render(request, "veille/home_marketing.html")
+
+
+def privacy(request):
+    return render(request, "veille/privacy.html", {
+        "now": now().strftime("%d/%m/%Y"),
+        "site_name": "Moniteur AI",
+        "contact_email": "contact@moniteur-ai.com"
+    })
+
+def cgu(request):
+    return render(request, "veille/cgu.html")
+
+
+
+
+@login_required
+def veille_fuzzy(request):
+
+    profile = request.user.userprofile
+
+    if request.method == "POST":
+        profile.keyword1 = request.POST.get("keyword1")
+        profile.keyword2 = request.POST.get("keyword2")
+        profile.keyword3 = request.POST.get("keyword3")
+        profile.save()
+
+        veille_nom = request.POST.get("veille_nom", "").strip()
+        if not veille_nom:
+            veille_nom = f"Veille Mots-clés — {request.user.username}"
+
+        # ✅ Création de la veille KEYWORD
+        veille_obj = Veille.objects.create(
+            user=request.user,
+            nom=veille_nom,
+            type="KEYWORD"
+        )
+
+        # ✅ SCAN DIRECT
+        from django.core.management import call_command
+        print(">>> SCAN KEYWORDS AUTO pour veille", veille_obj.id)
+        call_command("scan_keywords", veille=veille_obj.id)
+
+        messages.success(request, "✅ Veille mots-clés créée et scan lancé automatiquement.")
+        return redirect("dashboard_veille")
+
+    return render(request, "veille/fuzzy_veille.html", {"profile": profile})
 
 
 @login_required
 def maveille(request):
+
     if request.method == "POST":
         raw = request.POST.get("tva_list", "")
-        tva_numbers = raw.split()
+        nom_veille = request.POST.get("nom_veille", "").strip()
 
-        for tva in tva_numbers:
+        if not nom_veille:
+            from datetime import datetime
+            nom_veille = f"Veille TVA {datetime.now().strftime('%d/%m/%Y')} - {request.user.username}"
+
+        # ✅ Création de la veille TVA
+        veille_obj = Veille.objects.create(
+            user=request.user,
+            nom=nom_veille,
+            type="TVA",
+        )
+
+        # ✅ Ajouts des sociétés surveillées + scan automatique
+        for tva in raw.split():
             tva = re.sub(r"\D", "", tva)
 
-            # ➤ Toujours récupérer l’unique société pour ce TVA
-            societe = VeilleSociete.objects.filter(numero_tva=tva).first()
+            VeilleSociete.objects.create(
+                numero_tva=tva,
+                veille=veille_obj
+            )
 
-            if societe:
-                # ➤ juste l’associer à l’utilisateur actuel
-                societe.user = request.user
-                societe.save()
+            print(f"🚀 lancement du scan TVA pour {tva}")  # DEBUG
+            call_command("veille_scan", tva=tva)
 
-            else:
-                # ➤ sinon on la crée
-                societe = VeilleSociete.objects.create(
-                    numero_tva=tva,
-                    user=request.user
-                )
-
-        return redirect("veille_dashboard")
+        messages.success(request, "✅ Veille TVA créée et scan lancé automatiquement !")
+        return redirect("dashboard_veille")
 
     return render(request, "veille/maveille.html")
 
@@ -59,23 +118,120 @@ def maveille(request):
 @login_required
 def veille_dashboard(request):
 
-    societes = VeilleSociete.objects.filter(user=request.user).prefetch_related(
-        Prefetch(
-            "evenements",
-            queryset=VeilleEvenement.objects
-                .exclude(rubrique="INCONNUE")
-                .order_by("-date_publication"),  # ✅ TRI PAR DATE (plus RÉCENT en premier)
-            to_attr="evenements_valides"
+    print("\n----------------------------------------")
+    print("🟦 DASHBOARD : chargement des veilles…")
+    print("----------------------------------------")
+
+    veilles = (
+        Veille.objects.filter(user=request.user)
+        .prefetch_related(
+            "societes",
+            Prefetch("evenements", queryset=VeilleEvenement.objects.order_by("-date_publication"))
         )
+        .order_by("-date_creation")
     )
 
-    return render(request, "veille/dashboard_veille.html", {
-        "societes": societes
-    })
+    print(f"✅ Nombre de veilles trouvées : {veilles.count()}")
 
+    tableau = []
+
+    for veille in veilles:
+        print(f"\n🔔 Veille ID={veille.id} ({veille.type}) : {veille.nom}")
+
+        if veille.type == "KEYWORD":
+            annexes = veille.evenements.filter(type="ANNEXE")
+            decisions = veille.evenements.filter(type="DECISION")
+
+            # ✅ COMPTE total des résultats
+            veille.result_count = annexes.count() + decisions.count()
+
+            tableau.append({
+                "veille": veille,
+                "societe": None,
+                "annexes": annexes,
+                "decisions": decisions,
+            })
+
+        if veille.type == "TVA":
+            print(f"    -> TVA : {veille.societes.count()} sociétés surveillées")
+            veille.result_count = veille.evenements.count()
+            for societe in veille.societes.all():
+                print(f"        🔎 Société : {societe.numero_tva} (ID={societe.id})")
+
+                annexes = veille.evenements.filter(type="ANNEXE", societe=societe)
+                decisions = veille.evenements.filter(type="DECISION", societe=societe)
+
+                print(f"           ➤ annexes = {annexes.count()} | décisions = {decisions.count()}")
+
+                tableau.append({
+                    "veille": veille,
+                    "societe": societe,
+                    "annexes": annexes,
+                    "decisions": decisions,
+                })
+
+    print("\n✅ FIN DASHBOARD (tableau généré)\n")
+
+    return render(
+        request,
+        "veille/dashboard.html",
+        {"tableau": tableau, "veilles": veilles},
+    )
+
+
+
+@login_required
+def scan_decisions_keywords(request, veille_id):
+    print(">>> SCAN KEYWORDS", veille_id)
+    call_command("scan_keywords", veille=veille_id)
+    messages.success(request, "✅ Scan mots-clés lancé.")
+    return redirect("dashboard_veille")
+
+
+@login_required
 def lancer_scan(request, tva):
-    call_command("veille_scan", tva=tva)
-    return redirect("veille_dashboard")
+    print(">>> lancer_scan VUE APPELÉE")
+    print(f">>> TVA reçue = {tva}")
+
+    try:
+        call_command("veille_scan", tva=tva)
+        messages.success(request, f"✅ Scan lancé pour TVA {tva}")
+    except Exception as e:
+        print(f"❌ ERREUR veille_scan : {e}")
+        messages.error(request, f"❌ Erreur lors du scan TVA : {e}")
+
+    return redirect("dashboard_veille")
+
+def scan_decisions(request, tva):
+
+    client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
+    index = client.index("moniteur_docs")
+
+    results = index.search("", {"filter": f'TVA = "{tva}"'})
+
+    societes = VeilleSociete.objects.filter(numero_tva=tva)
+
+    count = 0
+
+    for soc in societes:
+        for doc in results["hits"]:
+
+            VeilleEvenement.objects.get_or_create(
+                veille=soc.veille,     # ✅ association à la VEILLE
+                type="DECISION",
+                date_publication=doc.get("date_doc"),
+                source=doc.get("url"),
+                defaults={
+                    "rubrique": ", ".join(doc.get("extra_keyword") or []),
+                    "titre": doc.get("title") or "",
+                }
+            )
+
+            count += 1
+
+    messages.success(request, f"⚖️ {count} décision(s) trouvée(s) pour TVA {tva}")
+    return redirect("dashboard_veille")
+
 
 # ------------------------------------------------------------
 # ✅ AUTOCOMPLETE RUE
@@ -353,7 +509,7 @@ def api_search_tva(request):
 # ------------------------------------------------------------
 # ✅ PAGES
 # ------------------------------------------------------------
-def home(request): return render(request, "veille/home.html")
+def home(request): return render(request, "veille/app_home.html")
 def charts(request): return render(request, "veille/charts.html")
 def contact(request): return render(request, "veille/contact.html")
 def fonctionnalites(request): return render(request, "veille/fonctionnalites.html")

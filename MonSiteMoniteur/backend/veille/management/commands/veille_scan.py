@@ -1,57 +1,56 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
-from veille.models import VeilleSociete, VeilleEvenement
+from veille.models import Veille, VeilleSociete, VeilleEvenement
 from veille.scrapper.annexes_scraper import scrap_annexes
 import re
-
+from django.db import IntegrityError
 
 class Command(BaseCommand):
-    help = "Scan une TVA et enregistre les événements du Moniteur"
+    help = "Scan une TVA et enregistre les ANNEXES liées dans la veille TVA"
 
     def add_arguments(self, parser):
-        parser.add_argument("--tva", required=True, help="Numéro TVA/BCE")
+        parser.add_argument("--tva", required=True, help="Numéro TVA/BCE à scanner")
 
     def handle(self, *args, **options):
         tva = re.sub(r"\D", "", options["tva"])
+        self.stdout.write(f"🔎 Scan TVA : {tva}")
 
-        self.stdout.write(f"🔍 Scan TVA: {tva}")
+        veille = Veille.objects.filter(type="TVA", societes__numero_tva=tva).first()
 
-        # ✅ si la société existe déjà, on la récupère
-        societe = VeilleSociete.objects.filter(numero_tva=tva).first()
-
-        # ✅ sinon on la crée et on l’associe à un utilisateur
-        if not societe:
-            default_user = User.objects.first()
-            if not default_user:
-                self.stdout.write(self.style.ERROR("❌ Aucun utilisateur trouvé en base !"))
-                return
-
-            societe = VeilleSociete.objects.create(
-                numero_tva=tva,
-                user=default_user
+        if not veille:
+            user = User.objects.first()
+            veille = Veille.objects.create(
+                user=user,
+                nom=f"Veille TVA auto — {tva}",
+                type="TVA",
             )
-            self.stdout.write(self.style.SUCCESS(f"✅ Société créée et associée à {default_user.username}"))
+            VeilleSociete.objects.create(veille=veille, numero_tva=tva)
 
-        # ✅ Scraping Moniteur
+        societe = VeilleSociete.objects.get(veille=veille, numero_tva=tva)
+
         events = scrap_annexes(tva)
-
-        if not events:
-            self.stdout.write(self.style.WARNING("⚠️ Aucun événement trouvé."))
-            return
-
         saved = 0
-        for ev in events:
-            VeilleEvenement.objects.get_or_create(
-                societe=societe,
-                type="ANNEXE",  # ✅ source = scraping moniteur
-                date_publication=ev["date_publication"],
-                source=ev.get("url") or "",
-                defaults={
-                    "rubrique": ev["rubrique"],
-                    "titre": ev.get("titre") or ev.get("societe") or "",
-                }
-            )
 
-            saved += 1
+        for ev in events:
+            try:
+                obj, created = VeilleEvenement.objects.get_or_create(
+                    veille=veille,
+                    type="ANNEXE",
+                    date_publication=ev["date_publication"],
+                    source=ev.get("url") or "",
+                    defaults={"societe": societe, "rubrique": ev.get("rubrique") or "", "titre": ev.get("titre") or ""},
+                )
+
+                if created:
+                    saved += 1
+
+            except IntegrityError:
+                # insertion concurrente ou doublon → on récupère l'objet existant
+                obj = VeilleEvenement.objects.get(
+                    veille=veille,
+                    type="ANNEXE",
+                    date_publication=ev["date_publication"],
+                    source=ev.get("url") or "",
+                )
 
         self.stdout.write(self.style.SUCCESS(f"✅ {saved} événement(s) enregistré(s)."))

@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright
 
 RUBRIQUE_KEYWORDS = {
     "CONSTITUTION": ["constitution", "nouvelle personne morale", "ouverture succursale"],
-    "FIN": ["cessation", "annulation", "dissolution", "reorganisation", "réorganisation", "clôture"],
+    "FIN": ["cessation", "annulation", "dissolution", "reorganisation", "réorganisation", "clôture", "fin"],
     "RADIATION": ["radiation"],
     "SIEGE": ["siège social", "siege social", "transfert siège"],
     "DEMISSION-NOMINATION": ["demission", "nomination"],
