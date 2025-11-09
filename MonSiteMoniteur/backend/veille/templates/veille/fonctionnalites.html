@@ -1,0 +1,39 @@
+{% extends 'veille/base.html' %}
+{% block content %}
+
+
+            <!-- Begin Page Content -->
+            <div class="container-fluid">
+                <div class="text-center mt-5">
+                    <h1 class="display-4">🚧 Fonctionnalités en développement</h1>
+                    <p class="lead">Nous travaillons dur pour vous proposer de nouvelles fonctionnalités.</p>
+                    <p>Revenez bientôt pour les découvrir !</p>
+
+                    <div class="dropdown mt-4">
+                        <button class="btn btn-secondary dropdown-toggle" type="button" id="featuresDropdown"
+                                data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Nouvelles fonctionnalités en développement
+                        </button>
+                        <div class="dropdown-menu" aria-labelledby="featuresDropdown">
+                            <a class="dropdown-item" href="#">Veille juridique personnalisée</a>
+                            <a class="dropdown-item" href="#">Alertes en temps réel</a>
+                            <a class="dropdown-item" href="#">Analyse automatique des décisions</a>
+                            <a class="dropdown-item" href="#">Export PDF/Excel des résultats</a>
+                            <a class="dropdown-item" href="#">Statistiques avancées</a>
+                        </div>
+                    </div>
+
+                    <a href="{% url 'dashboard_veille' %}" class="btn btn-primary mt-3">Retour sur le Dashboard</a>
+                </div>
+            </div>
+
+<!-- Scroll to Top Button-->
+<a class="scroll-to-top rounded" href="#page-top">
+    <i class="fas fa-angle-up"></i>
+</a>
+
+
+{% endblock %}
+
+
+

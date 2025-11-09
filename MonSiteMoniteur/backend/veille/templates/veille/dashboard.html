@@ -1,0 +1,128 @@
+{% extends "veille/base.html" %}
+{% load static %}
+
+{% block title %}Dashboard — Juriscope{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/veille.css' %}">
+
+<div class="container mt-4">
+    <h2 class="text-center mb-4">📊 Tableau de bord de veille</h2>
+
+    {% if veilles %}
+    <div class="accordion" id="accordionVeilles">
+
+        {% for veille in veilles %}
+        <div class="card mb-3 shadow-sm border-0">
+            <div class="card-header bg-primary text-white" id="heading{{ veille.id }}">
+                <div class="d-flex justify-content-between align-items-center">
+                    <button class="btn btn-link text-white fw-bold text-decoration-none"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapse{{ veille.id }}"
+                            aria-expanded="false"
+                            aria-controls="collapse{{ veille.id }}">
+                        🔔 {{ veille.nom }} <small class="text-light">({{ veille.type }})</small>
+                    </button>
+
+                    <div class="d-flex align-items-center">
+                        {% if veille.type == "TVA" %}
+                            <span class="badge bg-light text-dark me-2">{{ veille.societes.count }} société(s)</span>
+                        {% endif %}
+
+                        {% if veille.type == "KEYWORD" %}
+                            {% if veille.result_count > 0 %}
+                                <span class="badge bg-success">
+                                    ✅ {{ veille.result_count }} résultat(s)
+                                </span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark">
+                                    Aucun résultat pour l’instant
+                                </span>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div id="collapse{{ veille.id }}" class="accordion-collapse collapse"
+                 aria-labelledby="heading{{ veille.id }}"
+                 data-bs-parent="#accordionVeilles">
+
+                <div class="card-body bg-white">
+                    {% for entry in tableau %}
+                        {% if entry.veille.pk == veille.pk %}
+                        <div class="societe-card border rounded shadow-sm p-3 mb-4">
+
+                            <div class="societe-header d-flex justify-content-between align-items-center mb-2">
+                                {% if entry.societe %}
+                                    <span>🔎 TVA : <strong>{{ entry.societe.numero_tva }}</strong></span>
+                                {% else %}
+                                    <span>🟣 Résultats globaux — Mots-clés</span>
+                                {% endif %}
+
+                                {% if entry.societe and entry.veille.type != "KEYWORD" %}
+                                    <div>
+                                        <a href="{% url 'lancer_scan' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-primary">🚀 Scanner</a>
+                                        <a href="{% url 'scan_decisions' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-success">
+                                            ⚖️ Décisions
+                                        </a>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <h5 class="border-bottom pb-2">⚖️ Décisions judiciaires ({{ entry.decisions|length }})</h5>
+
+                                    {% for ev in entry.decisions %}
+                                    <div class="event-row mb-2">
+                                        <div class="fw-semibold">{{ ev.titre|default:ev.rubrique }}</div>
+                                        <small class="text-muted">
+                                            {{ ev.date_publication }}
+                                            {% if ev.source %}
+                                                · <a href="{{ ev.source }}" target="_blank" class="link-primary">Ouvrir</a>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    {% empty %}
+                                    <p class="text-muted fst-italic">Aucune décision trouvée.</p>
+                                    {% endfor %}
+                                </div>
+
+                                <div class="col-md-6">
+                                    <h5 class="border-bottom pb-2">📄 Annexes publiées ({{ entry.annexes|length }})</h5>
+
+                                    {% for ev in entry.annexes %}
+                                    <div class="event-row mb-2">
+                                        <div class="fw-semibold">{{ ev.rubrique|default:ev.titre }}</div>
+                                        <small class="text-muted">
+                                            {{ ev.date_publication }}
+                                            {% if ev.source %}
+                                                · <a href="{{ ev.source }}" target="_blank" class="link-secondary">PDF</a>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    {% empty %}
+                                    <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="text-center py-5">
+        <p class="text-muted mb-4"><em>Vous n'avez encore créé aucune veille...</em></p>
+        <a href="{% url 'maveille' %}" class="btn btn-primary me-2">Créer une veille TVA</a>
+        <a href="{% url 'veille_fuzzy' %}" class="btn btn-outline-primary">Créer une veille mots-clés</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,172 @@
+{% extends 'veille/base.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800 text-center">Configurer votre veille juridique</h1>
+
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+
+            <div class="card shadow mb-4">
+
+                <div class="card-header">
+                    <h6 class="m-0 font-weight-bold text-primary">Ajoutez les sociétés à surveiller</h6>
+                </div>
+
+                <div class="card-body">
+
+                    <p class="mb-3">
+                        ⚡ <strong>Copiez-collez</strong> une liste de numéros de TVA depuis Excel ou un email.
+                        Nous détectons automatiquement les numéros et les nettoyons.
+                    </p>
+
+                    <form id="veilleForm" method="POST" action="{% url 'maveille' %}">
+                        {% csrf_token %}
+
+                        <!-- ✅ NOUVEAU : nom personnalisé de la veille -->
+                        <label class="font-weight-bold">Nom de la veille</label>
+                        <input type="text" name="nom_veille" class="form-control mb-3" placeholder="Exemple : Clients sensibles — Novembre 2025">
+
+                        <!-- ✅ Zone de collage intelligente -->
+                        <label class="font-weight-bold">Numéros TVA à surveiller</label>
+                        <textarea id="bulkInput" name="tva_list" rows="8" class="form-control font-weight-bold" placeholder="Collez ici vos numéros TVA (format libre)…" style="white-space: pre;"></textarea>
+
+                        <small class="form-text text-muted mt-2">
+                            Formats acceptés : 0751.149.489 — BE 0751149489 — 751149489
+                        </small>
+
+                        <!-- ✅ Liste des TVA nettoyées -->
+                        <div id="cleanResult" class="alert alert-info mt-3" style="display:none;"></div>
+
+                        <!-- ✅ Liste des TVA invalides -->
+                        <div id="invalidResults" class="alert alert-danger mt-3" style="display:none;">
+                            <strong>Numéros TVA invalides :</strong>
+                            <div id="invalidNumbersList"></div>
+                        </div>
+
+                        <!-- ✅ Boutons de validation et lancement -->
+                        <button type="button" class="btn btn-primary btn-block mt-3" id="validateBtn">Valider les numéros TVA</button>
+                        <button type="submit" class="btn btn-success btn-block mt-3" id="submitBtn" style="display:none;">🚀 Lancer la veille</button>
+                    </form>
+
+                    <hr>
+
+                    <p class="text-center text-muted small">
+                        Vous pourrez suivre : changements d’adresse, d’administrateurs et publications officielles.
+                    </p>
+                </div>
+            </div>
+
+            <div class="text-center mt-2">
+                <a href="{% url 'veille_fuzzy' %}" class="btn btn-success btn-sm">
+                    Configurer ma veille par mots-clés
+                </a>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    console.log("DOM entièrement chargé.");
+
+    const validateBtn = document.getElementById("validateBtn");
+    const submitBtn = document.getElementById("submitBtn");
+    const bulkInput = document.getElementById("bulkInput");
+    const cleanResult = document.getElementById("cleanResult");
+    const invalidResults = document.getElementById("invalidResults");
+    const invalidNumbersList = document.getElementById("invalidNumbersList");
+
+    // Fonction de nettoyage et validation des numéros
+    bulkInput.addEventListener("input", function () {
+        let cleanedValue = bulkInput.value.replace(/\s+/g, " ");  // Remplacer les espaces multiples par un seul espace
+        cleanedValue = cleanedValue.replace(/^BE\s?/i, ""); // Supprimer "BE" au début si présent
+        bulkInput.value = cleanedValue;
+    });
+
+    // Lorsque l'utilisateur clique sur "Valider TVA"
+    validateBtn.addEventListener("click", function () {
+        console.log("Validation des numéros de TVA a démarré...");
+        const text = bulkInput.value;
+        console.log("Texte collé : ", text);
+
+        // Expression régulière améliorée pour capturer tous les formats acceptés
+        const matches = text.match(/(?:BE\s?)?\d{10}/g); // Recherche tous les numéros de 10 chiffres
+
+        // Si aucun numéro n'est trouvé
+        if (!matches) {
+            // Afficher un popup si aucun numéro n'est trouvé
+            alert("Aucun numéro de TVA valide détecté. Veuillez vérifier le format des numéros.");
+
+            // Réinitialiser le champ de saisie
+            bulkInput.value = "";
+            cleanResult.style.display = "none";
+            invalidResults.style.display = "none";
+            submitBtn.style.display = "none"; // Masquer le bouton "Lancer la veille"
+            validateBtn.style.display = "block"; // Réafficher le bouton de validation
+            console.log("Aucun numéro de TVA détecté.");
+            return;
+        }
+
+        console.log("Numéros détectés : ", matches);
+
+        // Validation des numéros
+        const validNumbers = [];
+        const invalidNumbers = [];
+
+        matches.forEach(num => {
+            // Nettoyage des numéros : retirer les points et espaces
+            let cleanedNum = num.replace(/[\.\s]/g, "");
+            console.log("Numéro nettoyé : ", cleanedNum);
+
+            // Validation (on accepte les numéros de 10 chiffres)
+            if (cleanedNum.length === 10) {
+                validNumbers.push(cleanedNum);
+            } else {
+                invalidNumbers.push(num);
+            }
+        });
+
+        // Affichage des résultats
+        if (invalidNumbers.length > 0) {
+            // Si des numéros sont invalides
+            cleanResult.style.display = "none"; // Masquer les numéros valides
+            invalidResults.style.display = "block"; // Afficher les numéros invalides
+            invalidNumbersList.innerHTML = invalidNumbers.join("<br>");  // Afficher les numéros invalides
+            submitBtn.style.display = "none"; // Masquer le bouton "Lancer la veille"
+            validateBtn.style.display = "none"; // Masquer le bouton "Valider"
+            console.log("Numéros invalides détectés.");
+        } else {
+            // Si tous les numéros sont valides
+            cleanResult.style.display = "block"; // Afficher les résultats des numéros valides
+            cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`; // Changer le texte à "validés"
+            invalidResults.style.display = "none"; // Masquer les numéros invalides
+            submitBtn.style.display = "block"; // Afficher le bouton "Lancer la veille"
+            validateBtn.style.display = "none"; // Cacher le bouton "Valider" après validation
+            console.log("Tous les numéros de TVA sont valides.");
+        }
+    });
+
+    // Fonction de réinitialisation
+    const resetBtn = document.createElement("button");
+    resetBtn.innerHTML = "Réinitialiser";
+    resetBtn.classList.add("btn", "btn-danger", "btn-block", "mt-3");
+    resetBtn.addEventListener("click", function () {
+        bulkInput.value = "";
+        cleanResult.style.display = "none";
+        invalidResults.style.display = "none";
+        submitBtn.style.display = "none";
+        validateBtn.style.display = "block";
+        invalidNumbersList.innerHTML = "";
+        console.log("Réinitialisation des résultats.");
+    });
+
+    // Ajouter le bouton de réinitialisation à la page après validation
+    document.querySelector(".card-body").appendChild(resetBtn);
+
+});
+</script>
+{% endblock %}

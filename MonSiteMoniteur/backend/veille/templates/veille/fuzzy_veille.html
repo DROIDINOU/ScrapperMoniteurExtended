@@ -1,0 +1,61 @@
+{% extends 'veille/base.html' %}
+{% block content %}
+
+<div class="container py-4">
+
+    <h2 class="mb-4 text-primary">Veille par mots-clés (Fuzzy Search)</h2>
+    <p class="text-muted">
+        Entrez des mots-clés. Dès qu’une décision judiciaire contient l’un d’eux, une alerte est créée.
+    </p>
+
+    <form method="POST" action="{% url 'veille_fuzzy' %}">
+        {% csrf_token %}
+
+        <!-- ✅ NOM DE LA VEILLE -->
+        <div class="form-group">
+            <label><strong>Nom de la veille</strong></label>
+            <input type="text"
+                   name="veille_nom"
+                   class="form-control"
+                   placeholder="ex : Suivi procédures Charleroi">
+        </div>
+
+        <hr>
+
+        <!-- ✅ MOTS-CLÉS -->
+        <div class="form-group">
+            <label>Mot-clé n°1</label>
+            <input type="text" name="keyword1" class="form-control"
+       value="{{ profile.keyword1|default_if_none:'' }}" placeholder="ex : dissolution">
+        </div>
+
+        <div class="form-group">
+            <label>Mot-clé n°2</label>
+            <input type="text" name="keyword2" class="form-control"
+       value="{{ profile.keyword2|default_if_none:'' }}" placeholder="ex : faillite">
+        </div>
+
+        <div class="form-group">
+            <label>Mot-clé n°3</label>
+            <input type="text" name="keyword3" class="form-control"
+       value="{{ profile.keyword3|default_if_none:'' }}" placeholder="ex : curateur">
+        </div>
+
+        <button type="submit"
+                class="btn btn-primary btn-block mt-3"
+                style="background: linear-gradient(90deg,#4669f3,#6b30ff); border: none; font-size: 1.2rem;">
+            ✅ Enregistrer mes mots-clés et créer la veille
+        </button>
+    </form>
+<div class="text-center mt-2">
+    <a href="{% url 'veille_fuzzy' %}" class="btn btn-success btn-sm">
+         Configurer ma veille TVA
+    </a>
+</div>
+    <div class="alert alert-info mt-4">
+        📬 Les résultats apparaîtront automatiquement dans votre tableau de bord.
+    </div>
+
+</div>
+
+{% endblock %}

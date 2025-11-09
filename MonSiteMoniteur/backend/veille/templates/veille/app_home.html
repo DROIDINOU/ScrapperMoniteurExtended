@@ -1,0 +1,711 @@
+{% block searchbar %}
+<form id="searchForm" class="w-100">
+    <div class="form-row align-items-center">
+        <div class="col-auto">
+            <select id="searchType" class="form-control form-control-sm">
+                <option value="global" selected>Recherche globale</option>
+                <option value="tva">TVA</option>
+                <option value="rue">Rue (Adresse)</option>
+                <option value="keyword">Mot-clé (événement juridique)</option>
+
+            </select>
+        </div>
+        <div class="col-auto">
+    <div class="search-bar-custom d-flex align-items-center px-3 py-2 rounded">
+        <i class="fas fa-search mr-2"></i>
+        <input id="searchInput" type="text"
+               class="form-control border-0 bg-transparent text-black font-weight-bold mr-2"
+               placeholder="Search" style="box-shadow: none; outline: none;">
+        <button id="searchButton" class="btn btn-sm btn-dark px-3" type="button">
+            Rechercher
+        </button>
+    </div>
+</div>
+       <div class="col-auto">
+    <button id="dateFilterBtn" class="btn btn-outline-secondary btn-sm">
+        📅 Date
+    </button>
+</div>
+
+<div id="datePopover" class="card p-2 shadow-sm date-popover" style="display:none;">
+    <label>Du :</label>
+    <input id="dateMin" type="date" class="form-control form-control-sm mb-1">
+    <label>Au :</label>
+    <input id="dateMax" type="date" class="form-control form-control-sm mb-2">
+    <button id="applyDateFilter" class="btn btn-primary btn-sm w-100">Appliquer</button>
+</div>
+
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_styles %}
+{{ block.super }}
+<style>
+.search-bar-custom {
+    background-color: white;
+    border: 2px solid transparent;
+    position: relative; /* ✅ AJOUT ICI */
+}
+
+.tva-badge {
+    background-color: #fff3cd !important; /* jaune clair */
+    color: #cc8400 !important;            /* texte orange */
+    border: 1px solid #cc8400;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+}
+
+
+.autocomplete-item {
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.autocomplete-item:hover {
+    background-color: #f1f5f9;
+}
+
+.autocomplete-item.disabled {
+    color: #888;
+    cursor: not-allowed;
+}
+
+
+/* Positionner le popup date à droite du bouton */
+.date-popover {
+    position: absolute;
+    top: 60%;
+    right: 70;        /* ✅ ou left: 0 selon ton goût */
+    z-index: 9999;   /* ✅ plus haut que tout */
+}
+
+
+        /* Toutes les balises <em> dans les résultats auront une couleur */
+        #searchResults em {
+            font-style: normal; /* si tu ne veux pas italique */
+            background-color: white; /* exemple: fond jaune */
+            color: red; /* texte rouge */
+            padding: 0 2px;
+            border-radius: 3px;
+            display: inline;
+            white-space: nowrap;
+            word-break: normal; /* plutôt que keep-all */
+        }
+
+        /* Garde le fond transparent et la bordure bleue au survol */
+        .btn-outline-primary:hover,
+        .btn-outline-primary:focus,
+        .btn-outline-primary:active {
+            background-color: transparent !important;
+            border-color: #007bff !important; /* bleu Bootstrap */
+            border-width: 2px !important;     /* bordure plus épaisse */
+        }
+
+        /* Garde la couleur du texte spécifique par catégorie */
+        .btn-outline-primary.text-success:hover,
+        .btn-outline-primary.text-success:focus,
+        .btn-outline-primary.text-success:active {
+            color: #28a745 !important;
+        }
+        .btn-outline-primary.text-info:hover,
+        .btn-outline-primary.text-info:focus,
+        .btn-outline-primary.text-info:active {
+            color: #17a2b8 !important;
+        }
+        .btn-outline-primary.text-dark:hover,
+        .btn-outline-primary.text-dark:focus,
+        .btn-outline-primary.text-dark:active {
+            color: #343a40 !important;
+        }
+        .btn-outline-primary.text-primary:hover,
+        .btn-outline-primary.text-primary:focus,
+        .btn-outline-primary.text-primary:active {
+            color: #007bff !important;
+        }
+        .btn-outline-primary.text-warning:hover,
+        .btn-outline-primary.text-warning:focus,
+        .btn-outline-primary.text-warning:active {
+            color: #ffc107 !important;
+        }
+
+        .text-purple {
+            color: #ff8c69 !important;
+        }
+
+        .custom-select {
+            height: calc(1.5em + 0.75rem + 2px);
+        }
+
+        .card-body {
+            white-space: normal; /* <- on remet le comportement standard ici */
+            word-break: break-word;
+        }
+ .search-bar-custom {
+    background-color: white;
+    border: 2px solid transparent;
+}
+
+.search-bar-custom:hover,
+.search-bar-custom:focus-within {
+    border-color: #3b82f6;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+}
+
+.search-bar-custom button {
+    background-color: #444; /* bleu foncé */
+}
+
+.search-bar-custom button:hover {
+    background-color: #1d4ed8;
+}
+
+
+/* Icône */
+.search-bar-custom i {
+    color: #1e3a8a;
+    font-size: 1.2rem;
+}
+
+
+
+
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Begin Page Content -->
+<div class="container-fluid">
+    <!-- Page Heading -->
+    <!-- Content Row -->
+    <div class="row">
+
+        <!-- Earnings (Monthly) Card Example -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-secondary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-lg font-weight-bold text-uppercase mb-1">
+                                Résultats
+                            </div>
+                            <div id="resultCount" class="h5 mb-0 font-weight-bold text-gray-800">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-search fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Earnings (Monthly) Card Example -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                MONITEUR BELGE (décisions de justice) <i
+                                    class="fas fa-info-circle text-success"
+                                    title="Regroupe les décisions judiciaires concernant entre autres les faillites, les dissolutions, les désignations d'administrateurs, les successions en déshérence, ..."></i>
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="moniteurCount">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-search fa-1x text-gray-300"></i>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                MONITEUR BELGE (ANNEXE PERSONNES MORALES)
+                                <i class="fas fa-info-circle text-info"
+                                   title="Cette rubrique regroupe les publications officielles concernant les personnes morales (sociétés, associations, fondations, etc.) parues au Moniteur belge.
+Elle inclut notamment : les constitutions de sociétés, les modifications statutaires,..."></i>
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="AnnexeCount">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-search fa-1x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- Content Row -->
+
+    <div class="row">
+
+        <!-- Area Chart -->
+        <div class="col-xl-12 col-lg-7">
+            <div class="card shadow mb-4 ">
+                <!-- Card Header - Dropdown -->
+                <div
+                        class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary">RESULTATS</h6>
+                    <div class="dropdown no-arrow">
+                        <a class="dropdown-toggle" href="#" role="button" id="dropdownMenuLink"
+                           data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="fas fa-ellipsis-v fa-sm fa-fw text-gray-400"></i>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-right shadow animated--fade-in"
+                             aria-labelledby="dropdownMenuLink">
+                            <div class="dropdown-header">Dropdown Header:</div>
+                            <a class="dropdown-item" href="#">Action</a>
+                            <a class="dropdown-item" href="#">Another action</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="#">Something else here</a>
+                        </div>
+                    </div>
+                </div>
+                <!-- Card Body -->
+                <div class="card-body ">
+                    <div id="searchResults"></div>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- /.container-fluid -->
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+
+// ✅ Fonction appelée quand on clique sur "Voir sociétés"
+function loadSocietes(collapseId, ids) {
+
+    console.log("🚀 loadSocietes appelé !");
+    console.log("collapseId =", collapseId);
+    console.log("ids envoyés =", ids);
+
+    const target = document.getElementById(collapseId);
+
+    if (!ids || ids.length === 0) {
+        target.innerHTML = `<div class="text-muted small">Aucune société trouvée.</div>`;
+        return;
+    }
+    fetch(`/api/societes?n=${ids}`)
+        .then(res => res.json())
+        .then(data => {
+            console.log("✅ JSON reçu =", data);
+
+            if (!data.length) {
+                target.innerHTML = `<div class="text-muted small">Aucune société trouvée.</div>`;
+                return;
+            }
+
+            target.innerHTML = `
+                <ul class="list-group shadow-sm" style="max-width: 450px;">
+                    ${data.map(s => `
+                        <li class="list-group-item py-2">
+                            <a href="/societe/${s.bce}/">${s.nom}</a>
+                        </li>
+                    `).join("")}
+                </ul>
+            `;
+        })
+        .catch(err => {
+            console.error("❌ ERREUR FETCH :", err);
+            target.innerHTML = `<div class="text-danger">Erreur chargement sociétés.</div>`;
+        });
+}
+
+    document.addEventListener("DOMContentLoaded", function () {
+    const searchInput = document.getElementById("searchInput");
+
+    // Fonction pour placer le curseur au début du champ
+
+
+    // Fonction pour déplacer le curseur à la fin du champ après chaque saisie
+    function focusAtEnd() {
+        console.log("Placer le curseur à la fin du champ");
+        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);  // Placer le curseur à la fin
+        console.log("Position du curseur après placement à la fin : ", searchInput.selectionStart);
+    }
+
+    // 1. Quand l'utilisateur entre dans le champ (focus), on place le curseur au début
+    searchInput.addEventListener("focus", function () {
+        console.log("Focus détecté dans le champ");
+    });
+
+
+    // 3. Lors de l'appui sur le bouton de recherche, on place le curseur à la fin
+    document.getElementById("searchButton").addEventListener("click", function () {
+        console.log("Clic sur le bouton de recherche");
+        setTimeout(focusAtEnd, 100);  // Délai pour s'assurer que le champ est prêt
+    });
+
+    // 4. Après que la page est chargée, s'assurer que le curseur est à la fin du champ
+    setTimeout(function () {
+        console.log("Placer le curseur à la fin après le chargement");
+        focusAtEnd();
+    }, 100);  // Délai pour s'assurer que le champ est prêt
+
+});
+
+function showToast(message, delay = 4000) {
+    const toastEl = document.getElementById("firstSearchToast");
+    toastEl.querySelector(".toast-body").textContent = message;
+    $(toastEl).toast({ delay: delay });
+    $(toastEl).toast("show");
+}
+
+// Met en évidence un mot-clé global dans le texte (recherche "classique")
+function highlightGlobalKeywordInText(text, keyword) {
+    if (!keyword) return text;
+
+    const cleaned = keyword.replace(/^=/, '').trim();
+    const escaped = cleaned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // 🛑 CORRECTIF : match mot entier uniquement, pas sous-chaîne
+    const regex = new RegExp(`(?:\\b|[^\\p{L}\\d])(${escaped})(?:\\b|[^\\p{L}\\d])`, 'giu');
+
+    return text.replace(regex, (match, group1) => {
+        return match.replace(group1, `<em>${group1}</em>`);
+    });
+}
+
+
+// Met en évidence un numéro de TVA comme 0751.149.489 dans le texte
+function highlightTvaInText(text, tva) {
+    const escapedTva = tva.replace(/\./g, '\\.');
+    const tvaRegex = new RegExp(escapedTva, 'gi');
+    return text.replace(tvaRegex, `<em>${tva}</em>`);
+}
+
+// Supprime les <em> vides
+function cleanEmptyOrWhitespaceEmTags(container) {
+    container.querySelectorAll('em').forEach(em => {
+        const text = em.textContent;
+        if (!text.trim()) em.replaceWith(document.createTextNode(text));
+    });
+}
+
+document.getElementById("searchButton").addEventListener("click", function () {
+    let query = document.getElementById("searchInput").value.trim();
+    const type = document.getElementById("searchType")?.value || "global";
+
+    if (!query) {
+        return showToast("Veuillez entrer un mot-clé.");
+    }
+    else if (type === "tva") {
+        const tvaPattern = /^\d{4}\.\d{3}\.\d{3}$/;
+        if (!tvaPattern.test(query)) {
+                return showToast("Format TVA invalide. Utilisez : xxxx.xxx.xxx");
+        }
+    }
+
+    // 🔴 AJOUT ICI pour forcer une recherche stricte pour "global"
+    if (type === "global" && !query.startsWith("=")) {
+        query = `=${query}`;
+    }
+
+    const urlMap = {
+        global: "/api/search/",
+        tva: "/api/search/tva/",
+        rue: "/api/search/rue/",
+        keyword: "/api/search/keyword/",
+    };
+    const url = urlMap[type] || urlMap.global;
+
+    fetch(`${url}?q=${encodeURIComponent(query)}`)
+    .then(response => response.json())
+    .then(data => {
+        console.log("🚀 DATA REÇUE PAR LE FRONT :", JSON.stringify(data, null, 2));  // ✅ ICI !!!
+        renderResults(data, query, type);
+    })
+    .catch(error => console.error("Erreur lors de la recherche:", error));
+
+});
+
+
+function renderResults(data, query, type) {
+    const container = document.getElementById("searchResults");
+
+    const counts = {
+        moniteur: data.moniteur?.length || 0,
+        Annexe: data.Annexe?.length || 0
+    };
+
+    document.getElementById("resultCount").textContent =
+        counts.moniteur + counts.Annexe ;
+
+    document.getElementById("moniteurCount").textContent = counts.moniteur;
+
+    document.getElementById("AnnexeCount").textContent = counts.Annexe;
+
+    let cleanQuery = query.startsWith("=") ? query.substring(1) : query; // Enlever le '=' du début si présent
+    let html = `
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Résultats pour "${cleanQuery}"</h6>
+            </div>
+            <div class="card-body">
+    `;
+
+    html += buildCategory("Moniteur Belge", "moniteur", data.moniteur, query, type);
+    html += buildCategory("Publications Personnes Morales", "Annexe", data.Annexe, query, type);
+
+    html += `</div></div>`;
+    container.innerHTML = html;
+    cleanEmptyOrWhitespaceEmTags(container);
+
+    setTimeout(function () {
+    document.getElementById("searchResults").scrollIntoView({ behavior: "smooth" });
+}, 900);  // Délai de 500 ms avant de faire défiler vers les résultats
+
+
+    // Collapse buttons
+    $(".collapse").on("show.bs.collapse", function () {
+        const btn = container.querySelector(`a[href="#${this.id}"]`);
+        if (btn) btn.innerHTML = btn.innerHTML.replace("+", "–").replace("Afficher", "Masquer");
+    });
+    $(".collapse").on("hide.bs.collapse", function () {
+        const btn = container.querySelector(`a[href="#${this.id}"]`);
+        if (btn) btn.innerHTML = btn.innerHTML.replace("–", "+").replace("Masquer", "Afficher");
+    });
+
+    // ✅ GESTION + / - pour le bouton "Voir sociétés"
+$(".collapse").on("show.bs.collapse", function () {
+    const btn = document.querySelector(`button[data-target="#${this.id}"]`);
+    if (btn) {
+        btn.innerHTML = btn.innerHTML
+            .replace("+ Voir sociétés", "– Masquer sociétés");
+    }
+});
+
+$(".collapse").on("hide.bs.collapse", function () {
+    const btn = document.querySelector(`button[data-target="#${this.id}"]`);
+    if (btn) {
+        btn.innerHTML = btn.innerHTML
+            .replace("– Masquer sociétés", "+ Voir sociétés");
+    }
+});
+
+}
+
+function buildCategory(title, prefix, items, query, type) {
+    if (!items || items.length === 0) return "";
+
+    const collapseId = `${prefix}Collapse`;
+    const colorMap = {
+        moniteur: "text-success",
+        Annexe: "text-info",
+    };
+
+    let block = `
+    <div class="mb-3">
+
+        <a class="btn btn-outline-primary btn-sm ${colorMap[prefix]}"
+           data-toggle="collapse" href="#${collapseId}">
+            + Afficher ${title} (${items.length})
+        </a>
+    `;
+
+    // ✅ bouton Voir sociétés (apparaît si au moins un item contient un BCE)
+// ✅ Bouton voir sociétés (appel API backend)
+if (items.length > 0) {
+
+    const namesCollapseId = `${prefix}Societes`;
+    const decisionIds = items.map(item => item.bce).filter(id => id);
+
+    block += `
+        <button class="btn btn-outline-warning btn-sm ml-2"
+                data-toggle="collapse"
+                data-target="#${namesCollapseId}"
+                onclick="loadSocietes('${namesCollapseId}', '${decisionIds.join(",")}')">
+            + Voir sociétés
+        </button>
+
+        <div class="collapse mt-2" id="${namesCollapseId}">
+            <div class="p-2 text-muted small">Chargement...</div>
+        </div>
+    `;
+}
+
+
+    block += `
+        <div class="collapse mt-2" id="${collapseId}">
+            <ol>
+    `;
+
+    items.forEach((item, i) => {
+        const itemId = `${prefix}Item${i}`;
+        const dateDoc = item.date_document || "";
+        const text = item.text || item.pdf_text || "";
+        const short = text.substring(0, 400) + (text.length > 400 ? "..." : "");
+        const url = item.url || "#";
+
+        block += `
+            <li class="mt-3">
+                <strong>${short}</strong>
+
+                <div class="text-muted small mt-1">
+                    Date de publication : <u>${dateDoc}</u>
+                </div>
+
+                <a class="btn btn-link btn-sm" data-toggle="collapse" href="#${itemId}">
+                    + Afficher le texte complet
+                </a>
+
+                <a class="btn btn-outline-secondary btn-sm ml-2"
+                   href="${url}" target="_blank">
+                    Voir le document
+                </a>
+            </li>
+
+            <div class="collapse mt-2" id="${itemId}">
+                <div class="card card-body">${text}</div>
+            </div>
+        `;
+    });
+
+    block += `
+            </ol>
+        </div>
+    </div>
+    `;
+
+    return block;
+}
+
+document.getElementById("searchType").addEventListener("change", function () {
+    const searchInput = document.getElementById("searchInput");
+
+    const placeholders = {
+        global: "Ex : succession en déshérence, responsabilité civile, etc.",
+        tva: "Ex : xxxx.xxx.xxx",
+        rue: "Ex : Chaussée de Louvain, Rue Neuve ...",
+        keyword: "Ex : dissolution"
+    };
+
+    const selectedType = this.value;
+    searchInput.placeholder = placeholders[selectedType] || "";
+});
+
+// ✅ AUTOCOMPLÉTION AVEC DEBOUNCE (RUE + MOT-CLÉ)
+let debounce = null;
+
+document.getElementById("searchInput").addEventListener("input", function (e) {
+    const type = document.getElementById("searchType").value;
+    const query = this.value.trim();
+
+    if (type !== "keyword" && type !== "rue") return;      // ⛔ Pas d'autocomplete pour global/TVA/NISS
+    if (query.length < 3) return;                           // ⛔ Pas avant 3 caractères
+
+    clearTimeout(debounce);
+
+    debounce = setTimeout(() => {
+        if (type === "keyword") {
+            fetch(`/api/autocomplete/keyword/?q=${encodeURIComponent(query)}`)
+                .then(res => res.json())
+                .then(data => showAutocompleteSuggestions(data));
+        } else if (type === "rue") {
+            fetch(`/api/autocomplete/rue/?q=${encodeURIComponent(query)}`)
+                .then(res => res.json())
+                .then(data => showAutocompleteSuggestions(data));
+        }
+    }, 250);
+});
+
+
+function showAutocompleteSuggestions(items) {
+    const type = document.getElementById("searchType").value;
+    let box = document.getElementById("autocompleteBox");
+
+    if (!box) {
+        box = document.createElement("div");
+        box.id = "autocompleteBox";
+        box.style.position = "absolute";
+        box.style.top = "45px";
+        box.style.left = "0";
+        box.style.right = "0";
+        box.style.background = "white";
+        box.style.zIndex = "2000";
+        box.style.border = "1px solid #ccc";
+        box.style.maxHeight = "200px";
+        box.style.overflowY = "auto";
+        document.querySelector(".search-bar-custom").appendChild(box);
+    }
+
+    // ✅ si "rue", on n'affiche que le label
+    if (type === "rue") {
+        box.innerHTML = items.length
+            ? items.map(r => `<div class="autocomplete-item"><strong>${r.label}</strong></div>`).join("")
+            : `<div class="autocomplete-item disabled">Aucun résultat</div>`;
+    }
+    // ✅ sinon (mots-clés), on affiche label + catégorie
+    else if (type === "keyword") {
+        box.innerHTML = items.length
+            ? items.map(r => `
+                <div class="autocomplete-item">
+                    <strong>${r.label}</strong>
+                    <div class="small text-muted">${r.category.replaceAll("_", " ")}</div>
+                </div>
+              `).join("")
+            : `<div class="autocomplete-item disabled">Aucun résultat</div>`;
+    }
+
+    [...box.querySelectorAll(".autocomplete-item")].forEach(item => {
+        item.addEventListener("click", () => {
+            document.getElementById("searchInput").value = item.textContent.trim();
+            box.innerHTML = "";
+            document.getElementById("searchButton").click();
+        });
+    });
+}
+
+
+document.addEventListener("click", function (event) {
+    const box = document.getElementById("autocompleteBox");
+    const searchInput = document.getElementById("searchInput");
+    const datePopup = document.getElementById("datePopover");
+    const dateBtn = document.getElementById("dateFilterBtn");
+
+    // ✅ ferme autocomplete si clic ailleurs
+    if (box && !box.contains(event.target) && event.target !== searchInput) {
+        box.innerHTML = "";
+    }
+
+    // ✅ ferme le popover date si clic ailleurs
+    if (datePopup && !datePopup.contains(event.target) && event.target !== dateBtn) {
+        datePopup.style.display = "none";
+    }
+});
+
+
+/// ✅ POPUP DATE (Affichage / Masquage)
+const dateBtn = document.getElementById("dateFilterBtn");
+const datePopup = document.getElementById("datePopover");
+
+dateBtn.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();   // empêche la fermeture immédiate
+    datePopup.style.display =
+        datePopup.style.display === "none" || datePopup.style.display === ""
+            ? "block"
+            : "none";
+});
+
+
+
+</script>
+
+{% endblock %}
