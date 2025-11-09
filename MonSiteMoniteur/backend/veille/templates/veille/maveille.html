@@ -44,9 +44,11 @@
                             <div id="invalidNumbersList"></div>
                         </div>
 
-                        <!-- ✅ Boutons de validation et lancement -->
-                        <button type="button" class="btn btn-primary btn-block mt-3" id="validateBtn">Valider les numéros TVA</button>
-                        <button type="submit" class="btn btn-success btn-block mt-3" id="submitBtn" style="display:none;">🚀 Lancer la veille</button>
+                        <!-- ✅ Boutons de validation et réinitialisation -->
+<div class="d-flex justify-content-between">
+    <button type="button" class="btn btn-primary btn-block mt-3 w-48" id="validateBtn">Valider les numéros TVA</button>
+    <button type="button" class="btn btn-danger btn-block mt-3 w-48" id="resetBtn" style="display:none;">Réinitialiser</button>
+</div>
                     </form>
 
                     <hr>
@@ -71,37 +73,26 @@
 {% block extra_scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM entièrement chargé.");
-
     const validateBtn = document.getElementById("validateBtn");
+    const resetBtn = document.getElementById("resetBtn");
     const submitBtn = document.getElementById("submitBtn");
     const bulkInput = document.getElementById("bulkInput");
     const cleanResult = document.getElementById("cleanResult");
     const invalidResults = document.getElementById("invalidResults");
     const invalidNumbersList = document.getElementById("invalidNumbersList");
 
-    // Fonction de nettoyage et validation des numéros
-    bulkInput.addEventListener("input", function () {
-        let cleanedValue = bulkInput.value.replace(/\s+/g, " ");  // Remplacer les espaces multiples par un seul espace
-        cleanedValue = cleanedValue.replace(/^BE\s?/i, ""); // Supprimer "BE" au début si présent
-        bulkInput.value = cleanedValue;
-    });
-
     // Lorsque l'utilisateur clique sur "Valider TVA"
     validateBtn.addEventListener("click", function () {
         console.log("Validation des numéros de TVA a démarré...");
         const text = bulkInput.value;
-        console.log("Texte collé : ", text);
 
         // Expression régulière améliorée pour capturer tous les formats acceptés
         const matches = text.match(/(?:BE\s?)?\d{10}/g); // Recherche tous les numéros de 10 chiffres
 
         // Si aucun numéro n'est trouvé
         if (!matches) {
-            // Afficher un popup si aucun numéro n'est trouvé
             alert("Aucun numéro de TVA valide détecté. Veuillez vérifier le format des numéros.");
 
-            // Réinitialiser le champ de saisie
             bulkInput.value = "";
             cleanResult.style.display = "none";
             invalidResults.style.display = "none";
@@ -111,18 +102,12 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        console.log("Numéros détectés : ", matches);
-
         // Validation des numéros
         const validNumbers = [];
         const invalidNumbers = [];
 
         matches.forEach(num => {
-            // Nettoyage des numéros : retirer les points et espaces
             let cleanedNum = num.replace(/[\.\s]/g, "");
-            console.log("Numéro nettoyé : ", cleanedNum);
-
-            // Validation (on accepte les numéros de 10 chiffres)
             if (cleanedNum.length === 10) {
                 validNumbers.push(cleanedNum);
             } else {
@@ -130,43 +115,37 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        // Affichage des résultats
         if (invalidNumbers.length > 0) {
-            // Si des numéros sont invalides
-            cleanResult.style.display = "none"; // Masquer les numéros valides
-            invalidResults.style.display = "block"; // Afficher les numéros invalides
-            invalidNumbersList.innerHTML = invalidNumbers.join("<br>");  // Afficher les numéros invalides
-            submitBtn.style.display = "none"; // Masquer le bouton "Lancer la veille"
+            cleanResult.style.display = "none";
+            invalidResults.style.display = "block";
+            invalidNumbersList.innerHTML = invalidNumbers.join("<br>");
+            submitBtn.style.display = "none";
             validateBtn.style.display = "none"; // Masquer le bouton "Valider"
+            resetBtn.style.display = "block";  // Afficher le bouton "Réinitialiser"
             console.log("Numéros invalides détectés.");
         } else {
-            // Si tous les numéros sont valides
-            cleanResult.style.display = "block"; // Afficher les résultats des numéros valides
-            cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`; // Changer le texte à "validés"
-            invalidResults.style.display = "none"; // Masquer les numéros invalides
-            submitBtn.style.display = "block"; // Afficher le bouton "Lancer la veille"
-            validateBtn.style.display = "none"; // Cacher le bouton "Valider" après validation
+            cleanResult.style.display = "block";
+            cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
+            invalidResults.style.display = "none";
+            submitBtn.style.display = "block";
+            validateBtn.style.display = "none";
+            resetBtn.style.display = "block";  // Afficher le bouton "Réinitialiser"
             console.log("Tous les numéros de TVA sont valides.");
         }
     });
 
     // Fonction de réinitialisation
-    const resetBtn = document.createElement("button");
-    resetBtn.innerHTML = "Réinitialiser";
-    resetBtn.classList.add("btn", "btn-danger", "btn-block", "mt-3");
     resetBtn.addEventListener("click", function () {
         bulkInput.value = "";
         cleanResult.style.display = "none";
         invalidResults.style.display = "none";
         submitBtn.style.display = "none";
         validateBtn.style.display = "block";
+        resetBtn.style.display = "none"; // Masquer le bouton "Réinitialiser" après réinitialisation
         invalidNumbersList.innerHTML = "";
         console.log("Réinitialisation des résultats.");
     });
-
-    // Ajouter le bouton de réinitialisation à la page après validation
-    document.querySelector(".card-body").appendChild(resetBtn);
-
 });
+
 </script>
 {% endblock %}
