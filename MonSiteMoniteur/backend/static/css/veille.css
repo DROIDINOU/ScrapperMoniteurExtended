@@ -1,3 +1,15 @@
+/* Applique Flexbox sur le body */
+body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;  /* La hauteur minimale de la page est de 100% de la hauteur de la fenêtre */
+}
+
+/* Main va prendre l'espace disponible entre la navbar et le footer */
+main {
+    flex-grow: 1;  /* Cela permet à main de prendre tout l'espace disponible */
+}
+
 /* ----- BANDE BLEUE ----- */
 .societe-header {
     background: #0054A6;          /* bleu BCE */

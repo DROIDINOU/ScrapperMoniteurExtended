@@ -28,8 +28,9 @@ from django.contrib.auth.decorators import login_required
 from django.utils.timezone import now
 
 
-
 def home_marketing(request):
+    if request.user.is_authenticated:
+        return redirect("dashboard_veille")
     return render(request, "veille/home_marketing.html")
 
 
@@ -582,16 +583,13 @@ def login_view(request):
 
         if user:
             login(request, user)
-            return redirect("home")
+            return redirect("dashboard_veille")  # ✅ ENFIN LA BONNE ROUTE
 
         messages.error(request, "Email ou mot de passe incorrect.")
 
     return render(request, "veille/login.html")
 
 
-
 def logout_view(request):
     logout(request)
-    return redirect("home")
-
-
+    return redirect("/")

@@ -35,17 +35,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['juriscope.onrender.com', 'localhost', '127.0.0.1', '6297ec3f0568.ngrok-free.app']
 
-# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',  # Correcte la ligne ici
+    'django.contrib.staticfiles',  # Correction ici
     'veille',  # Ajoute cette ligne pour ton application 'veille'
     'corsheaders',  # Ajoute cette ligne pour le CORS
 ]
+
 
 SESSION_COOKIE_SAMESITE = "None"
 SESSION_COOKIE_SECURE = True
@@ -73,10 +73,13 @@ ROOT_URLCONF = 'monsite.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            BASE_DIR / "templates"
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -85,18 +88,17 @@ TEMPLATES = [
     },
 ]
 
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv("DB_NAME"),
         'USER': os.getenv("DB_USER"),
-'PASSWORD': os.getenv("DB_PASSWORD") or "",
-
+        'PASSWORD': os.getenv("DB_PASSWORD") or "",
         'HOST': os.getenv("DB_HOST"),
         'PORT': os.getenv("DB_PORT"),
     }
 }
-
 
 
 # Password validation
@@ -122,14 +124,17 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
+# Pour le développement : répertoire des fichiers statiques
+STATICFILES_DIRS = [BASE_DIR / "static"]  # Le répertoire où tu stockes tes fichiers statiques (en développement)
+
+# Pour la production : répertoire où Django va collecter les fichiers statiques
+STATIC_ROOT = BASE_DIR / 'staticfiles'  # Le répertoire où collectstatic va placer les fichiers statiques en production
 
 # Répertoire où Django va collecter les fichiers statiques en production
-STATICFILES_DIRS = [BASE_DIR / 'static']
-STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Configuration de WhiteNoise pour gérer les fichiers statiques en production
 if not DEBUG:
-    # Tell Django to copy static assets into a path called `staticfiles` (this is specific to Render)
-    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+    # Tell Django to copy static assets into a path called `static` (this is specific to Render)
+    STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 
     # Enable the WhiteNoise storage backend, which compresses static files to reduce disk use
     # and renames the files with unique names for each version to support long-term caching

@@ -10,10 +10,10 @@ pip install -r requirements.txt
 echo "Collecte des fichiers statiques..."
 python manage.py collectstatic --no-input
 
-# Créer le répertoire staticfiles si nécessaire
+# Créer le répertoire static si nécessaire
 if [ ! -d "staticfiles" ]; then
     echo "Création du répertoire staticfiles"
-    mkdir staticfiles
+    mkdir static
 else
     echo "Le répertoire staticfiles existe déjà."
 fi
