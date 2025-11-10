@@ -83,6 +83,14 @@ def veille_fuzzy(request):
         from django.core.management import call_command
         print(">>> SCAN KEYWORDS AUTO pour veille", veille_obj.id)
         call_command("scan_keywords", veille=veille_obj.id)
+        send_mail(
+            'Veille juridique créée avec succès',  # Sujet
+            f'Votre veille juridique a été créée avec succès.\nNom de la veille : {veille_nom}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
+            # Corps du message
+            settings.EMAIL_HOST_USER,  # Expéditeur
+            [request.user.email],  # Destinataire
+            fail_silently=False,
+        )
 
         messages.success(request, "✅ Veille mots-clés créée et scan lancé automatiquement.")
         return redirect("dashboard_veille")
