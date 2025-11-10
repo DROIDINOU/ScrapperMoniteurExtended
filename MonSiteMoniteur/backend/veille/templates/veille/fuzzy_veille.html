@@ -1,64 +1,63 @@
 {% extends 'veille/base.html' %}
+
 {% block content %}
 
 <div class="container py-4">
 
-    <h2 class="mb-4 text-primary">Veille par mots-clés (Fuzzy Search)</h2>
-    <p class="text-muted">
+    <h2 class="mb-3 text-primary text-center">Veille par mots-clés (Fuzzy Search)</h2>
+    <p class="text-muted text-center">
         Entrez des mots-clés. Dès qu’une décision judiciaire contient l’un d’eux, une alerte est créée.
     </p>
 
-    <!-- Formulaire visible dès le début -->
-    <form method="POST" action="{% url 'veille_fuzzy' %}">
+    <!-- Formulaire centré -->
+    <form method="POST" action="{% url 'veille_fuzzy' %}" class="mx-auto" style="max-width: 500px;">
         {% csrf_token %}
 
         <!-- ✅ NOM DE LA VEILLE -->
-        <div class="form-group">
+        <div class="form-group mb-3">
             <label><strong>Nom de la veille</strong></label>
             <input type="text"
                 name="veille_nom"
-                class="form-control"
-                placeholder="ex : Suivi procédures Charleroi">
+                class="form-control form-control-sm"
+                placeholder="ex : Suivi procédures Charleroi" style="max-width: 100%;">
         </div>
-
-        <hr>
 
         <!-- ✅ MOTS-CLÉS -->
-        <div class="form-group">
+        <div class="form-group mb-3">
             <label>Mot-clé n°1</label>
-            <input type="text" name="keyword1" class="form-control"
-                   value="{{ profile.keyword1|default_if_none:'' }}" placeholder="ex : dissolution">
+            <input type="text" name="keyword1" class="form-control form-control-sm"
+                   value="{{ profile.keyword1|default_if_none:'' }}" placeholder="ex : dissolution" style="max-width: 100%;">
         </div>
 
-        <div class="form-group">
+        <div class="form-group mb-3">
             <label>Mot-clé n°2</label>
-            <input type="text" name="keyword2" class="form-control"
-                   value="{{ profile.keyword2|default_if_none:'' }}" placeholder="ex : faillite">
+            <input type="text" name="keyword2" class="form-control form-control-sm"
+                   value="{{ profile.keyword2|default_if_none:'' }}" placeholder="ex : faillite" style="max-width: 100%;">
         </div>
 
-        <div class="form-group">
+        <div class="form-group mb-3">
             <label>Mot-clé n°3</label>
-            <input type="text" name="keyword3" class="form-control"
-                   value="{{ profile.keyword3 }}" placeholder="ex : curateur">
+            <input type="text" name="keyword3" class="form-control form-control-sm"
+                   value="{{ profile.keyword3 }}" placeholder="ex : curateur" style="max-width: 100%;">
         </div>
 
-        <!-- Boutons côte à côte -->
-        <div class="d-flex justify-content-between mt-4">
+        <!-- Boutons côte à côte avec plus de centrage -->
+        <div class="d-flex justify-content-between mt-3">
             <!-- Bouton "Enregistrer mes mots-clés" -->
             <button type="submit" id="submitButton"
-                    class="btn btn-primary"
-                    style="background: linear-gradient(90deg,#4669f3,#6b30ff); border: none; font-size: 1.2rem; width: 48%;">
+                    class="btn btn-primary btn-sm"
+                    style="background: linear-gradient(90deg,#4669f3,#6b30ff); border: none; font-size: 1rem; width: 40%;">
                 Enregistrer mes mots-clés et créer la veille
             </button>
 
             <!-- Lien pour configurer la veille -->
-            <a href="{% url 'veille_fuzzy' %}" class="btn btn-success" style="width: 48%;">
+            <a href="{% url 'veille_fuzzy' %}" class="btn btn-success btn-sm" style="width: 40%;">
                 Configurer ma veille TVA
             </a>
         </div>
     </form>
 
-    <div class="alert alert-info mt-4">
+    <div class="alert alert-info mt-3 text-center">
         📬 Les résultats apparaîtront automatiquement dans votre tableau de bord.
     </div>
 
