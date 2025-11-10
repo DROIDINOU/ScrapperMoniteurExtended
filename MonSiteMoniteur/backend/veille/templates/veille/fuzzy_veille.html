@@ -1,0 +1,76 @@
+{% extends 'veille/base.html' %}
+{% block content %}
+
+<div class="container py-4">
+
+    <h2 class="mb-4 text-primary">Veille par mots-clés (Fuzzy Search)</h2>
+    <p class="text-muted">
+        Entrez des mots-clés. Dès qu’une décision judiciaire contient l’un d’eux, une alerte est créée.
+    </p>
+
+    <!-- Formulaire visible dès le début -->
+    <form method="POST" action="{% url 'veille_fuzzy' %}">
+        {% csrf_token %}
+
+        <!-- ✅ NOM DE LA VEILLE -->
+        <div class="form-group">
+            <label><strong>Nom de la veille</strong></label>
+            <input type="text"
+                name="veille_nom"
+                class="form-control"
+                placeholder="ex : Suivi procédures Charleroi">
+        </div>
+
+        <hr>
+
+        <!-- ✅ MOTS-CLÉS -->
+        <div class="form-group">
+            <label>Mot-clé n°1</label>
+            <input type="text" name="keyword1" class="form-control"
+                   value="{{ profile.keyword1|default_if_none:'' }}" placeholder="ex : dissolution">
+        </div>
+
+        <div class="form-group">
+            <label>Mot-clé n°2</label>
+            <input type="text" name="keyword2" class="form-control"
+                   value="{{ profile.keyword2|default_if_none:'' }}" placeholder="ex : faillite">
+        </div>
+
+        <div class="form-group">
+            <label>Mot-clé n°3</label>
+            <input type="text" name="keyword3" class="form-control"
+                   value="{{ profile.keyword3 }}" placeholder="ex : curateur">
+        </div>
+
+        <!-- Boutons côte à côte -->
+        <div class="d-flex justify-content-between mt-4">
+            <!-- Bouton "Enregistrer mes mots-clés" -->
+            <button type="submit" id="submitButton"
+                    class="btn btn-primary"
+                    style="background: linear-gradient(90deg,#4669f3,#6b30ff); border: none; font-size: 1.2rem; width: 48%;">
+                Enregistrer mes mots-clés et créer la veille
+            </button>
+
+            <!-- Lien pour configurer la veille -->
+            <a href="{% url 'veille_fuzzy' %}" class="btn btn-success" style="width: 48%;">
+                Configurer ma veille TVA
+            </a>
+        </div>
+    </form>
+
+    <div class="alert alert-info mt-4">
+        📬 Les résultats apparaîtront automatiquement dans votre tableau de bord.
+    </div>
+
+</div>
+
+<!-- JavaScript pour afficher le "V" après le clic sur le bouton -->
+<script>
+    document.querySelector('form').addEventListener('submit', function(event) {
+        var button = document.getElementById('submitButton');
+        button.innerHTML = '✅ Veille créée avec succès'; // Change le texte du bouton après le clic
+        button.disabled = true; // Désactive le bouton pour éviter plusieurs soumissions
+    });
+</script>
+
+{% endblock %}

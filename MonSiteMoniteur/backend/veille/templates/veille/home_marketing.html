@@ -1,0 +1,34 @@
+{% load static %}
+
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veille Moniteur Belge</title>
+    <link rel="stylesheet" href="{% static 'css/landing.css' %}">
+    <link rel="stylesheet" href="{% static 'css/veille.css' %}"> -->
+</head>
+
+<body>
+
+<header class="hero">
+    <div class="container">
+        <h1>Surveillez automatiquement une société</h1>
+        <p>Décisions judiciaire ⚖️ · Annexes Moniteur 📄 · Administrateurs 👤</p>
+
+        {% if user.is_authenticated %}
+            <a href="{% url 'dashboard_veille' %}" class="btn-primary">Accéder au Dashboard</a>
+        {% else %}
+            <a href="{% url 'register' %}" class="btn-primary">Créer mon compte</a>
+            <br>
+            <a href="{% url 'login' %}" class="btn-link">Déjà un compte ? Connexion</a>
+        {% endif %}
+    </div>
+</header>
+
+<footer>
+    <p>© {{ now|date:"Y" }} — Tous droits réservés.</p>
+</footer>
+
+</body>
+</html>

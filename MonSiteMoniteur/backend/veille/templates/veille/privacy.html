@@ -1,0 +1,117 @@
+{% extends "veille/base.html" %}
+{% block content %}
+
+<div class="container py-5">
+    <h1 class="mb-4 text-primary font-weight-bold">Politique de confidentialité (RGPD)</h1>
+
+    <p><strong>Dernière mise à jour :</strong> {{ now }}</p>
+
+    <p>
+        Le service <strong>{{ site_name }}</strong> permet de surveiller des informations publiques
+        concernant des sociétés (Moniteur Belge, décisions judiciaires publiées, publications légales).
+    </p>
+
+    <hr>
+
+    <h3>1. Données collectées</h3>
+
+    <p>Nous collectons et affichons des informations concernant des <strong>personnes morales (sociétés)</strong> :</p>
+    <ul>
+        <li>Numéro TVA / BCE</li>
+        <li>Nom légal</li>
+        <li>Adresse du siège social</li>
+        <li>Publications officielles et décisions judiciaires associées</li>
+    </ul>
+
+    <p>
+        Ces informations proviennent de <strong>sources publiques et obligatoires</strong> :
+        Moniteur Belge, documents légaux publiés, décisions judiciaires.
+    </p>
+
+    <p class="font-weight-bold text-success">
+        ✅ Ces données concernent des entreprises → elles ne constituent pas des données personnelles au sens du RGPD.
+    </p>
+
+    <h4>Données personnelles collectées pour la création de compte</h4>
+    <ul>
+        <li>Email (identifiant du compte)</li>
+        <li>Nom / prénom (optionnel)</li>
+        <li>Mot de passe (hashé, jamais stocké en clair)</li>
+    </ul>
+
+    <hr>
+
+    <h3>2. Traitement des noms d’avocats / mandataires judiciaires</h3>
+
+    <p>
+        Dans certaines publications judiciaires, le nom d’un <strong>avocat, curateur, administrateur, ou mandataire judiciaire</strong>
+        peut apparaître.
+    </p>
+
+    <ul>
+        <li>Nous n’affichons <strong>que le nom et le rôle légal</strong> (ex. « Maître DUPONT — curateur »)</li>
+        <li>Nous ne stockons <strong>aucune donnée privée</strong> (adresse personnelle, email privé, téléphone, etc.)</li>
+        <li>Nous ne contactons jamais ces personnes</li>
+        <li>Pas de profilage ni enrichissement de données</li>
+    </ul>
+
+    <p>
+        Base légale (article 6.1.e du RGPD) :
+        <br>
+        <em>Les données proviennent de documents officiels publiés légalement et accessibles publiquement.</em>
+    </p>
+
+    <p class="text-info font-weight-bold">
+        ✅ Conformité RGPD : affichage minimal, strictement lié à l’information judiciaire publiée.
+    </p>
+
+    <hr>
+
+    <h3>3. Finalité du traitement</h3>
+    <p>Les données sont utilisées uniquement pour :</p>
+    <ul>
+        <li>afficher les publications et décisions associées aux sociétés surveillées</li>
+        <li>notifier l'utilisateur en cas de nouvel événement</li>
+        <li>permettre l’accès au tableau de bord</li>
+    </ul>
+
+    <hr>
+
+    <h3>4. Droits des utilisateurs</h3>
+    <p>
+        Conformément au RGPD, vous pouvez demander :
+    </p>
+    <ul>
+        <li>un accès à vos données personnelles</li>
+        <li>la suppression de votre compte</li>
+        <li>la portabilité de vos données</li>
+    </ul>
+
+    <p>
+        Pour exercer vos droits : <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>
+    </p>
+
+    <hr>
+
+    <h3>5. Durée de conservation</h3>
+    <p>
+        Les données de compte sont conservées jusqu’à la suppression du compte par l’utilisateur.
+    </p>
+
+    <hr>
+
+    <h3>6. Sécurité</h3>
+    <p>
+        Les données sont hébergées dans l'Union Européenne. Les mots de passe sont chiffrés (hashés)
+        et ne sont jamais stockés en clair.
+    </p>
+
+    <hr>
+
+    <p class="text-muted">
+        ✅ Le service ne traite aucune donnée concernant des personnes privées dans les publications suivies,
+        uniquement des informations provenant de documents officiels.
+    </p>
+</div>
+
+{% endblock %}

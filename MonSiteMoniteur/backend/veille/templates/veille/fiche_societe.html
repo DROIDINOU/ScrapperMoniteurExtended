@@ -1,0 +1,82 @@
+{% extends "veille/base.html" %}
+{% load math_filters %}
+
+{% block content %}
+
+<div class="container mt-4">
+
+    <h2 class="mb-3">
+        {{ societe.nom }}
+        {% if societe.bce %}
+        <span class="badge tva-badge">TVA/BCE : {{ societe.bce }}</span>
+        {% endif %}
+
+    </h2>
+
+    <p><strong>Adresse :</strong> {{ societe.adresse }}</p>
+
+    <hr>
+
+    <h4>Administrateurs</h4>
+    {% if societe.administrateurs %}
+        <ul>
+        {% for admin in societe.administrateurs %}
+            <li>
+                {{ admin.nom }}
+                {% if admin.role %} — <strong>{{ admin.role }}</strong> {% endif %}
+                {% if admin.confidence %}
+                    <span class="badge confidence-badge">
+                        Fiabilité : {{ admin.confidence|multiply:100|floatformat:0 }}%
+                    </span>
+                {% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p><em>Aucun administrateur identifié.</em></p>
+    {% endif %}
+
+    <hr>
+
+<h4>Décisions liées</h4>
+{% if societe.decisions %}
+    <ul>
+    {% for d in societe.decisions %}
+        <li>
+            📄 <a href="{{ d.url }}" target="_blank">{{ d.titre }}</a>
+            — {{ d.date }}
+        </li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p><em>Aucune décision associée.</em></p>
+{% endif %}
+
+</div>
+
+{% block extra_styles %}
+{{ block.super }}
+<style>
+.tva-badge {
+    background-color: #4da3ff !important;
+    color: white !important;
+    border: 1px solid #003c80;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    border-radius: 4px;
+}
+
+/* ✅ NOUVEAU BADGE CONFIANCE — même design, couleur différente */
+.confidence-badge {
+    background-color: #ffa600 !important;
+    color: black !important;
+    border: 1px solid #a85d00;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    border-radius: 4px;
+}
+</style>
+{% endblock %}
+{% endblock %}
