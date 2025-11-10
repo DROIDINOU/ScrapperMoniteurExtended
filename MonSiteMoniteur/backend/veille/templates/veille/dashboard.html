@@ -72,7 +72,7 @@
 
                                                     {% for ev in entry.decisions %}
                                                         <div class="event-row mb-2">
-                                                            <div class="fw-semibold">{{ ev.titre|default:ev.rubrique }}</div>
+                                                            <div class="fw-semibold">{{ ev.titre|default:"Titre non disponible" }}</div>
                                                             <small class="text-muted">
                                                                 {{ ev.date_publication }}
                                                                 {% if ev.source %}

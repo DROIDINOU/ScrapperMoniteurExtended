@@ -121,7 +121,6 @@ def maveille(request):
 
 @login_required
 def veille_dashboard(request):
-
     print("\n----------------------------------------")
     print("🟦 DASHBOARD : chargement des veilles…")
     print("----------------------------------------")
@@ -142,6 +141,10 @@ def veille_dashboard(request):
 
     tableau = []
 
+    # Initialisation du client MeiliSearch
+    client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
+    index = client.index("moniteur_docs")
+
     for veille in veilles:
         print(f"\n🔔 Veille ID={veille.id} ({veille.type}) : {veille.nom}")
 
@@ -149,7 +152,7 @@ def veille_dashboard(request):
             annexes = veille.evenements.filter(type="ANNEXE", societe__isnull=True)
             decisions = veille.evenements.filter(type="DECISION", societe__isnull=True)
 
-            # attribut dynamique utilisé dans le template
+            # Mise à jour du nombre total d'événements
             veille.result_count = annexes.count() + decisions.count()
 
             tableau.append({
@@ -161,22 +164,35 @@ def veille_dashboard(request):
 
         elif veille.type == "TVA":
             print(f"    -> TVA : {veille.societes.count()} sociétés surveillées")
-            # total (tous évènements, toutes sociétés de cette veille)
             veille.result_count = veille.evenements.count()
 
             for societe in veille.societes.all():
                 print(f"        🔎 Société : {societe.numero_tva} (ID={societe.id})")
 
+                # Récupérer les annexes pour cette société
                 annexes = veille.evenements.filter(type="ANNEXE", societe=societe)
-                decisions = veille.evenements.filter(type="DECISION", societe=societe)
 
-                print(f"           ➤ annexes = {annexes.count()} | décisions = {decisions.count()}")
+                # Recherche des décisions judiciaires dans MeiliSearch
+                tva = societe.numero_tva
+                results = index.search("", {"filter": f'TVA = "{tva}"'})
+
+                # Récupérer les décisions depuis les résultats de MeiliSearch
+                decisions = []
+                for hit in results.get("hits", []):  # Utilise .get pour éviter une erreur si "hits" n'existe pas
+                    decision = {
+                        "titre": hit.get("title", "Titre non disponible"),
+                        "date_publication": hit.get("date_doc", "Date non disponible"),
+                        "source": hit.get("url", "URL non disponible"),
+                    }
+                    decisions.append(decision)
+
+                print(f"           ➤ annexes = {annexes.count()} | décisions = {len(decisions)}")
 
                 tableau.append({
                     "veille": veille,
                     "societe": societe,
                     "annexes": annexes,
-                    "decisions": decisions,
+                    "decisions": decisions,  # Ajout des décisions récupérées de MeiliSearch
                 })
 
     print("\n✅ FIN DASHBOARD (tableau généré)\n")
@@ -186,7 +202,6 @@ def veille_dashboard(request):
         "veille/dashboard.html",
         {"tableau": tableau, "veilles": veilles},
     )
-
 
 
 @login_required
