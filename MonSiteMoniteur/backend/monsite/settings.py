@@ -15,6 +15,10 @@ MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY")
 MEILI_SEARCH_KEY = os.getenv("MEILI_MASTER_KEY")  # si tu n’as pas de clé SEARCH séparée
 INDEX_NAME = os.getenv("INDEX_NAME")
 INDEX_RUE_NAME = os.getenv("INDEX_RUE_NAME", "mesrues_be")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER_TEST")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD_TEST")
+
+
 print("✅ .env utilisé :", ENV_PATH)
 print("SECRET_KEY =", os.getenv("SECRET_KEY"))
 print("DB USER/PASS =", os.getenv("DB_USER"), os.getenv("DB_PASSWORD"))
@@ -152,5 +156,5 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.mailgun.org'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'moniteur-ai@sandbox92554c932d9d4edaabdd530878fbd18f.mailgun.org'  # Remplace par ton utilisateur Mailgun
-EMAIL_HOST_PASSWORD = 'd65781124ebb35fe0840945a80a74537-88b1ca9f-d6477087'  # Remplace par ta clé API Mailgun
+EMAIL_HOST_USER = EMAIL_HOST_USER
+EMAIL_HOST_PASSWORD = EMAIL_HOST_PASSWORD
