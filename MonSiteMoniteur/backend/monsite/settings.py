@@ -146,3 +146,11 @@ if not DEBUG:
 print("Fichiers statiques collectés à : ", STATIC_ROOT)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# EMAIL
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.mailgun.org'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'moniteur-ai@sandbox92554c932d9d4edaabdd530878fbd18f.mailgun.org'  # Remplace par ton utilisateur Mailgun
+EMAIL_HOST_PASSWORD = 'd65781124ebb35fe0840945a80a74537-88b1ca9f-d6477087'  # Remplace par ta clé API Mailgun

@@ -5,6 +5,8 @@ from datetime import datetime
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from .models import Veille, UserProfile
+from django.core.mail import send_mail
+
 
 from django.http import JsonResponse, Http404
 from django.db.models import Q
@@ -45,6 +47,14 @@ def cgu(request):
     return render(request, "veille/cgu.html")
 
 
+def send_test_email():
+    send_mail(
+        'Test Email Subject',  # Sujet de l'email
+        'Here is the message.',  # Contenu de l'email
+        'from@example.com',  # Adresse de l'expéditeur (peut être l'email du domaine configuré sur Mailgun)
+        ['to@example.com'],  # Liste des destinataires
+        fail_silently=False,
+    )
 
 
 @login_required
@@ -112,6 +122,15 @@ def maveille(request):
 
             # ✅ ON PASSE L'ID DE LA VEILLE À LA COMMANDE
             call_command("veille_scan", tva=tva, veille=veille_obj.id)
+            # Envoi de l'email de notification à l'utilisateur
+            send_mail(
+                'Veille juridique créée avec succès',  # Sujet
+                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {nom_veille}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
+                # Corps du message
+                settings.EMAIL_HOST_USER,  # Expéditeur
+                [request.user.email],  # Destinataire
+                fail_silently=False,
+            )
 
         messages.success(request, "✅ Veille TVA créée et scan lancé automatiquement !")
         return redirect("dashboard_veille")
