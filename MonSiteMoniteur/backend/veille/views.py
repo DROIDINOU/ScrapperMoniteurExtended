@@ -194,7 +194,9 @@ def veille_dashboard(request):
                     "annexes": annexes,
                     "decisions": decisions,  # Ajout des décisions récupérées de MeiliSearch
                 })
-
+    # Debug : Afficher le contenu final du tableau avant de rendre la page
+    print("\n✅ FIN DASHBOARD (tableau généré)")
+    print(f"Tableau final: {tableau}")
     print("\n✅ FIN DASHBOARD (tableau généré)\n")
 
     return render(

@@ -11,10 +11,9 @@
                 {% for veille in veilles %}
                     <div class="card mb-3 shadow-sm border-0">
                         <div class="card-header bg-primary text-white" id="heading{{ veille.id }}">
-                            <!-- Modification : rendre toute la ligne cliquable -->
                             <div class="d-flex justify-content-between align-items-center" data-bs-toggle="collapse"
                                  data-bs-target="#collapse{{ veille.id }}" aria-expanded="false" aria-controls="collapse{{ veille.id }}"
-                                 style="cursor: pointer;">  <!-- Le curseur pointer indique que l'élément est cliquable -->
+                                 style="cursor: pointer;">
                                 <button class="btn btn-link text-white fw-bold text-decoration-none" type="button">
                                     🔔 {{ veille.nom }} <small class="text-light">({{ veille.type }})</small>
                                 </button>
@@ -22,16 +21,17 @@
                                 <div class="d-flex align-items-center">
                                     {% for entry in tableau %}
                                         {% if entry.veille.pk == veille.pk %}
-                                            <!-- Affichage du nombre d'annexes et décisions avec `entry` -->
-                                            {% if entry.annexes.count >= 0 %}
+                                            <!-- Affichage du nombre d'annexes dans la barre bleue -->
+                                            {% if entry.annexes.count > 0 %}
                                                 <span class="badge bg-info text-dark me-2">
                                                     📄 {{ entry.annexes.count }} annexe(s)
                                                 </span>
                                             {% endif %}
 
-                                            {% if entry.decisions.count >= 0 %}
+                                            <!-- Affichage du nombre de décisions dans la barre bleue -->
+                                            {% if entry.decisions|length > 0 %}
                                                 <span class="badge bg-warning text-dark me-2">
-                                                    ⚖️ {{ entry.decisions.count }} décision(s)
+                                                    ⚖️ {{ entry.decisions|length }} décision(s)
                                                 </span>
                                             {% endif %}
                                         {% endif %}
@@ -68,6 +68,7 @@
 
                                             <div class="row">
                                                 <div class="col-md-6 mb-3">
+                                                    <!-- Section des Décisions judiciaires -->
                                                     <h5 class="border-bottom pb-2">⚖️ Décisions judiciaires ({{ entry.decisions|length }})</h5>
 
                                                     {% for ev in entry.decisions %}
@@ -86,6 +87,7 @@
                                                 </div>
 
                                                 <div class="col-md-6">
+                                                    <!-- Section des Annexes publiées -->
                                                     <h5 class="border-bottom pb-2">📄 Annexes publiées ({{ entry.annexes|length }})</h5>
 
                                                     {% for ev in entry.annexes %}
