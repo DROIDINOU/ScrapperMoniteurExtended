@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Veille Moniteur Belge</title>
     <link rel="stylesheet" href="{% static 'css/landing.css' %}">
-    <link rel="stylesheet" href="{% static 'css/veille.css' %}"> -->
+    <link rel="stylesheet" href="{% static 'css/veille.css' %}">
 </head>
 
 <body>
@@ -26,8 +26,16 @@
     </div>
 </header>
 
-<footer>
-    <p>© {{ now|date:"Y" }} — Tous droits réservés.</p>
+<main>
+    <!-- Contenu principal -->
+</main>
+
+<footer class="text-center text-muted py-4 border-top small">
+    <div>© {{ now|date:"Y" }} — Moniteur AI — Tous droits réservés</div>
+    <div>
+        <a href="{% url 'privacy' %}">Confidentialité</a> ·
+        <a href="{% url 'cgu' %}">Conditions d’utilisation</a>
+    </div>
 </footer>
 
 </body>

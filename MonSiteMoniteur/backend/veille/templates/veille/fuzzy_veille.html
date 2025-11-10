@@ -41,13 +41,51 @@
                    value="{{ profile.keyword3 }}" placeholder="ex : curateur" style="max-width: 100%;">
         </div>
 
+        <!-- ----- ACCORDEON POUR FILTRES SUPPLEMENTAIRES ----- -->
+        <div class="accordion" id="filtersAccordion">
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingFilters">
+                    <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFilters" aria-expanded="false" aria-controls="collapseFilters">
+                        Ajouter des filtres supplémentaires
+                    </button>
+                </h2>
+                <div id="collapseFilters" class="accordion-collapse collapse" aria-labelledby="headingFilters" data-bs-parent="#filtersAccordion">
+                    <div class="accordion-body">
+
+                        <!-- Filtre Type de décision -->
+                        <div class="form-group mb-3">
+                            <label for="decision_type">Type de décision</label>
+                            <select name="decision_type" class="form-control form-control-sm">
+                                <option value="">Sélectionnez un type de décision</option>
+                                <option value="condamnation">Condamnation</option>
+                                <option value="radiation">Radiation</option>
+                                <option value="dissolution">Dissolution</option>
+                                <option value="liquidation">Liquidation</option>
+                            </select>
+                        </div>
+
+                        <!-- Filtre Date de publication -->
+                        <div class="form-group mb-3">
+                            <label for="date_from">Date de publication (début)</label>
+                            <input type="date" name="date_from" class="form-control form-control-sm">
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label for="date_to">Date de publication (fin)</label>
+                            <input type="date" name="date_to" class="form-control form-control-sm">
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Boutons côte à côte avec plus de centrage -->
         <div class="d-flex justify-content-between mt-3">
             <!-- Bouton "Enregistrer mes mots-clés" -->
             <button type="submit" id="submitButton"
                     class="btn btn-primary btn-sm"
-style="background: linear-gradient(90deg, #ff0000, #ff4d4d); border: none; font-size: 1rem; width: 40%;">
-
+                    style="background: linear-gradient(90deg, #ff0000, #ff4d4d); border: none; font-size: 1rem; width: 40%;">
                 Enregistrer mes mots-clés et créer la veille
             </button>
 
@@ -56,12 +94,12 @@ style="background: linear-gradient(90deg, #ff0000, #ff4d4d); border: none; font-
                 Configurer ma veille TVA
             </a>
         </div>
+
         <div class="alert alert-info mt-3 text-center">
-        📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
-    </div>
+            📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
+        </div>
+
     </form>
-
-
 
 </div>
 

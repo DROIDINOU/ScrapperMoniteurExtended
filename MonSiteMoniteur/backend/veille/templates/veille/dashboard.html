@@ -4,36 +4,32 @@
 
 {% block content %}
     <div class="container mt-4">
-        <h2 class="text-center mb-4">📊 Tableau de bord de veille</h2>
+        <h2 class="text-center mb-4" style="font-size: 2rem; color: #333;">Tableau de bord de veille</h2>
 
         {% if veilles %}
             <div class="accordion" id="accordionVeilles">
                 {% for veille in veilles %}
                     <div class="card mb-3 shadow-sm border-0">
-                        <div class="card-header bg-primary text-white" id="heading{{ veille.id }}">
+                        <div class="card-header bg-light text-dark" id="heading{{ veille.id }}">
                             <div class="d-flex justify-content-between align-items-center" data-bs-toggle="collapse"
                                  data-bs-target="#collapse{{ veille.id }}" aria-expanded="false" aria-controls="collapse{{ veille.id }}"
                                  style="cursor: pointer;">
-                                <button class="btn btn-link text-white fw-bold text-decoration-none" type="button">
-                                    🔔 {{ veille.nom }} <small class="text-light">({{ veille.type }})</small>
+                                <button class="btn btn-link text-dark fw-bold text-decoration-none" type="button">
+                                    {{ veille.nom }} <small class="text-muted">({{ veille.type }})</small>
                                 </button>
 
                                 <div class="d-flex align-items-center">
                                     {% for entry in tableau %}
                                         {% if entry.veille.pk == veille.pk %}
-                                            <!-- Affichage du nombre d'annexes dans la barre bleue -->
-                                            {% if entry.annexes.count > 0 %}
-                                                <span class="badge bg-info text-dark me-2">
-                                                    📄 {{ entry.annexes.count }} annexe(s)
-                                                </span>
-                                            {% endif %}
+                                            <!-- Affichage du nombre d'annexes dans la barre, même si 0 -->
+                                            <span class="badge bg-secondary text-white me-2">
+                                                {{ entry.annexes.count }} annexe(s)
+                                            </span>
 
-                                            <!-- Affichage du nombre de décisions dans la barre bleue -->
-                                            {% if entry.decisions|length > 0 %}
-                                                <span class="badge bg-warning text-dark me-2">
-                                                    ⚖️ {{ entry.decisions|length }} décision(s)
-                                                </span>
-                                            {% endif %}
+                                            <!-- Affichage du nombre de décisions dans la barre, même si 0 -->
+                                            <span class="badge" style="background-color: #f0f0f0; color: #333; me-2;">
+                                                {{ entry.decisions|length }} décision(s)
+                                            </span>
                                         {% endif %}
                                     {% endfor %}
                                 </div>
@@ -49,18 +45,18 @@
                                         <div class="societe-card border rounded shadow-sm p-3 mb-4">
                                             <div class="societe-header d-flex justify-content-between align-items-center mb-2">
                                                 {% if entry.societe %}
-                                                    <span>🔎 TVA : <strong>
-                                                        {{ entry.societe.numero_tva|slice:":4" }}.{{ entry.societe.numero_tva|slice:"4:7" }}.{{ entry.societe.numero_tva|slice:"7:10" }}
-                                                    </strong></span>
+                                                    <span style="color: white; background-color: #0054A6; padding: 2px 6px; border-radius: 5px;">
+                                                        TVA : <strong>{{ entry.societe.numero_tva|slice:":4" }}.{{ entry.societe.numero_tva|slice:"4:7" }}.{{ entry.societe.numero_tva|slice:"7:10" }}</strong>
+                                                    </span>
                                                 {% else %}
-                                                    <span>🟣 Résultats globaux — Mots-clés</span>
+                                                    <span class="text-muted">Résultats globaux — Mots-clés</span>
                                                 {% endif %}
 
                                                 {% if entry.societe and entry.veille.type != "KEYWORD" %}
                                                     <div>
-                                                        <a href="{% url 'lancer_scan' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-primary">🚀 Scanner</a>
-                                                        <a href="{% url 'scan_decisions' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-success">
-                                                            ⚖️ Décisions
+                                                        <a href="{% url 'lancer_scan' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-primary">Scanner</a>
+                                                        <a href="{% url 'scan_decisions' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-info">
+                                                            Décisions
                                                         </a>
                                                     </div>
                                                 {% endif %}
@@ -69,15 +65,15 @@
                                             <div class="row">
                                                 <div class="col-md-6 mb-3">
                                                     <!-- Section des Décisions judiciaires -->
-                                                    <h5 class="border-bottom pb-2">⚖️ Décisions judiciaires ({{ entry.decisions|length }})</h5>
+                                                    <h5 class="border-bottom pb-2" style="font-size: 1.1rem; color: #5a5a5a;">Décisions judiciaires ({{ entry.decisions|length }})</h5>
 
                                                     {% for ev in entry.decisions %}
                                                         <div class="event-row mb-2">
-                                                            <div class="fw-semibold">{{ ev.titre|default:"Titre non disponible" }}</div>
+                                                            <div class="fw-semibold" style="color: #333;">{{ ev.titre|default:"Titre non disponible" }}</div>
                                                             <small class="text-muted">
                                                                 {{ ev.date_publication }}
                                                                 {% if ev.source %}
-                                                                    · <a href="{{ ev.source }}" target="_blank" class="link-primary">Ouvrir</a>
+                                                                    · <a href="{{ ev.source }}" target="_blank" class="link-secondary">Ouvrir</a>
                                                                 {% endif %}
                                                             </small>
                                                         </div>
@@ -88,11 +84,11 @@
 
                                                 <div class="col-md-6">
                                                     <!-- Section des Annexes publiées -->
-                                                    <h5 class="border-bottom pb-2">📄 Annexes publiées ({{ entry.annexes|length }})</h5>
+                                                    <h5 class="border-bottom pb-2" style="font-size: 1.1rem; color: #5a5a5a;">Annexes publiées ({{ entry.annexes|length }})</h5>
 
                                                     {% for ev in entry.annexes %}
                                                         <div class="event-row mb-2">
-                                                            <div class="fw-semibold">{{ ev.rubrique|default:ev.titre }}</div>
+                                                            <div class="fw-semibold" style="color: #333;">{{ ev.rubrique|default:ev.titre }}</div>
                                                             <small class="text-muted">
                                                                 {{ ev.date_publication }}
                                                                 {% if ev.source %}

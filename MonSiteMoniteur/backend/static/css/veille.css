@@ -151,3 +151,12 @@ main {
     background: #4e73df;
     opacity: 0.4;
 }
+
+footer {
+    margin-top: auto; /* Cela pousse le footer tout en bas */
+    text-align: center;
+    color: #888;
+    font-size: 0.875rem;
+    border-top: 1px solid #ddd;
+    padding: 10px 0;
+}
