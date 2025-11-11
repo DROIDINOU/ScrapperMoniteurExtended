@@ -41,7 +41,7 @@
                         <!-- Filtre Type de décision -->
                         <div class="form-group mb-3">
                             <label for="decision_type">Type de décision</label>
-                            <select name="decision_type" class="form-control form-control-sm">
+                            <select id="decision_type" name="decision_type" class="form-control form-control-sm">
                                 <option value="">Sélectionnez un type de décision</option>
                                 <option value="condamnation">Condamnation</option>
                                 <option value="radiation">Radiation</option>
@@ -53,12 +53,12 @@
                         <!-- Filtre Date de publication -->
                         <div class="form-group mb-3">
                             <label for="date_from">Date de publication (début)</label>
-                            <input type="date" name="date_from" class="form-control form-control-sm">
+                            <input type="date" id="date_from" name="date_from" class="form-control form-control-sm">
                         </div>
 
                         <div class="form-group mb-3">
                             <label for="date_to">Date de publication (fin)</label>
-                            <input type="date" name="date_to" class="form-control form-control-sm">
+                            <input type="date" id="date_to" name="date_to" class="form-control form-control-sm">
                         </div>
 
                     </div>
@@ -71,19 +71,21 @@
             <!-- Bouton "Enregistrer mes mots-clés" -->
             <button type="button" id="validateBtn"
                     class="btn btn-primary btn-sm"
-                    style="background: linear-gradient(90deg, #ff0000, #ff4d4d); border: none; font-size: 1rem; width: 40%;">
+                    style="background: linear-gradient(90deg, #007bff, #33a1fd); border: none; font-size: 1rem; width: 40%;">
                 Valider
             </button>
 
-            <!-- Bouton de soumission, initialement caché -->
+         <!-- Bouton de soumission, initialement caché -->
             <button type="submit" id="submitButton"
                     class="btn btn-success btn-sm"
-                    style="width: 40%;" disabled>
-                Enregistrer mes mots-clés et créer la veille
+                    style="width: 40%; cursor: not-allowed;"
+                    disabled>
+                Enregistrer la veille
             </button>
+
         </div>
 
-        <div class="alert alert-info mt-3 text-center">
+        <div class="alert alert-info mt-2 py-1 text-center" style="font-size: 0.9rem;">
             📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
         </div>
 
@@ -120,10 +122,15 @@ document.addEventListener("DOMContentLoaded", function () {
     const veilleNom = document.getElementById("veille_nom");
     const keywordInput = document.getElementById("keyword1");
 
+    const decisionType = document.querySelector("select[name='decision_type']");
+    const dateFrom = document.querySelector("input[name='date_from']");
+    const dateTo = document.querySelector("input[name='date_to']");
+
     // Initialisation du modal
     const validationModal = new bootstrap.Modal(document.getElementById('validationModal'));
     const modalMessage = document.getElementById('modalMessage');
 
+    // Fonction de validation des champs
     function validateFields() {
         let validationPassed = true;
         let errorMsg = "";
@@ -132,27 +139,42 @@ document.addEventListener("DOMContentLoaded", function () {
         if (veilleNom.value.length > 50) {
             validationPassed = false;
             errorMsg = 'Le nom de la veille ne doit pas dépasser 50 caractères.';
-            veilleNom.value = "";  // ✅ Réinitialise le champ
+            veilleNom.value = "";  // Réinitialise le champ si trop long
         }
 
         // Vérification des mots-clés
         if (keywordInput.value.length > 100) {
             validationPassed = false;
             errorMsg = 'Les mots-clés ne doivent pas dépasser 100 caractères.';
-            keywordInput.value = "";  // ✅ Réinitialise le champ
+            keywordInput.value = "";  // Réinitialise le champ si trop long
         }
 
+        // Vérification des filtres - si le type de décision est sélectionné
+        if (decisionType.value && !["condamnation", "radiation", "dissolution", "liquidation"].includes(decisionType.value)) {
+            validationPassed = false;
+            errorMsg = 'Le type de décision sélectionné est invalide.';
+        }
+
+        // Vérification des dates de publication
+        if (dateFrom.value && dateTo.value && dateFrom.value > dateTo.value) {
+            validationPassed = false;
+            errorMsg = 'La date de début ne peut pas être après la date de fin.';
+        }
+
+        // Si validation échoue
         if (!validationPassed) {
             modalMessage.innerHTML = errorMsg;
-            validationModal.show();  // ✅ ouvre le modal
-            submitButton.disabled = true; // reste bloqué
+            validationModal.show();  // Ouvre le modal d'erreur
+            submitButton.disabled = true; // Désactive le bouton
+            submitButton.style.cursor = "not-allowed"; // Change le curseur pour "interdit"
         } else {
-            submitButton.disabled = false; // ✅ débloque le bouton de création
+            submitButton.disabled = false; // Active le bouton
+            submitButton.style.cursor = "pointer"; // Change le curseur en "pointer" lorsque le bouton est cliquable
         }
     }
 
+    // Écouteur d'événements pour le bouton "Valider"
     validateBtn.addEventListener("click", validateFields);
 });
 </script>
-
 {% endblock %}

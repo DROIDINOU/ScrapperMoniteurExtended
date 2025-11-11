@@ -291,6 +291,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             adresses_by_bce = None
             denoms_by_ejustice_flat = None
             adresses_by_ejustice = None
+            extra_keyword_flatten = None
 
             doc_id = generate_doc_hash_from_html(texte_brut, date_doc)
             if detect_erratum(texte_brut):
@@ -394,7 +395,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 numac, date_doc, langue, texte_brut, url, keyword,
                 tvas, title, subtitle, extra_keywords, date_jugement,
                 administrateur, doc_id, denoms_by_bce,
-                adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice_flat
+                adresses_by_bce, adresses_by_ejustice, denoms_by_ejustice_flat, extra_keyword_flatten
             )
 
     final = []
@@ -451,19 +452,19 @@ print(f"[✅] Index '{index_name}' prêt.")
 
     # ⚙️ 3️⃣ Configuration des attributs
     index.update_filterable_attributes([
-        "keyword",
-        "denom_fallback_bce",
+        "keyword", "adresses_fallback_bce_flat",
+        "denom_fallback_bce", "TVA", "date_doc", "extra_keyword",
         "admins_detectes", "denoms_fallback_bce_flat",
-        "adresses_fallback_bce_flat"  # 👈 ici on ajoute le champ facetable
+        "extra_keyword_flatten"  # 👈 ici on ajoute le champ facetable
     ])
     index.update_searchable_attributes([
         "id", "date_doc", "title", "keyword", "date_jugement", "TVA",
-        "extra_keyword",
-        "administrateur", "text",
+        "extra_keyword", "adresses_fallback_bce_flat",
+        "administrateur", "text", "date_doc",
         "denoms_by_bce", "adresses_by_bce",
         "adresses_by_ejustice", "denoms_by_ejustice_flat",
         "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
-        "denoms_fallback_bce_flat", "adresses_fallback_bce_flat"
+        "denoms_fallback_bce_flat", "extra_keyword_flatten"
     ])
 
     index.update_displayed_attributes([
@@ -473,7 +474,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "denoms_by_bce", "adresses_by_bce",
         "adresses_by_ejustice", "denoms_by_ejustice_flat", "extra_keyword",
         "denom_fallback_bce", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat", "denoms_bce_flat",
-        "denoms_fallback_bce_flat", "adresses_fallback_bce_flat"
+        "denoms_fallback_bce_flat", "adresses_fallback_bce_flat", "extra_keyword_flatten"
     ])
 
     print(f"[⚙️] Index '{index_name}' prêt en {time.perf_counter() - start_time:.2f}s.")
@@ -536,7 +537,11 @@ print(f"[✅] Index '{index_name}' prêt.")
                 "denoms_by_ejustice_flat": record[16],
                 "denom_fallback_bce": None,
                 "admins_detectes": admins_detectes,  # ✅ nouveau champ pour MeiliSearch
+                "extra_keyword_flatten": record[-1],
+
             }
+
+            print(f"extra_keyword_flatten: {doc['extra_keyword_flatten']}")
 
             documents.append(doc)
             # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
@@ -658,11 +663,17 @@ print(f"[✅] Index '{index_name}' prêt.")
                     if name:
                         denoms_bce_flat.append(name.strip())
 
+        # Aplatir les extra_keywords (similaire aux autres champs)
+        extra_keyword_flatten = ", ".join(doc.get("extra_keyword", [])) if isinstance(doc.get("extra_keyword"),
+                                                                                      list) else doc.get(
+            "extra_keyword", "")
+
         # ✅ champs finaux envoyés à MeiliSearch
         doc["adresses_all_flat"] = list(dict.fromkeys(adresses_ejustice_flat + adresses_bce_flat))
         doc["adresses_ejustice_flat"] = list(dict.fromkeys(adresses_ejustice_flat))
         doc["adresses_bce_flat"] = list(dict.fromkeys(adresses_bce_flat))
         doc["denoms_bce_flat"] = list(dict.fromkeys(denoms_bce_flat))
+        doc["extra_keyword_flatten"] = extra_keyword_flatten  # Ici on applique le flatten sur extra_keywords
 
         # ✅ FLATTEN fallback BCE dans champs séparés
         if isinstance(doc.get("denom_fallback_bce"), list):
@@ -808,8 +819,8 @@ print(f"[✅] Index '{index_name}' prêt.")
     #
     # --------------------------------------------------------------------------------------------------------------
     print("[📥] Connexion à PostgreSQL…")
-    create_table_moniteur()
-    insert_documents_moniteur(documents)
+    # create_table_moniteur()
+    # insert_documents_moniteur(documents)
 
     # --------------------------------------------------------------------------------------------------------------
     #                                 FICHIERS CSV CONTENANT LES DONNES INSEREES DANS MEILI

@@ -45,22 +45,16 @@
 
                         <!-- ✅ Boutons de validation et lancement -->
                         <div class="d-flex justify-content-between mt-3">
-                            <button type="button" class="btn btn-primary" id="validateBtn" style="width: 48%;">Valider les numéros TVA</button>
-                            <button type="button" class="btn btn-danger" id="resetBtn" style="width: 48%;">Réinitialiser</button>
+                            <button type="button" class="btn btn-primary flex-fill me-2" id="validateBtn">Valider les numéros TVA</button>
+    <button type="button" class="btn btn-danger flex-fill me-2" id="resetBtn">Réinitialiser</button>
+    <button type="submit" class="btn btn-success flex-fill" id="submitBtn" style="display:none;">Lancer la veille</button>
                         </div>
 
-                        <!-- Bouton de soumission caché -->
-                        <button type="submit" class="btn btn-success btn-block mt-3" id="submitBtn" style="display:none;">🚀 Lancer la veille</button>
+
 
                     </form>
 
                     <hr>
-
-                    <div class="text-center mt-2">
-                <a href="{% url 'veille_fuzzy' %}" class="btn btn-success btn-sm">
-                    Configurer ma veille par mots-clés
-                </a>
-            </div>
                 </div>
             </div>
 
@@ -138,8 +132,15 @@ document.addEventListener("DOMContentLoaded", function () {
             cleanResult.style.display = "block";
             cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
             invalidResults.style.display = "none";
-            submitBtn.style.display = "block";
-            validateBtn.style.display = "none";
+
+            // Si des numéros valides sont trouvés, activer le bouton "Lancer la veille"
+            if (validNumbers.length > 0) {
+                submitBtn.style.display = "block";  // Affiche le bouton "Lancer la veille"
+                validateBtn.style.display = "none"; // Cache le bouton "Valider les numéros TVA"
+            } else {
+                submitBtn.style.display = "none";  // Masque le bouton "Lancer la veille"
+            }
+
             console.log("Tous les numéros de TVA sont valides.");
         }
     });
@@ -150,8 +151,8 @@ document.addEventListener("DOMContentLoaded", function () {
         bulkInput.value = "";
         cleanResult.style.display = "none";
         invalidResults.style.display = "none";
-        submitBtn.style.display = "none";
-        validateBtn.style.display = "block";
+        submitBtn.style.display = "none";  // Masque le bouton "Lancer la veille"
+        validateBtn.style.display = "block"; // Réaffiche le bouton "Valider"
         invalidNumbersList.innerHTML = "";
         console.log("Réinitialisation des résultats.");
     });

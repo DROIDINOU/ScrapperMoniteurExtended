@@ -57,46 +57,72 @@ def send_test_email():
     )
 
 
+from django.core.management import call_command
+from django.core.mail import send_mail
+from django.contrib import messages
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from django.conf import settings
+from .models import Veille
+from meilisearch import Client as MeiliClient
+
+
 @login_required
 def veille_fuzzy(request):
-
     profile = request.user.userprofile
 
     if request.method == "POST":
+        # ✅ Sauvegarde des mots-clés
         profile.keyword1 = request.POST.get("keyword1")
         profile.keyword2 = request.POST.get("keyword2")
         profile.keyword3 = request.POST.get("keyword3")
         profile.save()
 
+        # ✅ Nom de la veille
         veille_nom = request.POST.get("veille_nom", "").strip()
         if not veille_nom:
             veille_nom = f"Veille Mots-clés — {request.user.username}"
 
-        # ✅ Création de la veille KEYWORD
+        # ✅ Filtres
+        decision_type = request.POST.get("decision_type")
+        date_from = request.POST.get("date_from")
+        date_to = request.POST.get("date_to")
+
+        # ✅ Création de la veille
         veille_obj = Veille.objects.create(
             user=request.user,
             nom=veille_nom,
             type="KEYWORD"
         )
 
-        # ✅ SCAN DIRECT
-        from django.core.management import call_command
-        print(">>> SCAN KEYWORDS AUTO pour veille", veille_obj.id)
-        call_command("scan_keywords", veille=veille_obj.id)
-        send_mail(
-            'Veille juridique créée avec succès',  # Sujet
-            f'Votre veille juridique a été créée avec succès.\nNom de la veille : {veille_nom}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
-            # Corps du message
-            settings.EMAIL_HOST_USER,  # Expéditeur
-            [request.user.email],  # Destinataire
-            fail_silently=False,
-        )
+        try:
+            # ✅ Appel direct à ta commande `scan_keywords`
+            print(">>> Lancement du scan_keywords depuis la vue Django...")
+            call_command(
+                "scan_keywords",
+                veille_id=veille_obj.id,
+                decision_type=decision_type,
+                date_from=date_from,
+                date_to=date_to
+            )
 
-        messages.success(request, "✅ Veille mots-clés créée et scan lancé automatiquement.")
-        return redirect("dashboard_veille")
+            # ✅ Email de confirmation
+            send_mail(
+                'Veille juridique créée avec succès',
+                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {veille_nom}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
+                settings.EMAIL_HOST_USER,
+                [request.user.email],
+                fail_silently=False,
+            )
+
+            messages.success(request, "✅ Veille créée et scan lancé avec succès.")
+            return redirect("dashboard_veille")
+
+        except Exception as e:
+            messages.error(request, f"❌ Une erreur s'est produite lors du lancement du scan : {e}")
+            return redirect("dashboard_veille")
 
     return render(request, "veille/fuzzy_veille.html", {"profile": profile})
-
 
 @login_required
 def maveille(request):
