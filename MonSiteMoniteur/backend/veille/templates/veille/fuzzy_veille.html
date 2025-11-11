@@ -124,37 +124,35 @@ document.addEventListener("DOMContentLoaded", function () {
     const validationModal = new bootstrap.Modal(document.getElementById('validationModal'));
     const modalMessage = document.getElementById('modalMessage');
 
-    // Fonction pour valider la longueur des champs
     function validateFields() {
         let validationPassed = true;
+        let errorMsg = "";
 
         // Vérification du nom de la veille
         if (veilleNom.value.length > 50) {
             validationPassed = false;
-            modalMessage.innerHTML = 'Le nom de la veille ne doit pas dépasser 50 caractères.';
-            validationModal.show();  // Affiche le modal si la limite est dépassée
+            errorMsg = 'Le nom de la veille ne doit pas dépasser 50 caractères.';
+            veilleNom.value = "";  // ✅ Réinitialise le champ
         }
 
         // Vérification des mots-clés
         if (keywordInput.value.length > 100) {
             validationPassed = false;
-            modalMessage.innerHTML = 'Les mots-clés ne doivent pas dépasser 100 caractères.';
-            validationModal.show();  // Affiche le modal si la limite est dépassée
+            errorMsg = 'Les mots-clés ne doivent pas dépasser 100 caractères.';
+            keywordInput.value = "";  // ✅ Réinitialise le champ
         }
 
-        // Si tout est valide, on active le bouton "Enregistrer"
-        if (validationPassed) {
-            submitButton.disabled = false;
+        if (!validationPassed) {
+            modalMessage.innerHTML = errorMsg;
+            validationModal.show();  // ✅ ouvre le modal
+            submitButton.disabled = true; // reste bloqué
         } else {
-            submitButton.disabled = true;
+            submitButton.disabled = false; // ✅ débloque le bouton de création
         }
     }
 
-    // Lorsque l'utilisateur clique sur le bouton de validation
-    validateBtn.addEventListener("click", function () {
-        validateFields();  // Valide les champs et affiche le modal si nécessaire
-    });
-
+    validateBtn.addEventListener("click", validateFields);
 });
 </script>
+
 {% endblock %}
