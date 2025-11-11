@@ -10,6 +10,11 @@ main {
     flex-grow: 1;  /* Cela permet à main de prendre tout l'espace disponible */
 }
 
+#submitButton {
+    background: linear-gradient(90deg, #28a745, #218838); /* Un vert plus agréable */
+    border: none;
+}
+
 /* ----- BANDE BLEUE ----- */
 .societe-header {
     background: #0054A6;          /* bleu BCE */

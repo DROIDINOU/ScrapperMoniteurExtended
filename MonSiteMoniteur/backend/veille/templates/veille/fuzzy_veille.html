@@ -3,14 +3,13 @@
 {% block content %}
 
 <div class="container py-4">
-
     <h2 class="mb-3 text-primary text-center">Veille par mots-clés (Fuzzy Search)</h2>
     <p class="text-muted text-center">
         Entrez des mots-clés. Dès qu’une décision judiciaire contient l’un d’eux, une alerte est créée.
     </p>
 
     <!-- Formulaire centré -->
-    <form method="POST" action="{% url 'veille_fuzzy' %}" class="mx-auto" style="max-width: 500px;">
+    <form method="POST" action="{% url 'veille_fuzzy' %}" class="mx-auto" style="max-width: 500px;" id="veilleForm">
         {% csrf_token %}
 
         <!-- ✅ NOM DE LA VEILLE -->
@@ -19,26 +18,14 @@
             <input type="text"
                 name="veille_nom"
                 class="form-control form-control-sm"
-                placeholder="ex : Suivi procédures Charleroi" style="max-width: 100%;">
+                placeholder="Exemple : Suivi procédures Charleroi" style="max-width: 100%;" id="veille_nom">
         </div>
 
         <!-- ✅ MOTS-CLÉS -->
         <div class="form-group mb-3">
-            <label>Mot-clé n°1</label>
-            <input type="text" name="keyword1" class="form-control form-control-sm"
-                   value="{{ profile.keyword1|default_if_none:'' }}" placeholder="ex : dissolution" style="max-width: 100%;">
-        </div>
-
-        <div class="form-group mb-3">
-            <label>Mot-clé n°2</label>
-            <input type="text" name="keyword2" class="form-control form-control-sm"
-                   value="{{ profile.keyword2|default_if_none:'' }}" placeholder="ex : faillite" style="max-width: 100%;">
-        </div>
-
-        <div class="form-group mb-3">
-            <label>Mot-clé n°3</label>
-            <input type="text" name="keyword3" class="form-control form-control-sm"
-                   value="{{ profile.keyword3 }}" placeholder="ex : curateur" style="max-width: 100%;">
+            <label>Mot-clé(s)</label>
+            <input type="text" name="keywords" class="form-control form-control-sm"
+                   placeholder="ex : dissolution, liquidation" style="max-width: 100%;" id="keyword1">
         </div>
 
         <!-- ----- ACCORDEON POUR FILTRES SUPPLEMENTAIRES ----- -->
@@ -51,11 +38,10 @@
                 </h2>
                 <div id="collapseFilters" class="accordion-collapse collapse" aria-labelledby="headingFilters" data-bs-parent="#filtersAccordion">
                     <div class="accordion-body">
-
-                        <!-- Filtre Type de décision -->
+                        <!-- Type de décision -->
                         <div class="form-group mb-3">
                             <label for="decision_type">Type de décision</label>
-                            <select name="decision_type" class="form-control form-control-sm">
+                            <select name="decision_type" class="form-control form-control-sm" id="decision_type">
                                 <option value="">Sélectionnez un type de décision</option>
                                 <option value="condamnation">Condamnation</option>
                                 <option value="radiation">Radiation</option>
@@ -67,12 +53,12 @@
                         <!-- Filtre Date de publication -->
                         <div class="form-group mb-3">
                             <label for="date_from">Date de publication (début)</label>
-                            <input type="date" name="date_from" class="form-control form-control-sm">
+                            <input type="date" name="date_from" class="form-control form-control-sm" id="date_from">
                         </div>
 
                         <div class="form-group mb-3">
                             <label for="date_to">Date de publication (fin)</label>
-                            <input type="date" name="date_to" class="form-control form-control-sm">
+                            <input type="date" name="date_to" class="form-control form-control-sm" id="date_to">
                         </div>
 
                     </div>
@@ -82,17 +68,18 @@
 
         <!-- Boutons côte à côte avec plus de centrage -->
         <div class="d-flex justify-content-between mt-3">
-            <!-- Bouton "Enregistrer mes mots-clés" -->
-            <button type="submit" id="submitButton"
-                    class="btn btn-primary btn-sm"
-                    style="background: linear-gradient(90deg, #ff0000, #ff4d4d); border: none; font-size: 1rem; width: 40%;">
-                Enregistrer mes mots-clés et créer la veille
+            <!-- Bouton pour valider les champs -->
+            <button type="button" id="validateBtn" class="btn btn-primary btn-sm"
+                    style="font-size: 1rem; width: 48%;">
+                Valider
             </button>
 
-            <!-- Lien pour configurer la veille -->
-            <a href="{% url 'veille_fuzzy' %}" class="btn btn-success btn-sm" style="width: 40%;">
-                Configurer ma veille TVA
-            </a>
+            <!-- Bouton pour soumettre, initialement caché -->
+            <button type="submit" id="submitButton"
+                    class="btn btn-success btn-sm"
+                    style="width: 48%;" disabled>
+                Enregistrer mes mots-clés et créer la veille
+            </button>
         </div>
 
         <div class="alert alert-info mt-3 text-center">
@@ -103,13 +90,67 @@
 
 </div>
 
-<!-- JavaScript pour afficher le "V" après le clic sur le bouton -->
-<script>
-    document.querySelector('form').addEventListener('submit', function(event) {
-        var button = document.getElementById('submitButton');
-        button.innerHTML = '✅ Veille créée avec succès'; // Change le texte du bouton après le clic
-        button.disabled = true; // Désactive le bouton pour éviter plusieurs soumissions
-    });
-</script>
+<!-- Popup Modal pour la limite de caractères -->
+<div class="modal fade" id="limitModal" tabindex="-1" aria-labelledby="limitModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="limitModalLabel">Limite de caractères dépassée</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Vous avez dépassé la limite de caractères autorisée. Le nom de la veille ne doit pas excéder 50 caractères et les mots-clés ne doivent pas excéder 100 caractères.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const validateBtn = document.getElementById("validateBtn");
+    const submitButton = document.getElementById("submitButton");
+
+    const veilleNom = document.getElementById("veille_nom");
+    const keywordInput = document.getElementById("keyword1");
+
+    // Initialisation du modal
+    const limitModal = new bootstrap.Modal(document.getElementById('limitModal'));
+
+    // Fonction pour valider la longueur des champs
+    function validateFields() {
+        let validationPassed = true;
+
+        // Vérification du nom de la veille
+        if (veilleNom.value.length > 50) {
+            validationPassed = false;
+            limitModal.show();  // Affiche le modal si la limite est dépassée
+        }
+
+        // Vérification des mots-clés
+        if (keywordInput.value.length > 100) {
+            validationPassed = false;
+            limitModal.show();  // Affiche le modal si la limite est dépassée
+        }
+
+        // Si tout est valide, on active le bouton "Enregistrer"
+        if (validationPassed) {
+            submitButton.disabled = false;
+        } else {
+            submitButton.disabled = true;
+        }
+    }
+
+    // Lorsque l'utilisateur clique sur le bouton de validation
+    validateBtn.addEventListener("click", function () {
+        validateFields();  // Valide les champs et affiche le modal si nécessaire
+    });
+
+});
+</script>
 {% endblock %}

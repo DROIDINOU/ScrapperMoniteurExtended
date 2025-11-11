@@ -1,11 +1,12 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
-    # mots clés utilisateurs (veille globale MeiliSearch)
+    # Mots-clés utilisateurs (veille globale MeiliSearch)
     keyword1 = models.CharField(max_length=100, blank=True, null=True)
     keyword2 = models.CharField(max_length=100, blank=True, null=True)
     keyword3 = models.CharField(max_length=100, blank=True, null=True)
@@ -14,6 +15,24 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"Profil de {self.user.username}"
+
+    def clean(self):
+        """ Validation des mots-clés """
+        max_words = 5  # Limite à 5 mots par mot-clé
+        max_length = 100  # Limite à 100 caractères par mot-clé
+
+        # Validation pour chaque mot-clé
+        for keyword in [self.keyword1, self.keyword2, self.keyword3]:
+            if keyword:
+                if len(keyword) > max_length:
+                    raise ValidationError(f"Le mot-clé ne doit pas dépasser {max_length} caractères.")
+                if len(keyword.split()) > max_words:
+                    raise ValidationError(f"Le mot-clé ne doit pas dépasser {max_words} mots.")
+
+    def save(self, *args, **kwargs):
+        """ Assurez-vous que les mots-clés respectent les règles avant d'enregistrer l'instance """
+        self.clean()  # Appelle la validation personnalisée
+        super().save(*args, **kwargs)
 
 
 class Veille(models.Model):

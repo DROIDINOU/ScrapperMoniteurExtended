@@ -15,8 +15,14 @@ MEILI_MASTER_KEY = os.getenv("MEILI_MASTER_KEY")
 MEILI_SEARCH_KEY = os.getenv("MEILI_MASTER_KEY")  # si tu n’as pas de clé SEARCH séparée
 INDEX_NAME = os.getenv("INDEX_NAME")
 INDEX_RUE_NAME = os.getenv("INDEX_RUE_NAME", "mesrues_be")
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER_TEST")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD_TEST")
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'in-v3.mailjet.com'
+EMAIL_PORT = 587  # Ou 465 pour SSL
+EMAIL_USE_TLS = True  # Ou EMAIL_USE_SSL = True si SSL
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER_TEST")  # Utilise l'API Key de Mailjet
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD_TEST")  # Utilise la Secret Key de Mailjet
+DEFAULT_FROM_EMAIL = 'marclosson95@gmail.com'  # Votre adresse e-mail vérifiée
 
 
 print("✅ .env utilisé :", ENV_PATH)
@@ -151,10 +157,3 @@ print("Fichiers statiques collectés à : ", STATIC_ROOT)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# EMAIL
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.mailgun.org'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = EMAIL_HOST_USER
-EMAIL_HOST_PASSWORD = EMAIL_HOST_PASSWORD
