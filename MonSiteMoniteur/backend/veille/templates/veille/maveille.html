@@ -79,46 +79,58 @@ document.addEventListener("DOMContentLoaded", function () {
     const invalidResults = document.getElementById("invalidResults");
     const invalidNumbersList = document.getElementById("invalidNumbersList");
 
-    // Fonction de nettoyage et validation des numéros
-    bulkInput.addEventListener("input", function () {
-        let cleanedValue = bulkInput.value.replace(/\s+/g, " ");  // Remplacer les espaces multiples par un seul espace
-        bulkInput.value = cleanedValue;
-    });
+    // --- Extraction TVA ---
+    function extraireTVA(text) {
+        if (!text) return [];
+
+        let t = text.replace(/(?=BE\d)/gi, ' ')
+                    .replace(/[.\-]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+        const re = /(?:BE\s*)?((?:\d\s*){10})/gi;
+        const found = [];
+        let m;
+        while ((m = re.exec(t)) !== null) {
+            const num = m[1].replace(/\s+/g, '');
+            if (num.length === 10) found.push("BE" + num);
+        }
+
+        return Array.from(new Set(found));
+    }
+
+    // --- Contrôle modulo 97 ---
+    function checkMod97(num10) {
+        const base = parseInt(num10.slice(0, 8), 10);
+        const key = parseInt(num10.slice(8), 10);
+        return (97 - (base % 97)) === key;
+    }
 
     // Lorsque l'utilisateur clique sur "Valider TVA"
     validateBtn.addEventListener("click", function () {
         console.log("Validation des numéros de TVA a démarré...");
         const text = bulkInput.value;
-        console.log("Texte collé : ", text);
 
-        // Séparer les numéros par espace ou nouvelle ligne
-        const lines = text.split(/\s+/); // Sépare les numéros par espaces ou nouvelles lignes
-        console.log("Numéros séparés : ", lines);
+        const tvas = extraireTVA(text);
+        console.log("TVA extraits :", tvas);
 
-        // Expression régulière pour capturer les numéros de TVA belge avec ou sans BE, avec ou sans tirets et points
-        const regex = /\b(?:BE\s?)?(\d{3}[-.]?\d{3}[-.]?\d{4})\b/g;
-
-        // Initialisation des listes
         const validNumbers = [];
         const invalidNumbers = [];
 
-        // Validation des numéros
-        lines.forEach(line => {
-            let matches = line.match(regex);  // Recherche dans chaque ligne séparée
-            if (matches) {
-                matches.forEach(num => {
-                    let cleanedNum = num.replace(/[\.\-\s]/g, "");  // Enlever les points, tirets et espaces
-                    console.log("Numéro nettoyé : ", cleanedNum);
-
-                    // Validation (le numéro doit avoir 10 chiffres)
-                    if (cleanedNum.length === 10) {
-                        validNumbers.push(cleanedNum);
-                    } else {
-                        invalidNumbers.push(num);
-                    }
-                });
+        tvas.forEach(tva => {
+            const num10 = tva.slice(2);
+            if (num10.length === 10 && num10.startsWith("0") && num10 !== "0000000000" && checkMod97(num10)) {
+                validNumbers.push(tva);
+            } else {
+                invalidNumbers.push(tva);
             }
         });
+
+        // 🚨 Nouveau : popup si aucun numéro détecté
+        if (tvas.length === 0) {
+            alert("Aucun numéro de TVA n’a été détecté. Veuillez vérifier votre saisie.");
+            return; // stoppe la fonction ici
+        }
 
         // Affichage des résultats
         if (invalidNumbers.length > 0) {
@@ -133,12 +145,11 @@ document.addEventListener("DOMContentLoaded", function () {
             cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
             invalidResults.style.display = "none";
 
-            // Si des numéros valides sont trouvés, activer le bouton "Lancer la veille"
             if (validNumbers.length > 0) {
-                submitBtn.style.display = "block";  // Affiche le bouton "Lancer la veille"
-                validateBtn.style.display = "none"; // Cache le bouton "Valider les numéros TVA"
+                submitBtn.style.display = "block";
+                validateBtn.style.display = "none";
             } else {
-                submitBtn.style.display = "none";  // Masque le bouton "Lancer la veille"
+                submitBtn.style.display = "none";
             }
 
             console.log("Tous les numéros de TVA sont valides.");
@@ -151,8 +162,8 @@ document.addEventListener("DOMContentLoaded", function () {
         bulkInput.value = "";
         cleanResult.style.display = "none";
         invalidResults.style.display = "none";
-        submitBtn.style.display = "none";  // Masque le bouton "Lancer la veille"
-        validateBtn.style.display = "block"; // Réaffiche le bouton "Valider"
+        submitBtn.style.display = "none";
+        validateBtn.style.display = "block";
         invalidNumbersList.innerHTML = "";
         console.log("Réinitialisation des résultats.");
     });
