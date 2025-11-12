@@ -15,7 +15,7 @@
                                  data-bs-target="#collapse{{ veille.id }}" aria-expanded="false" aria-controls="collapse{{ veille.id }}"
                                  style="cursor: pointer;">
                                 <button class="btn btn-link text-dark fw-bold text-decoration-none" type="button">
-                                    {{ veille.nom }} <small class="text-muted">({{ veille.type }})</small>
+                                    {{ veille.nom }} <small class="text-muted">(Veille - {{ veille.type }})</small>
                                 </button>
 
                                 <div class="d-flex align-items-center">
@@ -52,14 +52,7 @@
                                                     <span style="color: white; background-color: #0054A6; padding: 2px 6px; border-radius: 5px;">Résultats globaux — Mots-clés</span>
                                                 {% endif %}
 
-                                                {% if entry.societe and entry.veille.type != "KEYWORD" %}
-                                                    <div>
-                                                        <a href="{% url 'lancer_scan' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-primary">Scanner</a>
-                                                        <a href="{% url 'scan_decisions' entry.societe.numero_tva %}" class="btn btn-sm btn-outline-info">
-                                                            Décisions
-                                                        </a>
-                                                    </div>
-                                                {% endif %}
+
                                             </div>
 
                                             <div class="row">

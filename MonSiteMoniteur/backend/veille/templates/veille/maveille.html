@@ -47,7 +47,7 @@
                         <div class="d-flex justify-content-between mt-3">
                             <button type="button" class="btn btn-primary flex-fill me-2" id="validateBtn">Valider les numéros TVA</button>
     <button type="button" class="btn btn-danger flex-fill me-2" id="resetBtn">Réinitialiser</button>
-    <button type="submit" class="btn btn-success flex-fill" id="submitBtn" style="display:none;">Lancer la veille</button>
+    <button type="submit" class="btn btn-success flex-fill" id="submitBtn" style="display:none;">Enregistrer veille sur numéros validés</button>
                         </div>
 
 
@@ -133,27 +133,30 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         // Affichage des résultats
-        if (invalidNumbers.length > 0) {
-            cleanResult.style.display = "none";
-            invalidResults.style.display = "block";
-            invalidNumbersList.innerHTML = invalidNumbers.join("<br>");
-            submitBtn.style.display = "none";
-            validateBtn.style.display = "none";
-            console.log("Numéros invalides détectés.");
-        } else {
-            cleanResult.style.display = "block";
-            cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
-            invalidResults.style.display = "none";
 
-            if (validNumbers.length > 0) {
-                submitBtn.style.display = "block";
-                validateBtn.style.display = "none";
-            } else {
-                submitBtn.style.display = "none";
-            }
+// --- Afficher les valides ---
+if (validNumbers.length > 0) {
+    cleanResult.style.display = "block";
+    cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
+    submitBtn.style.display = "block";   // Autoriser l’enregistrement si au moins un valide
+} else {
+    cleanResult.style.display = "block"; // Toujours afficher la boîte bleue
+    cleanResult.innerHTML = "<strong>Aucun numéro TVA valide détecté.</strong>";
+    submitBtn.style.display = "none";    // Pas de lancement possible
+}
 
-            console.log("Tous les numéros de TVA sont valides.");
-        }
+// --- Afficher les invalides ---
+if (invalidNumbers.length > 0) {
+    invalidResults.style.display = "block";
+    invalidNumbersList.innerHTML = invalidNumbers.join("<br>");
+    console.log("Numéros invalides détectés.");
+} else {
+    invalidResults.style.display = "block"; // Toujours afficher la boîte rouge
+    invalidNumbersList.innerHTML = "<em>Aucun numéro invalide.</em>";
+}
+
+validateBtn.style.display = "none"; // Cache le bouton "Valider" après validation
+
     });
 
     // Fonction de réinitialisation
