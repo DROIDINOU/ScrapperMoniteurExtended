@@ -21,12 +21,9 @@
                                 <div class="d-flex align-items-center">
                                     {% for entry in tableau %}
                                         {% if entry.veille.pk == veille.pk %}
-                                            <!-- Affichage du nombre d'annexes dans la barre, même si 0 -->
                                             <span class="badge bg-secondary text-white me-2">
                                                 {{ entry.annexes.count }} annexe(s)
                                             </span>
-
-                                            <!-- Affichage du nombre de décisions dans la barre, même si 0 -->
                                             <span class="badge" style="background-color: #f0f0f0; color: #333; me-2;">
                                                 {{ entry.decisions|length }} décision(s)
                                             </span>
@@ -51,13 +48,10 @@
                                                 {% else %}
                                                     <span style="color: white; background-color: #0054A6; padding: 2px 6px; border-radius: 5px;">Résultats globaux — Mots-clés</span>
                                                 {% endif %}
-
-
                                             </div>
 
                                             <div class="row">
                                                 <div class="col-md-6 mb-3">
-                                                    <!-- Section des Décisions judiciaires -->
                                                     <h5 class="border-bottom pb-2" style="font-size: 1.1rem; color: #5a5a5a;">Décisions judiciaires ({{ entry.decisions|length }})</h5>
 
                                                     {% for ev in entry.decisions %}
@@ -66,9 +60,48 @@
                                                             <small class="text-muted">
                                                                 {{ ev.date_publication }}
                                                                 {% if ev.source %}
-                                                                    · <a href="{{ ev.source }}" target="_blank" class="link-secondary">Ouvrir</a>
+                                                                    · <a href="{{ ev.source }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0">Texte Moniteur Belge</a>
+                                                                {% endif %}
+                                                                {% if ev.source %}
+                                                                    · <button class="btn btn-sm btn-outline-secondary py-0"
+                                                                              data-bs-toggle="modal"
+                                                                              data-bs-target="#metaModal{{ forloop.counter }}{{ veille.id }}">
+                                                                        Détails
+                                                                    </button>
                                                                 {% endif %}
                                                             </small>
+                                                        </div>
+
+                                                        <!-- Modal Détails métadonnées -->
+                                                        <div class="modal fade" id="metaModal{{ forloop.counter }}{{ veille.id }}" tabindex="-1" aria-labelledby="metaModalLabel{{ forloop.counter }}{{ veille.id }}" aria-hidden="true">
+                                                          <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                                            <div class="modal-content">
+                                                              <div class="modal-header bg-light">
+                                                                <h5 class="modal-title" id="metaModalLabel{{ forloop.counter }}{{ veille.id }}">Métadonnées de la décision</h5>
+                                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                                                              </div>
+
+                                                              <div class="modal-body">
+                                                                <ul class="list-group">
+                                                                  <li class="list-group-item"><strong>Titre :</strong> {{ ev.titre|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Date du document :</strong> {{ ev.date_publication|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>TVA :</strong> {{ ev.TVA|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Extra Keywords :</strong> {{ ev.extra_keyword|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Date du jugement :</strong> {{ ev.date_jugement|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Administrateur(s) :</strong> {{ ev.administrateur|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Adresses BCE :</strong> {{ ev.adresses_by_bce|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Adresses eJustice :</strong> {{ ev.adresses_by_ejustice|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Adresses fusionnées :</strong> {{ ev.adresses_all_flat|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Dénominations BCE :</strong> {{ ev.denoms_by_bce|default:"N/A" }}</li>
+                                                                  <li class="list-group-item"><strong>Dénominations eJustice :</strong> {{ ev.denoms_by_ejustice_flat|default:"N/A" }}</li>
+                                                                </ul>
+                                                              </div>
+
+                                                              <div class="modal-footer">
+                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                                                              </div>
+                                                            </div>
+                                                          </div>
                                                         </div>
                                                     {% empty %}
                                                         <p class="text-muted fst-italic">Aucune décision trouvée.</p>
@@ -76,7 +109,6 @@
                                                 </div>
 
                                                 <div class="col-md-6">
-                                                    <!-- Section des Annexes publiées -->
                                                     <h5 class="border-bottom pb-2" style="font-size: 1.1rem; color: #5a5a5a;">Annexes publiées ({{ entry.annexes|length }})</h5>
 
                                                     {% for ev in entry.annexes %}
@@ -85,7 +117,7 @@
                                                             <small class="text-muted">
                                                                 {{ ev.date_publication }}
                                                                 {% if ev.source %}
-                                                                    · <a href="{{ ev.source }}" target="_blank" class="link-secondary">PDF</a>
+                                                                    · <a href="{{ ev.source }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0">PDF</a>
                                                                 {% endif %}
                                                             </small>
                                                         </div>
@@ -112,3 +144,4 @@
         {% endif %}
     </div>
 {% endblock %}
+

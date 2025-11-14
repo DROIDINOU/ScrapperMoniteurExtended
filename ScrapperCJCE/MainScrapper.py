@@ -452,7 +452,7 @@ print(f"[✅] Index '{index_name}' prêt.")
 
     # ⚙️ 3️⃣ Configuration des attributs
     index.update_filterable_attributes([
-        "keyword", "adresses_fallback_bce_flat",
+        "keyword", "adresses_fallback_bce_flat", "url",
         "denom_fallback_bce", "TVA", "date_doc", "extra_keyword",
         "admins_detectes", "denoms_fallback_bce_flat",
         "extra_keyword_flatten"  # 👈 ici on ajoute le champ facetable

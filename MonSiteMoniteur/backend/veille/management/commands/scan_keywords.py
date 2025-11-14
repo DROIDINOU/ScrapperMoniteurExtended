@@ -16,13 +16,11 @@ class Command(BaseCommand):
         parser.add_argument("--veille_id", required=True, help="ID de la veille")
         parser.add_argument("--decision_type", type=str, help="Filtrer par type de décision (extra_keyword)")
         parser.add_argument("--date_from", type=str, help="Filtrer les décisions à partir de cette date (format: YYYY-MM-DD)")
-        parser.add_argument("--date_to", type=str, help="Filtrer les décisions jusqu’à cette date (format: YYYY-MM-DD)")
 
     def handle(self, *args, **options):
         veille_id = options["veille_id"]
         decision_type = options["decision_type"]
         date_from = options["date_from"]
-        date_to = options["date_to"]
 
         print(f"🔍 Récupération des informations pour la veille ID : {veille_id}")
 
@@ -37,7 +35,7 @@ class Command(BaseCommand):
         profile = veille.user.userprofile
         keywords = [k.strip() for k in [profile.keyword1, profile.keyword2, profile.keyword3] if k]
 
-        if not keywords and not (decision_type or date_from or date_to):
+        if not keywords and not (decision_type or date_from):
             print("voila le putain de coupable!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             self.stdout.write(self.style.WARNING("⚠️ Aucun mot-clé défini et aucun filtre fourni."))
             return
@@ -81,9 +79,6 @@ class Command(BaseCommand):
             if date_from:
                 filters.append(f"date_doc >= '{date_from}'")
                 print(f"📆 Filtre date début : {date_from}")
-            if date_to:
-                filters.append(f"date_doc <= '{date_to}'")
-                print(f"📆 Filtre date fin : {date_to}")
 
             filter_string = " AND ".join(filters) if filters else ""
             print(f"🔎 Filtre final MeiliSearch : {filter_string}")

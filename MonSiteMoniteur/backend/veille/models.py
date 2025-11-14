@@ -45,6 +45,8 @@ class Veille(models.Model):
     nom = models.CharField(max_length=255)
     type = models.CharField(max_length=10, choices=TYPE)
     date_creation = models.DateTimeField(auto_now_add=True)
+    # 🚀 Ajout pour CRON
+    last_scan = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.nom} ({self.user.username})"
@@ -82,12 +84,14 @@ class VeilleEvenement(models.Model):
 
     def __str__(self):
         return f"{self.type} - {self.titre or self.rubrique}"
+
+
 # *****************************************
 # partie insertion scrapper (tu ne touches pas)
 # *****************************************
-
 class Decision(models.Model):
     id = models.CharField(max_length=64, primary_key=True)
+    TVA = models.JSONField(max_length=20, null=True, blank=True)
     date_doc = models.DateField(null=True, blank=True)
     lang = models.TextField(null=True, blank=True)
     text = models.TextField(null=True, blank=True)
@@ -96,6 +100,26 @@ class Decision(models.Model):
     titre = models.TextField(null=True, blank=True)
     extra_keyword = models.JSONField(null=True, blank=True)
     date_jugement = models.JSONField(null=True, blank=True)
+
+    # Informations administrateurs
+    administrateur = models.JSONField(null=True, blank=True)
+
+    # Adresses par source
+    adresses_by_bce = models.JSONField(null=True, blank=True)
+    adresses_by_ejustice = models.JSONField(null=True, blank=True)
+    adresses_fallback_bce_flat = models.JSONField(null=True, blank=True)
+    adresses_all_flat = models.JSONField(null=True, blank=True)
+
+    # Dénominations par source
+    denoms_by_bce = models.JSONField(null=True, blank=True)
+    denoms_by_ejustice_flat = models.JSONField(null=True, blank=True)
+    denom_fallback_bce = models.JSONField(null=True, blank=True)
+    denoms_bce_flat = models.JSONField(null=True, blank=True)
+    denoms_fallback_bce_flat = models.JSONField(null=True, blank=True)
+
+    # Autres infos possibles
+    adresses_bce_flat = models.JSONField(null=True, blank=True)
+    adresses_ejustice_flat = models.JSONField(null=True, blank=True)
 
     def __str__(self):
         return self.titre or f"Décision {self.id}"

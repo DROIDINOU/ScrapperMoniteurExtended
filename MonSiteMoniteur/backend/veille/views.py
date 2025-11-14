@@ -1,33 +1,24 @@
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import logout
-from datetime import datetime
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-from .models import Veille, UserProfile
-from django.core.mail import send_mail
-
-
-from django.http import JsonResponse, Http404
-from django.db.models import Q
-from meilisearch import Client as MeiliClient
+from django.http import JsonResponse
 from django.db import connection
 from .models import UserProfile
 from .keywords import KEYWORD_GROUPS, KEYWORD_LABELS
 # views.py
 from django.db.models import Prefetch
-from django.shortcuts import redirect
-from django.contrib import messages
-from django.conf import settings
 import meilisearch
 from .models import VeilleSociete, VeilleEvenement
-from django.http import HttpResponse
-
 import re
-import psycopg2
-from django.core.management import call_command
-from django.contrib.auth.decorators import login_required
 from django.utils.timezone import now
+from django.core.management import call_command
+from django.core.mail import send_mail
+from django.contrib import messages
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from django.conf import settings
+from .models import Veille
+from meilisearch import Client as MeiliClient
 
 
 def home_marketing(request):
@@ -57,16 +48,6 @@ def send_test_email():
     )
 
 
-from django.core.management import call_command
-from django.core.mail import send_mail
-from django.contrib import messages
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-from django.conf import settings
-from .models import Veille
-from meilisearch import Client as MeiliClient
-
-
 @login_required
 def veille_fuzzy(request):
     profile = request.user.userprofile
@@ -86,13 +67,13 @@ def veille_fuzzy(request):
         # ✅ Filtres
         decision_type = request.POST.get("decision_type")
         date_from = request.POST.get("date_from")
-        date_to = request.POST.get("date_to")
 
         # ✅ Création de la veille
         veille_obj = Veille.objects.create(
             user=request.user,
             nom=veille_nom,
-            type="KEYWORD"
+            type="KEYWORD",
+            last_scan=now()
         )
 
         try:
@@ -103,7 +84,6 @@ def veille_fuzzy(request):
                 veille_id=veille_obj.id,
                 decision_type=decision_type,
                 date_from=date_from,
-                date_to=date_to
             )
 
             # ✅ Email de confirmation
@@ -141,6 +121,10 @@ def maveille(request):
             type="TVA",
             nom=nom_veille,  # ou tu peux utiliser f"Veille TVA {tva}"
         )
+
+        if created:
+            veille_obj.last_scan = now()
+            veille_obj.save()
 
         # ✅ Ajouts des sociétés surveillées + scan automatique
         # ✅ Ajouts des sociétés surveillées + scan automatique
@@ -203,10 +187,44 @@ def veille_dashboard(request):
 
         if veille.type == "KEYWORD":
             annexes = veille.evenements.filter(type="ANNEXE", societe__isnull=True)
-            decisions = veille.evenements.filter(type="DECISION", societe__isnull=True)
+            decisions_queryset = veille.evenements.filter(type="DECISION", societe__isnull=True)
 
-            # Mise à jour du nombre total d'événements
-            veille.result_count = annexes.count() + decisions.count()
+            decisions = []
+
+            for ev in decisions_queryset:
+                hit_data = None
+
+                # Recherche du document correspondant dans MeiliSearch via l'URL
+                try:
+                    search_res = index.search("", {"filter": f'url = "{ev.source}"'})
+                    hits = search_res.get("hits", [])
+                    print(f"🔍 Recherche Meili pour URL={ev.source} → {len(hits)} résultat(s)")
+                    if hits:
+                        print("Premier hit:", hits[0])
+                    if hits:
+                        hit_data = hits[0]
+                except Exception as e:
+                    print(f"⚠️ Erreur Meili pour {ev.source}: {e}")
+
+                decision = {
+                    "titre": ev.titre or "Titre non disponible",
+                    "date_publication": ev.date_publication or "Date non disponible",
+                    "source": ev.source,
+                    # Champs enrichis Meili
+                    "TVA": hit_data.get("TVA") if hit_data else None,
+                    "extra_keyword": hit_data.get("extra_keyword") if hit_data else None,
+                    "date_jugement": hit_data.get("date_jugement") if hit_data else None,
+                    "administrateur": hit_data.get("administrateur") if hit_data else None,
+                    "adresses_by_bce": hit_data.get("adresses_by_bce") if hit_data else None,
+                    "adresses_by_ejustice": hit_data.get("adresses_by_ejustice") if hit_data else None,
+                    "adresses_all_flat": hit_data.get("adresses_all_flat") if hit_data else None,
+                    "denoms_by_bce": hit_data.get("denoms_by_bce") if hit_data else None,
+                    "denoms_by_ejustice_flat": hit_data.get("denoms_by_ejustice_flat") if hit_data else None,
+                }
+
+                decisions.append(decision)
+
+            veille.result_count = annexes.count() + len(decisions)
 
             tableau.append({
                 "veille": veille,
@@ -214,6 +232,7 @@ def veille_dashboard(request):
                 "annexes": annexes,
                 "decisions": decisions,
             })
+
 
         elif veille.type == "TVA":
             print(f"    -> TVA : {veille.societes.count()} sociétés surveillées")
@@ -236,11 +255,22 @@ def veille_dashboard(request):
                         "titre": hit.get("title", "Titre non disponible"),
                         "date_publication": hit.get("date_doc", "Date non disponible"),
                         "source": hit.get("url", "URL non disponible"),
+                        # 🧠 Champs additionnels (pour modale)
+                        "TVA": hit.get("TVA"),
+                        "extra_keyword": hit.get("extra_keyword"),
+                        "date_jugement": hit.get("date_jugement"),
+                        "administrateur": hit.get("administrateur"),
+                        "adresses_by_bce": hit.get("adresses_by_bce"),
+                        "adresses_by_ejustice": hit.get("adresses_by_ejustice"),
+                        "adresses_all_flat": hit.get("adresses_all_flat"),
+                        "denoms_by_bce": hit.get("denoms_by_bce"),
+                        "denoms_by_ejustice_flat": hit.get("denoms_by_ejustice_flat"),
                     }
+
                     decisions.append(decision)
 
                 print(f"           ➤ annexes = {annexes.count()} | décisions = {len(decisions)}")
-
+                print(f"Résultat brut MeiliSearch pour {tva}: {results}")
                 tableau.append({
                     "veille": veille,
                     "societe": societe,

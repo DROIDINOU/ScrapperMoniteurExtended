@@ -43,10 +43,18 @@
                             <label for="decision_type">Type de décision</label>
                             <select id="decision_type" name="decision_type" class="form-control form-control-sm">
                                 <option value="">Sélectionnez un type de décision</option>
-                                <option value="condamnation">Condamnation</option>
+                                <option value="faillite">Faillite</option>
+                                <option value="rapportee">Faillite rapportée</option>
+                                <option value="faillitenonexcusable">Faillite non excusable</option>
                                 <option value="radiation">Radiation</option>
                                 <option value="dissolution">Dissolution</option>
                                 <option value="liquidation">Liquidation</option>
+                                <option value="condamnation">Condamnation</option>
+                                <option value="ouverture">Ouverture</option>
+                                <option value="cloture">Clôture</option>
+
+
+
                             </select>
                         </div>
 
@@ -54,11 +62,6 @@
                         <div class="form-group mb-3">
                             <label for="date_from">Date de publication (début)</label>
                             <input type="date" id="date_from" name="date_from" class="form-control form-control-sm">
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label for="date_to">Date de publication (fin)</label>
-                            <input type="date" id="date_to" name="date_to" class="form-control form-control-sm">
                         </div>
 
                     </div>
