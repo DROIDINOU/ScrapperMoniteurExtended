@@ -156,6 +156,8 @@ if (invalidNumbers.length > 0) {
 }
 
 validateBtn.style.display = "none"; // Cache le bouton "Valider" après validation
+bulkInput.disabled = true;   // ⛔ Bloquer la zone de saisie après validation
+
 
     });
 
@@ -163,12 +165,12 @@ validateBtn.style.display = "none"; // Cache le bouton "Valider" après validati
     const resetBtn = document.getElementById("resetBtn");
     resetBtn.addEventListener("click", function () {
         bulkInput.value = "";
+        bulkInput.disabled = false;   // 🔓 Réactiver la zone de saisie lors du reset
         cleanResult.style.display = "none";
         invalidResults.style.display = "none";
         submitBtn.style.display = "none";
         validateBtn.style.display = "block";
         invalidNumbersList.innerHTML = "";
-        console.log("Réinitialisation des résultats.");
     });
 
 });
