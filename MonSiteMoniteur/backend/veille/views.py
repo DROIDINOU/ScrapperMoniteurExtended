@@ -14,7 +14,7 @@ from django.utils.timezone import now
 from django.core.management import call_command
 from django.core.mail import send_mail
 from django.contrib import messages
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from .models import Veille
@@ -386,6 +386,17 @@ def api_autocomplete_rue(request):
         safe=False
     )
 
+
+@login_required
+def supprimer_veille(request, pk):
+    veille = get_object_or_404(Veille, pk=pk, user=request.user)
+
+    if request.method == "POST":
+        veille.delete()
+        messages.success(request, "La veille a bien été supprimée.")
+        return redirect('dashboard_veille')
+
+    return redirect('dashboard_veille')
 
 # ------------------------------------------------------------
 # ✅ FICHE SOCIETÉ (BCE)

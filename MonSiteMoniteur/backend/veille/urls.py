@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/societes", views.api_societes, name="api_societes"),
     path("scan/<str:tva>/", views.lancer_scan, name="lancer_scan"),
     path("societe/<str:bce>/", views.fiche_societe, name="fiche_societe"),
+    path('veille/supprimer/<int:pk>/', views.supprimer_veille, name='supprimer_veille'),
     path("api/search/rue/", views.api_search_rue, name="api_search_rue"),
     path("api/autocomplete/rue/", views.api_autocomplete_rue, name="autocomplete_rue"),
     path("dashboard/", views.veille_dashboard, name="dashboard_veille"),
