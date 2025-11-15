@@ -53,6 +53,7 @@ def veille_fuzzy(request):
     profile = request.user.userprofile
 
     if request.method == "POST":
+        print(">>> POST =", request.POST)
         # ✅ Sauvegarde des mots-clés
         profile.keyword1 = request.POST.get("keyword1")
         profile.keyword2 = request.POST.get("keyword2")
