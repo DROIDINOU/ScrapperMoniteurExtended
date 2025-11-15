@@ -196,12 +196,6 @@ document.addEventListener("DOMContentLoaded", function () {
             keywordInput.value = "";
         }
 
-        if (decisionType.value &&
-            !["condamnation", "radiation", "dissolution", "liquidation"].includes(decisionType.value)) {
-            ok = false;
-            error = "Type de décision invalide.";
-        }
-
         if (!ok) {
             alert(error);
             submitButton.disabled = true;
