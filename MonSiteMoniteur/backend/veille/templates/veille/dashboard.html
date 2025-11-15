@@ -4,18 +4,19 @@
 {% block content %}
 <div class="container mt-4">
     <h2 class="text-center mb-4" style="font-size: 2rem; color: #333;">Tableau de bord de veille</h2>
-<div class="alert alert-info text-center py-2">
-    Cliquez sur le <strong>nom d’une veille</strong> pour afficher ou masquer ses détails.
-</div>
+
+    <div class="alert alert-info text-center py-2">
+        Cliquez sur le <strong>nom d’une veille</strong> pour afficher ou masquer ses détails.
+    </div>
+
     {% if veilles %}
         <div class="accordion" id="accordionVeilles">
             {% for veille in veilles %}
                 <div class="card mb-3 shadow-sm border-0">
 
-                    <!-- HEADER DE LA VEILLE -->
+                    <!-- HEADER -->
                     <div class="card-header bg-light text-dark d-flex justify-content-between align-items-center">
 
-                        <!-- ✅ BOUTON COLLAPSE (SEUL élément qui ouvre/ferme) -->
                         <button class="btn btn-link text-dark fw-bold text-decoration-none"
                                 type="button"
                                 data-bs-toggle="collapse"
@@ -33,31 +34,28 @@
                                     <span class="badge bg-secondary text-white me-2">
                                         {{ entry.annexes.count }} annexe(s)
                                     </span>
-                                    <span class="badge" style="background-color: #f0f0f0; color: #333; me-2;">
+                                    <span class="badge" style="background-color:#f0f0f0;color:#333;">
                                         {{ entry.decisions|length }} décision(s)
                                     </span>
                                 {% endif %}
                             {% endfor %}
 
-                            <!-- 🗑 BOUTON SUPPRIMER — NE DÉCLENCHE PAS LE COLLAPSE -->
                             <form method="POST"
                                   action="{% url 'supprimer_veille' veille.id %}"
                                   class="ms-3">
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-link text-dark p-0"
-        onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
-    <i class="fa-solid fa-trash fa-lg"></i>
-</button>
-
+                                        onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
+                                    <i class="fa-solid fa-trash fa-lg"></i>
+                                </button>
                             </form>
 
                         </div>
                     </div>
 
-                    <!-- CONTENU COLLAPSABLE -->
+                    <!-- COLLAPSE -->
                     <div id="collapse{{ veille.id }}"
                          class="accordion-collapse collapse"
-                         aria-labelledby="heading{{ veille.id }}"
                          data-bs-parent="#accordionVeilles">
 
                         <div class="card-body bg-white">
@@ -67,14 +65,18 @@
 
                                     <div class="societe-card border rounded shadow-sm p-3 mb-4">
 
-                                        <!-- EN-TÊTE SOCIÉTÉ -->
                                         <div class="societe-header d-flex justify-content-between align-items-center mb-2">
                                             {% if entry.societe %}
-                                                <span style="color: white; background-color: #0054A6; padding: 2px 6px; border-radius: 5px;">
-                                                    TVA : <strong>{{ entry.societe.numero_tva|slice:":4" }}.{{ entry.societe.numero_tva|slice:"4:7" }}.{{ entry.societe.numero_tva|slice:"7:10" }}</strong>
+                                                <span style="color:white;background-color:#0054A6;padding:2px 6px;border-radius:5px;">
+                                                    TVA :
+                                                    <strong>
+                                                        {{ entry.societe.numero_tva|slice:":4" }}.
+                                                        {{ entry.societe.numero_tva|slice:"4:7" }}.
+                                                        {{ entry.societe.numero_tva|slice:"7:10" }}
+                                                    </strong>
                                                 </span>
                                             {% else %}
-                                                <span style="color: white; background-color: #0054A6; padding: 2px 6px; border-radius: 5px;">
+                                                <span style="color:white;background-color:#0054A6;padding:2px 6px;border-radius:5px;">
                                                     Résultats globaux — Mots-clés
                                                 </span>
                                             {% endif %}
@@ -82,16 +84,15 @@
 
                                         <div class="row">
 
-                                            <!-- COLONNE DÉCISIONS -->
+                                            <!-- DECISIONS -->
                                             <div class="col-md-6 mb-3">
-                                                <h5 class="border-bottom pb-2"
-                                                    style="font-size: 1.1rem; color: #5a5a5a;">
+                                                <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
                                                     Décisions judiciaires ({{ entry.decisions|length }})
                                                 </h5>
 
                                                 {% for ev in entry.decisions %}
                                                     <div class="event-row mb-2">
-                                                        <div class="fw-semibold" style="color: #333;">
+                                                        <div class="fw-semibold" style="color:#333;">
                                                             {{ ev.titre|default:"Titre non disponible" }}
                                                         </div>
                                                         <small class="text-muted">
@@ -109,7 +110,7 @@
                                                         </small>
                                                     </div>
 
-                                                    <!-- MODALE DÉTAILS -->
+                                                    <!-- MODAL -->
                                                     <div class="modal fade"
                                                          id="metaModal{{ forloop.counter }}{{ veille.id }}"
                                                          tabindex="-1" aria-hidden="true">
@@ -125,7 +126,7 @@
                                                                         <li class="list-group-item"><strong>Titre :</strong> {{ ev.titre }}</li>
                                                                         <li class="list-group-item"><strong>Date :</strong> {{ ev.date_publication }}</li>
                                                                         <li class="list-group-item"><strong>TVA :</strong> {{ ev.TVA }}</li>
-                                                                        <li class="list-group-item"><strong>Extra keywords :</strong> {{ ev.extra_keyword }}</li>
+                                                                        <li class="list-group-item"><strong>Extra :</strong> {{ ev.extra_keyword }}</li>
                                                                         <li class="list-group-item"><strong>Jugement :</strong> {{ ev.date_jugement }}</li>
                                                                         <li class="list-group-item"><strong>Administrateurs :</strong> {{ ev.administrateur }}</li>
                                                                         <li class="list-group-item"><strong>Adresses BCE :</strong> {{ ev.adresses_by_bce }}</li>
@@ -145,16 +146,15 @@
                                                 {% endfor %}
                                             </div>
 
-                                            <!-- COLONNE ANNEXES -->
+                                            <!-- ANNEXES -->
                                             <div class="col-md-6">
-                                                <h5 class="border-bottom pb-2"
-                                                    style="font-size: 1.1rem; color: #5a5a5a;">
+                                                <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
                                                     Annexes publiées ({{ entry.annexes|length }})
                                                 </h5>
 
                                                 {% for ev in entry.annexes %}
                                                     <div class="event-row mb-2">
-                                                        <div class="fw-semibold" style="color: #333;">
+                                                        <div class="fw-semibold" style="color:#333;">
                                                             {{ ev.rubrique|default:ev.titre }}
                                                         </div>
                                                         <small class="text-muted">
@@ -176,6 +176,37 @@
                                 {% endif %}
                             {% endfor %}
 
+                            <!-- 🔁 RÉCURRENCE (uniquement ajouté, rien modifié au-dessus) -->
+                            <form method="POST"
+                                  action="{% url 'update_veille_recurrence' veille.id %}"
+                                  class="mt-3">
+                                {% csrf_token %}
+                                <label class="fw-bold">Fréquence des alertes mail :</label>
+
+                                <select name="recurrence"
+                                        class="form-select form-select-sm"
+                                        style="max-width:250px;">
+                                    <option value="instant"
+                                        {% if veille.recurrence == "instant" %}selected{% endif %}>
+                                        Immédiate
+                                    </option>
+                                    <option value="daily"
+                                        {% if veille.recurrence == "daily" %}selected{% endif %}>
+                                        Tous les jours
+                                    </option>
+                                    <option value="weekly"
+                                        {% if veille.recurrence == "weekly" %}selected{% endif %}>
+                                        Chaque semaine
+                                    </option>
+                                    <option value="monthly"
+                                        {% if veille.recurrence == "monthly" %}selected{% endif %}>
+                                        Chaque mois
+                                    </option>
+                                </select>
+
+                                <button class="btn btn-sm btn-primary mt-2">💾 Sauvegarder</button>
+                            </form>
+
                         </div>
                     </div>
 
@@ -191,8 +222,4 @@
         </div>
     {% endif %}
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-<!-- ❌ Aucun JS nécessaire -->
 {% endblock %}

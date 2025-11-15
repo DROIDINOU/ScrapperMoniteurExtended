@@ -22,35 +22,34 @@
                     <form id="veilleForm" method="POST" action="{% url 'maveille' %}">
                         {% csrf_token %}
 
-                        <!-- ✅ NOUVEAU : nom personnalisé de la veille -->
+                        <!-- NOM VEILLE -->
                         <label class="font-weight-bold">Nom de la veille</label>
                         <input type="text" name="nom_veille" class="form-control mb-3" placeholder="Exemple : Clients sensibles — Novembre 2025">
 
-                        <!-- ✅ Zone de collage intelligente -->
+                        <!-- ZONE DE COLLAGE -->
                         <label class="font-weight-bold">Numéros TVA à surveiller</label>
-                        <textarea id="bulkInput" name="tva_list" rows="8" class="form-control font-weight-bold" placeholder="Collez ici vos numéros TVA (format libre)…" style="white-space: pre;"></textarea>
+                        <textarea id="bulkInput" rows="8" class="form-control font-weight-bold" placeholder="Collez ici vos numéros TVA (format libre)…" style="white-space: pre;"></textarea>
 
-                        <small class="form-text text-muted mt-2">
-                            Formats acceptés : BE 0123456789 — 0123456789 — BE 012.345.6789 — 012-345-6789
-                        </small>
+                        <!-- CHAMP CACHÉ ENVOYÉ À DJANGO -->
+                        <input type="hidden" id="tva_clean_hidden" name="tva_list">
 
-                        <!-- ✅ Liste des TVA nettoyées -->
+                        <small class="form-text text-muted mt-2">Formats acceptés : BE 0123456789 — 0123456789 — BE 012.345.6789 — 012-345-6789</small>
+
+                        <!-- RESULTATS TVA VALIDES -->
                         <div id="cleanResult" class="alert alert-info mt-3" style="display:none;"></div>
 
-                        <!-- ✅ Liste des TVA invalides -->
+                        <!-- RESULTATS TVA INVALIDES -->
                         <div id="invalidResults" class="alert alert-danger mt-3" style="display:none;">
                             <strong>Numéros TVA invalides :</strong>
                             <div id="invalidNumbersList"></div>
                         </div>
 
-                        <!-- ✅ Boutons de validation et lancement -->
+                        <!-- BOUTONS -->
                         <div class="d-flex justify-content-between mt-3">
                             <button type="button" class="btn btn-primary flex-fill me-2" id="validateBtn">Valider les numéros TVA</button>
-    <button type="button" class="btn btn-danger flex-fill me-2" id="resetBtn">Réinitialiser</button>
-    <button type="submit" class="btn btn-success flex-fill" id="submitBtn" style="display:none;">Enregistrer veille sur numéros validés</button>
+                            <button type="button" class="btn btn-danger flex-fill me-2" id="resetBtn">Réinitialiser</button>
+                            <button type="submit" class="btn btn-success flex-fill" id="submitBtn" style="display:none;">Enregistrer veille sur numéros validés</button>
                         </div>
-
-
 
                     </form>
 
@@ -58,9 +57,9 @@
                 </div>
             </div>
 
-<div class="alert alert-info mt-3 text-center">
-        📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
-    </div>
+            <div class="alert alert-info mt-3 text-center">
+                📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
+            </div>
 
         </div>
     </div>
@@ -70,24 +69,20 @@
 {% block extra_scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM entièrement chargé.");
-
     const validateBtn = document.getElementById("validateBtn");
     const submitBtn = document.getElementById("submitBtn");
     const bulkInput = document.getElementById("bulkInput");
     const cleanResult = document.getElementById("cleanResult");
     const invalidResults = document.getElementById("invalidResults");
     const invalidNumbersList = document.getElementById("invalidNumbersList");
+    const hiddenInput = document.getElementById("tva_clean_hidden");
 
-    // --- Extraction TVA ---
     function extraireTVA(text) {
         if (!text) return [];
-
         let t = text.replace(/(?=BE\d)/gi, ' ')
                     .replace(/[.\-]/g, ' ')
                     .replace(/\s+/g, ' ')
                     .trim();
-
         const re = /(?:BE\s*)?((?:\d\s*){10})/gi;
         const found = [];
         let m;
@@ -95,24 +90,18 @@ document.addEventListener("DOMContentLoaded", function () {
             const num = m[1].replace(/\s+/g, '');
             if (num.length === 10) found.push("BE" + num);
         }
-
         return Array.from(new Set(found));
     }
 
-    // --- Contrôle modulo 97 ---
     function checkMod97(num10) {
         const base = parseInt(num10.slice(0, 8), 10);
         const key = parseInt(num10.slice(8), 10);
         return (97 - (base % 97)) === key;
     }
 
-    // Lorsque l'utilisateur clique sur "Valider TVA"
     validateBtn.addEventListener("click", function () {
-        console.log("Validation des numéros de TVA a démarré...");
         const text = bulkInput.value;
-
         const tvas = extraireTVA(text);
-        console.log("TVA extraits :", tvas);
 
         const validNumbers = [];
         const invalidNumbers = [];
@@ -126,62 +115,43 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        // 🚨 Nouveau : popup si aucun numéro détecté
         if (tvas.length === 0) {
-            alert("Aucun numéro de TVA n’a été détecté. Veuillez vérifier votre saisie.");
-            return; // stoppe la fonction ici
+            alert("Aucun numéro de TVA détecté.");
+            return;
         }
 
-        // Affichage des résultats
+        if (validNumbers.length > 0) {
+            cleanResult.style.display = "block";
+            cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
+            submitBtn.style.display = "block";
+            hiddenInput.value = validNumbers.join(" "); // IMPORTANT
+        } else {
+            cleanResult.style.display = "block";
+            cleanResult.innerHTML = "<strong>Aucun numéro TVA valide détecté.</strong>";
+            submitBtn.style.display = "none";
+            hiddenInput.value = "";
+        }
 
-// --- Afficher les valides ---
-if (validNumbers.length > 0) {
-    cleanResult.style.display = "block";
-    cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
-    submitBtn.style.display = "block";   // Autoriser l’enregistrement si au moins un valide
-} else {
-    cleanResult.style.display = "block"; // Toujours afficher la boîte bleue
-    cleanResult.innerHTML = "<strong>Aucun numéro TVA valide détecté.</strong>";
-    submitBtn.style.display = "none";    // Pas de lancement possible
-}
+        if (invalidNumbers.length > 0) {
+            invalidResults.style.display = "block";
+            invalidNumbersList.innerHTML = invalidNumbers.join("<br>");
+        } else {
+            invalidResults.style.display = "none";
+        }
 
-// --- Afficher les invalides ---
-if (invalidNumbers.length > 0) {
-    invalidResults.style.display = "block";
-    invalidNumbersList.innerHTML = invalidNumbers.join("<br>");
-    console.log("Numéros invalides détectés.");
-} else {
-    invalidResults.style.display = "block"; // Toujours afficher la boîte rouge
-    invalidNumbersList.innerHTML = "<em>Aucun numéro invalide.</em>";
-}
-
-validateBtn.style.display = "none"; // Cache le bouton "Valider" après validation
-bulkInput.disabled = true;   // ⛔ Bloquer la zone de saisie après validation
-
-
+        validateBtn.style.display = "none";
+        bulkInput.readOnly = true;
     });
 
-    // Fonction de réinitialisation
-    const resetBtn = document.getElementById("resetBtn");
-    resetBtn.addEventListener("click", function () {
+    document.getElementById("resetBtn").addEventListener("click", function () {
         bulkInput.value = "";
-        bulkInput.disabled = false;   // 🔓 Réactiver la zone de saisie lors du reset
+        bulkInput.readOnly = false;
         cleanResult.style.display = "none";
         invalidResults.style.display = "none";
         submitBtn.style.display = "none";
         validateBtn.style.display = "block";
-        invalidNumbersList.innerHTML = "";
+        hiddenInput.value = "";
     });
-
-    // 🔁 Remise à zéro automatique si on revient via le bouton "Retour" du navigateur
-window.addEventListener("pageshow", function (event) {
-    if (event.persisted) {
-        console.log("Retour sur la page détecté : reset du formulaire");
-        resetBtn.click(); // Simule un clic sur le bouton Réinitialiser
-    }
-});
-
-
 });
 </script>
 {% endblock %}

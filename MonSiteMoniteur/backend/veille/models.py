@@ -41,12 +41,30 @@ class Veille(models.Model):
         ("KEYWORD", "Veille Mots-clés"),
     ]
 
+    RECURRENCE_CHOICES = [
+        ("instant", "Immédiate"),
+        ("daily", "Journalier"),
+        ("weekly", "Hebdomadaire"),
+        ("monthly", "Mensuel"),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="listes_veille")
     nom = models.CharField(max_length=255)
     type = models.CharField(max_length=10, choices=TYPE)
     date_creation = models.DateTimeField(auto_now_add=True)
     # 🚀 Ajout pour CRON
     last_scan = models.DateTimeField(null=True, blank=True)
+
+    recurrence = models.CharField(
+        max_length=20,
+        choices=[
+            ("instant", "Immédiate"),
+            ("daily", "Tous les jours"),
+            ("weekly", "Chaque semaine"),
+            ("monthly", "Chaque mois"),
+        ],
+        default="instant"
+    )
 
     def __str__(self):
         return f"{self.nom} ({self.user.username})"

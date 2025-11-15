@@ -15,10 +15,11 @@ from django.core.management import call_command
 from django.core.mail import send_mail
 from django.contrib import messages
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from .models import Veille
 from meilisearch import Client as MeiliClient
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required
 
 
 def home_marketing(request):
@@ -105,6 +106,24 @@ def veille_fuzzy(request):
 
     return render(request, "veille/fuzzy_veille.html", {"profile": profile})
 
+
+@login_required
+def update_veille_recurrence(request, veille_id):
+    veille = get_object_or_404(Veille, pk=veille_id, user=request.user)
+
+    if request.method == "POST":
+        recurrence = request.POST.get("recurrence")
+        if recurrence in ["instant", "daily", "weekly", "monthly"]:
+            veille.recurrence = recurrence
+            veille.save()
+            messages.success(request, "Fréquence des alertes mise à jour.")
+        else:
+            messages.error(request, "Valeur de récurrence invalide.")
+
+    return redirect("dashboard_veille")
+
+
+
 @login_required
 def maveille(request):
 
@@ -181,8 +200,7 @@ def veille_dashboard(request):
 
     # Initialisation du client MeiliSearch
     client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
-    index = client.index("moniteur_docs")
-
+    index = client.index(settings.INDEX_NAME)
     for veille in veilles:
         print(f"\n🔔 Veille ID={veille.id} ({veille.type}) : {veille.nom}")
 
@@ -247,7 +265,12 @@ def veille_dashboard(request):
 
                 # Recherche des décisions judiciaires dans MeiliSearch
                 tva = societe.numero_tva
-                results = index.search("", {"filter": f'TVA = "{tva}"'})
+                # 🔥 CORRECTION ESSENTIELLE ICI :
+                results = index.search("", {"filter": f'TVA IN ["{tva}"]'})
+                print("🔍 FILTRE UTILISÉ :", f'"{tva}" IN TVA')
+                print("🔍 HITS :", results.get("hits", []))
+                print("🔍 NB HITS :", len(results.get("hits", [])))
+                print("🔍 DOCUMENT EXEMPLE :", results.get("hits", [None])[0])
 
                 # Récupérer les décisions depuis les résultats de MeiliSearch
                 decisions = []
@@ -334,10 +357,9 @@ def lancer_scan(request, tva):
 def scan_decisions(request, tva):
 
     client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
-    index = client.index("moniteur_docs")
+    index = client.index(settings.INDEX_NAME)
 
     results = index.search("", {"filter": f'TVA = "{tva}"'})
-
     societes = VeilleSociete.objects.filter(numero_tva=tva)
 
     count = 0
