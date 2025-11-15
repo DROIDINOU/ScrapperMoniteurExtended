@@ -173,6 +173,15 @@ bulkInput.disabled = true;   // ⛔ Bloquer la zone de saisie après validation
         invalidNumbersList.innerHTML = "";
     });
 
+    // 🔁 Remise à zéro automatique si on revient via le bouton "Retour" du navigateur
+window.addEventListener("pageshow", function (event) {
+    if (event.persisted) {
+        console.log("Retour sur la page détecté : reset du formulaire");
+        resetBtn.click(); // Simule un clic sur le bouton Réinitialiser
+    }
+});
+
+
 });
 </script>
 {% endblock %}
