@@ -270,7 +270,6 @@ def veille_dashboard(request):
                 print("🔍 FILTRE UTILISÉ :", f'"{tva}" IN TVA')
                 print("🔍 HITS :", results.get("hits", []))
                 print("🔍 NB HITS :", len(results.get("hits", [])))
-                print("🔍 DOCUMENT EXEMPLE :", results.get("hits", [None])[0])
 
                 # Récupérer les décisions depuis les résultats de MeiliSearch
                 decisions = []

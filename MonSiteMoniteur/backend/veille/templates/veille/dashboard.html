@@ -17,7 +17,7 @@
                     <!-- HEADER -->
                     <div class="card-header bg-light text-dark d-flex justify-content-between align-items-center">
 
-                        <button class="btn btn-link text-dark fw-bold text-decoration-none"
+<button class="btn btn-link text-dark fw-bold text-decoration-none toggle-arrow"
                                 type="button"
                                 data-bs-toggle="collapse"
                                 data-bs-target="#collapse{{ veille.id }}"
@@ -25,6 +25,8 @@
                                 aria-controls="collapse{{ veille.id }}">
                             {{ veille.nom }}
                             <small class="text-muted">(Veille - {{ veille.type }})</small>
+                            <!-- 🔽/🔼 FLÈCHE -->
+    <span class="ms-2 arrow-icon">▼</span>
                         </button>
 
                         <div class="d-flex align-items-center">
@@ -222,4 +224,26 @@
         </div>
     {% endif %}
 </div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    document.querySelectorAll(".toggle-arrow").forEach(btn => {
+
+        const arrow = btn.querySelector(".arrow-icon");
+        const collapseId = btn.getAttribute("data-bs-target");
+        const collapseEl = document.querySelector(collapseId);
+
+        collapseEl.addEventListener("show.bs.collapse", () => {
+            arrow.textContent = "▲";  // Ouvert
+        });
+
+        collapseEl.addEventListener("hide.bs.collapse", () => {
+            arrow.textContent = "▼";  // Fermé
+        });
+    });
+
+});
+</script>
 {% endblock %}
