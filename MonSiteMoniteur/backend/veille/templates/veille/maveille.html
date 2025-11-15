@@ -93,11 +93,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return Array.from(new Set(found));
     }
 
-    function checkMod97(num10) {
-        const base = parseInt(num10.slice(0, 8), 10);
-        const key = parseInt(num10.slice(8), 10);
-        return (97 - (base % 97)) === key;
-    }
+
 
     validateBtn.addEventListener("click", function () {
         const text = bulkInput.value;
@@ -108,7 +104,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         tvas.forEach(tva => {
             const num10 = tva.slice(2);
-            if (num10.length === 10 && num10.startsWith("0") && num10 !== "0000000000" && checkMod97(num10)) {
+            if (num10.length === 10  && num10 !== "0000000000") {
                 validNumbers.push(tva);
             } else {
                 invalidNumbers.push(tva);
