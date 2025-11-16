@@ -175,7 +175,6 @@ def maveille(request):
 
     return render(request, "veille/maveille.html")
 
-
 @login_required
 def veille_dashboard(request):
     print("\n----------------------------------------")
@@ -201,6 +200,7 @@ def veille_dashboard(request):
     # Initialisation du client MeiliSearch
     client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
     index = client.index(settings.INDEX_NAME)
+
     for veille in veilles:
         print(f"\n🔔 Veille ID={veille.id} ({veille.type}) : {veille.nom}")
 
@@ -252,10 +252,11 @@ def veille_dashboard(request):
                 "decisions": decisions,
             })
 
-
         elif veille.type == "TVA":
             print(f"    -> TVA : {veille.societes.count()} sociétés surveillées")
-            veille.result_count = veille.evenements.count()
+            total_annexes = 0  # Initialisation du total des annexes pour la TVA
+            total_decisions = 0  # Initialisation du total des décisions pour la TVA
+            veille.result_count = 0  # Initialisation du total des événements (annexes + décisions)
 
             for societe in veille.societes.all():
                 print(f"        🔎 Société : {societe.numero_tva} (ID={societe.id})")
@@ -265,15 +266,9 @@ def veille_dashboard(request):
 
                 # Recherche des décisions judiciaires dans MeiliSearch
                 tva = societe.numero_tva
-                # 🔥 CORRECTION ESSENTIELLE ICI :
-                results = index.search("", {"filter": f'TVA IN ["{tva}"]'})
-                print("🔍 FILTRE UTILISÉ :", f'"{tva}" IN TVA')
-                print("🔍 HITS :", results.get("hits", []))
-                print("🔍 NB HITS :", len(results.get("hits", [])))
-
-                # Récupérer les décisions depuis les résultats de MeiliSearch
+                results = index.search("", {"filter": f'TVA IN ["{tva}"]'})  # Recherche de décisions pour cette TVA
                 decisions = []
-                for hit in results.get("hits", []):  # Utilise .get pour éviter une erreur si "hits" n'existe pas
+                for hit in results.get("hits", []):  # Utilisation de .get pour éviter une erreur si "hits" n'existe pas
                     decision = {
                         "titre": hit.get("title", "Titre non disponible"),
                         "date_publication": hit.get("date_doc", "Date non disponible"),
@@ -292,14 +287,32 @@ def veille_dashboard(request):
 
                     decisions.append(decision)
 
+                # Mise à jour des totaux pour la veille de type "TVA"
+                total_annexes += annexes.count()
+                total_decisions += len(decisions)
+
                 print(f"           ➤ annexes = {annexes.count()} | décisions = {len(decisions)}")
                 print(f"Résultat brut MeiliSearch pour {tva}: {results}")
+
                 tableau.append({
                     "veille": veille,
                     "societe": societe,
                     "annexes": annexes,
                     "decisions": decisions,  # Ajout des décisions récupérées de MeiliSearch
                 })
+
+            # Mettre à jour le résultat total pour la veille de type "TVA"
+            veille.result_count = total_annexes + total_decisions
+            # Ajouter les totaux dans le tableau pour cette veille
+            tableau.append({
+                "veille": veille,
+                "societe": None,
+                "total_annexes": total_annexes,
+                "total_decisions": total_decisions,
+                "annexes": None,
+                "decisions": None,
+            })
+
     # Debug : Afficher le contenu final du tableau avant de rendre la page
     print("\n✅ FIN DASHBOARD (tableau généré)")
     print(f"Tableau final: {tableau}")
@@ -310,6 +323,7 @@ def veille_dashboard(request):
         "veille/dashboard.html",
         {"tableau": tableau, "veilles": veilles},
     )
+
 
 
 @login_required

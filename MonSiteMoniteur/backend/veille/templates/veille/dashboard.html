@@ -12,12 +12,12 @@
     {% if veilles %}
         <div class="accordion" id="accordionVeilles">
             {% for veille in veilles %}
-                <div class="card mb-3 shadow-sm border-0">
+                <div class="card mb-0 shadow-sm border-0">
 
                     <!-- HEADER -->
                     <div class="card-header bg-light text-dark d-flex justify-content-between align-items-center">
 
-<button class="btn btn-link text-dark fw-bold text-decoration-none toggle-arrow"
+                        <button class="btn btn-link text-dark fw-bold text-decoration-none toggle-arrow"
                                 type="button"
                                 data-bs-toggle="collapse"
                                 data-bs-target="#collapse{{ veille.id }}"
@@ -26,35 +26,53 @@
                             {{ veille.nom }}
                             <small class="text-muted">(Veille - {{ veille.type }})</small>
                             <!-- 🔽/🔼 FLÈCHE -->
-    <span class="ms-2 arrow-icon">▼</span>
+                            <span class="ms-2 arrow-icon">▼</span>
                         </button>
 
-                        <div class="d-flex align-items-center">
+<div class="d-flex align-items-center">
+    {% if veille.type == "TVA" %}
+    <div class="dropdown me-3">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false">
+            Détails TVA
+        </button>
+        <ul class="dropdown-menu">
+            {% for entry in tableau %}
+                {% if entry.veille.id == veille.id and entry.societe %}
+                    <li class="dropdown-item">
+                        <strong>{{ entry.societe.numero_tva }}</strong><br>
+                        {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
+                    </li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+    </div>
+{% endif %}
+    {% for entry in tableau %}
+        {% if entry.veille.id == veille.id and entry.societe == None %}
+            <span class="badge bg-secondary text-white me-2">
+                {{ entry.total_annexes|default:"0" }} annexe(s)
+            </span>
+            <span class="badge" style="background-color:#f0f0f0;color:#333;">
+                {{ entry.total_decisions|default:"0" }} décision(s)
+            </span>
+        {% endif %}
+    {% endfor %}
 
-                            {% for entry in tableau %}
-                                {% if entry.veille.pk == veille.pk %}
-                                    <span class="badge bg-secondary text-white me-2">
-                                        {{ entry.annexes.count }} annexe(s)
-                                    </span>
-                                    <span class="badge" style="background-color:#f0f0f0;color:#333;">
-                                        {{ entry.decisions|length }} décision(s)
-                                    </span>
-                                {% endif %}
-                            {% endfor %}
-
-                            <form method="POST"
-                                  action="{% url 'supprimer_veille' veille.id %}"
-                                  class="ms-3">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-link text-dark p-0"
-                                        onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
-                                    <i class="fa-solid fa-trash fa-lg"></i>
-                                </button>
-                            </form>
-
-                        </div>
-                    </div>
-
+    <!-- Formulaire poubelle juste après les badges -->
+    <form method="POST"
+          action="{% url 'supprimer_veille' veille.id %}"
+          class="ms-3">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-link text-dark p-0"
+                onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
+            <i class="fa-solid fa-trash fa-lg"></i>
+        </button>
+    </form>
+</div>
+</div> <!-- ← fermeture du card-header -->
                     <!-- COLLAPSE -->
                     <div id="collapse{{ veille.id }}"
                          class="accordion-collapse collapse"
@@ -62,29 +80,20 @@
 
                         <div class="card-body bg-white">
 
+
                             {% for entry in tableau %}
                                 {% if entry.veille.pk == veille.pk %}
 
-                                    <div class="societe-card border rounded shadow-sm p-3 mb-4">
-
-                                        <div class="societe-header d-flex justify-content-between align-items-center mb-2">
-                                            {% if entry.societe %}
-                                                <span style="color:white;background-color:#0054A6;padding:2px 6px;border-radius:5px;">
-                                                    TVA :
-                                                    <strong>
-                                                        {{ entry.societe.numero_tva|slice:":4" }}.
-                                                        {{ entry.societe.numero_tva|slice:"4:7" }}.
-                                                        {{ entry.societe.numero_tva|slice:"7:10" }}
-                                                    </strong>
-                                                </span>
-                                            {% else %}
-                                                <span style="color:white;background-color:#0054A6;padding:2px 6px;border-radius:5px;">
-                                                    Résultats globaux — Mots-clés
-                                                </span>
-                                            {% endif %}
-                                        </div>
-
                                         <div class="row">
+{% if entry.societe %}
+    <div class="mb-2">
+        <span class="badge bg-primary text-white">
+            {{ entry.societe.numero_tva|slice:":4" }}.
+            {{ entry.societe.numero_tva|slice:"4:7" }}.
+            {{ entry.societe.numero_tva|slice:"7:10" }}
+        </span>
+    </div>
+{% endif %}
 
                                             <!-- DECISIONS -->
                                             <div class="col-md-6 mb-3">
@@ -149,7 +158,9 @@
                                             </div>
 
                                             <!-- ANNEXES -->
+
                                             <div class="col-md-6">
+
                                                 <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
                                                     Annexes publiées ({{ entry.annexes|length }})
                                                 </h5>
@@ -173,41 +184,9 @@
                                             </div>
 
                                         </div>
-                                    </div>
 
                                 {% endif %}
                             {% endfor %}
-
-                            <!-- 🔁 RÉCURRENCE (uniquement ajouté, rien modifié au-dessus) -->
-                            <form method="POST"
-                                  action="{% url 'update_veille_recurrence' veille.id %}"
-                                  class="mt-3">
-                                {% csrf_token %}
-                                <label class="fw-bold">Fréquence des alertes mail :</label>
-
-                                <select name="recurrence"
-                                        class="form-select form-select-sm"
-                                        style="max-width:250px;">
-                                    <option value="instant"
-                                        {% if veille.recurrence == "instant" %}selected{% endif %}>
-                                        Immédiate
-                                    </option>
-                                    <option value="daily"
-                                        {% if veille.recurrence == "daily" %}selected{% endif %}>
-                                        Tous les jours
-                                    </option>
-                                    <option value="weekly"
-                                        {% if veille.recurrence == "weekly" %}selected{% endif %}>
-                                        Chaque semaine
-                                    </option>
-                                    <option value="monthly"
-                                        {% if veille.recurrence == "monthly" %}selected{% endif %}>
-                                        Chaque mois
-                                    </option>
-                                </select>
-
-                                <button class="btn btn-sm btn-primary mt-2"> Sauvegarder</button>
-                            </form>
 
                         </div>
                     </div>
@@ -224,26 +203,5 @@
         </div>
     {% endif %}
 </div>
-{% endblock %}
-{% block extra_scripts %}
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-
-    document.querySelectorAll(".toggle-arrow").forEach(btn => {
-
-        const arrow = btn.querySelector(".arrow-icon");
-        const collapseId = btn.getAttribute("data-bs-target");
-        const collapseEl = document.querySelector(collapseId);
-
-        collapseEl.addEventListener("show.bs.collapse", () => {
-            arrow.textContent = "▲";  // Ouvert
-        });
-
-        collapseEl.addEventListener("hide.bs.collapse", () => {
-            arrow.textContent = "▼";  // Fermé
-        });
-    });
-
-});
-</script>
+    </div>
 {% endblock %}
