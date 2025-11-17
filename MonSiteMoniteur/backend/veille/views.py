@@ -62,54 +62,51 @@ def veille_fuzzy(request):
     profile = request.user.userprofile
 
     if request.method == "POST":
-        print(">>> POST =", request.POST)
-        # ✅ Sauvegarde des mots-clés
         profile.keyword1 = request.POST.get("keyword1")
         profile.keyword2 = request.POST.get("keyword2")
         profile.keyword3 = request.POST.get("keyword3")
         profile.save()
 
-        # ✅ Nom de la veille
         veille_nom = request.POST.get("veille_nom", "").strip()
         if not veille_nom:
             veille_nom = f"Veille Mots-clés — {request.user.username}"
 
-        # ✅ Filtres
         decision_type = request.POST.get("decision_type")
         date_from = request.POST.get("date_from")
 
-        # ✅ Création de la veille
-        veille_obj = Veille.objects.create(
+        # ✅ Création avec validation
+        veille_obj = Veille(
             user=request.user,
             nom=veille_nom,
             type="KEYWORD",
             last_scan=now()
         )
+        try:
+            veille_obj.full_clean()
+            veille_obj.save()
+        except ValidationError as e:
+            messages.error(request, e.messages[0])
+            return redirect("fuzzy_veille")
 
         try:
-            # ✅ Appel direct à ta commande `scan_keywords`
-            print(">>> Lancement du scan_keywords depuis la vue Django...")
             call_command(
                 "scan_keywords",
                 veille_id=veille_obj.id,
                 decision_type=decision_type,
                 date_from=date_from,
             )
-
-            # ✅ Email de confirmation
             send_mail(
                 'Veille juridique créée avec succès',
-                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {veille_nom}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
+                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {veille_nom}',
                 settings.EMAIL_HOST_USER,
                 [request.user.email],
                 fail_silently=False,
             )
-
             return redirect("set_recurrence", veille_id=veille_obj.id)
 
         except Exception as e:
             messages.error(request, f"❌ Une erreur s'est produite lors du lancement du scan : {e}")
-            return redirect("set_reccurence", veille_id=veille_obj.id)
+            return redirect("set_recurrence", veille_id=veille_obj.id)
 
     return render(request, "veille/fuzzy_veille.html", {"profile": profile})
 
