@@ -20,6 +20,7 @@ from .models import Veille
 from meilisearch import Client as MeiliClient
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+import threading
 
 
 def home_marketing(request):
@@ -129,10 +130,7 @@ def update_veille_recurrence(request, veille_id):
     return redirect("dashboard_veille")
 
 
-
-@login_required
 def maveille(request):
-
     if request.method == "POST":
         raw = request.POST.get("tva_list", "")
         nom_veille = request.POST.get("nom_veille", "").strip()
@@ -141,45 +139,43 @@ def maveille(request):
             from datetime import datetime
             nom_veille = f"Veille TVA {datetime.now().strftime('%d/%m/%Y')} - {request.user.username}"
 
-        # ✅ Rechercher une veille existante AVANT de créer
         veille_obj, created = Veille.objects.get_or_create(
             user=request.user,
             type="TVA",
-            nom=nom_veille,  # ou tu peux utiliser f"Veille TVA {tva}"
+            nom=nom_veille,
         )
 
         if created:
             veille_obj.last_scan = now()
             veille_obj.save()
 
-        # ✅ Ajouts des sociétés surveillées + scan automatique
-        # ✅ Ajouts des sociétés surveillées + scan automatique
+        # ✅ Ajout des sociétés surveillées
         for tva in raw.split():
             tva = re.sub(r"\D", "", tva)
+            VeilleSociete.objects.get_or_create(numero_tva=tva, veille=veille_obj)
 
-            societe, _ = VeilleSociete.objects.get_or_create(
-                numero_tva=tva,
-                veille=veille_obj
-            )
+        # ✅ Lancer le scan en arrière-plan
+        def run_scan():
+            for tva in raw.split():
+                tva = re.sub(r"\D", "", tva)
+                call_command("veille_scan", tva=tva, veille=veille_obj.id)
 
-            print(f"🚀 lancement du scan TVA pour {tva}")  # DEBUG
-
-            # ✅ ON PASSE L'ID DE LA VEILLE À LA COMMANDE
-            call_command("veille_scan", tva=tva, veille=veille_obj.id)
-            # Envoi de l'email de notification à l'utilisateur
             send_mail(
-                'Veille juridique créée avec succès',  # Sujet
+                'Veille juridique créée avec succès',
                 f'Votre veille juridique a été créée avec succès.\nNom de la veille : {nom_veille}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
-                # Corps du message
-                settings.EMAIL_HOST_USER,  # Expéditeur
-                [request.user.email],  # Destinataire
+                settings.EMAIL_HOST_USER,
+                [request.user.email],
                 fail_silently=False,
             )
 
-        messages.success(request, "✅ Veille TVA créée et scan lancé automatiquement !")
-        return redirect("dashboard_veille")
+        threading.Thread(target=run_scan).start()
+
+        messages.success(request, "✅ Veille TVA créée, calcul en cours…")
+        return redirect("set_recurrence", veille_id=veille_obj.id)
 
     return render(request, "veille/maveille.html")
+
+
 
 @login_required
 def veille_dashboard(request):
