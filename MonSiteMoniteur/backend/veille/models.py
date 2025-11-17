@@ -66,6 +66,24 @@ class Veille(models.Model):
         default="instant"
     )
 
+    def clean(self):
+        """ Limitation du nombre de veilles par utilisateur """
+        max_veilles = 1 if not self.user.userprofile.is_premium else 10
+
+        # Nombre de veilles déjà existantes pour cet utilisateur
+        nb = Veille.objects.filter(user=self.user).count()
+
+        # Si c'est une nouvelle veille (pas un update)
+        if not self.pk and nb >= max_veilles:
+            raise ValidationError(
+                f"Limite atteinte : {max_veilles} veille(s) autorisée(s) pour ce type de compte."
+            )
+
+    def save(self, *args, **kwargs):
+        """ Appeler la validation des veilles avant de sauvegarder """
+        self.clean()  # Appelle la validation des veilles
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.nom} ({self.user.username})"
 

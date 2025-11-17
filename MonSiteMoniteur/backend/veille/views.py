@@ -21,6 +21,7 @@ from meilisearch import Client as MeiliClient
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 import threading
+from django.core.exceptions import ValidationError
 
 
 def home_marketing(request):
@@ -138,22 +139,30 @@ def maveille(request):
             from datetime import datetime
             nom_veille = f"Veille TVA {datetime.now().strftime('%d/%m/%Y')} - {request.user.username}"
 
-        veille_obj, created = Veille.objects.get_or_create(
+        # On prépare l'objet veille (NON sauvegardé)
+        veille_obj = Veille(
             user=request.user,
             type="TVA",
             nom=nom_veille,
         )
 
-        if created:
-            veille_obj.last_scan = now()
+        try:
+            # 1️⃣ Appelle clean() + validations Django
+            veille_obj.full_clean()
+
+            # 2️⃣ Sauvegarde seulement si propre
             veille_obj.save()
 
-        # ✅ Ajout des sociétés surveillées
+        except ValidationError as e:
+            messages.error(request, e.messages[0])
+            return redirect("maveille")
+
+        # 3️⃣ Maintenant on ajoute les sociétés
         for tva in raw.split():
             tva = re.sub(r"\D", "", tva)
             VeilleSociete.objects.get_or_create(numero_tva=tva, veille=veille_obj)
 
-        # ✅ Lancer le scan en arrière-plan
+        # 4️⃣ Lancement du scan en thread
         def run_scan():
             for tva in raw.split():
                 tva = re.sub(r"\D", "", tva)
@@ -161,13 +170,14 @@ def maveille(request):
 
             send_mail(
                 'Veille juridique créée avec succès',
-                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {nom_veille}\n\nVous pouvez dès à présent consulter votre dashboard pour vérifier les éventuels résultats',
+                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {nom_veille}',
                 settings.EMAIL_HOST_USER,
                 [request.user.email],
                 fail_silently=False,
             )
 
         threading.Thread(target=run_scan).start()
+
         return redirect("set_recurrence", veille_id=veille_obj.id)
 
     return render(request, "veille/maveille.html")
