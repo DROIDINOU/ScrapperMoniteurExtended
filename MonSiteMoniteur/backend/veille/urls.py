@@ -15,6 +15,10 @@ urlpatterns = [
     path('api/search/', views.api_search, name='api_search'),
     path("api/autocomplete/keyword/", views.api_autocomplete_keyword, name="autocomplete_keyword"),
     path("api/search/keyword/", views.api_search_keyword, name="api_search_keyword"),
+    # Page de configuration (GET)
+    path("veille/<int:veille_id>/recurrence/", views.recurrence_view, name="set_recurrence"),
+    # Traitement du POST
+    path("veille/<int:veille_id>/recurrence/update/", views.update_veille_recurrence, name="update_veille_recurrence"),
     path("api/societes", views.api_societes, name="api_societes"),
     path("scan/<str:tva>/", views.lancer_scan, name="lancer_scan"),
     path("societe/<str:bce>/", views.fiche_societe, name="fiche_societe"),

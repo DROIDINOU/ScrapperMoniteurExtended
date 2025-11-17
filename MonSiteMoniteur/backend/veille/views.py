@@ -50,6 +50,12 @@ def send_test_email():
 
 
 @login_required
+def recurrence_view(request, veille_id):
+    veille = get_object_or_404(Veille, pk=veille_id, user=request.user)
+    return render(request, "veille/recurrencealerte.html", {"veille": veille})
+
+
+@login_required
 def veille_fuzzy(request):
     profile = request.user.userprofile
 
@@ -98,11 +104,11 @@ def veille_fuzzy(request):
             )
 
             messages.success(request, "✅ Veille créée et scan lancé avec succès.")
-            return redirect("dashboard_veille")
+            return redirect("set_recurrence", veille_id=veille_obj.id)
 
         except Exception as e:
             messages.error(request, f"❌ Une erreur s'est produite lors du lancement du scan : {e}")
-            return redirect("dashboard_veille")
+            return redirect("set_reccurence", veille_id=veille_obj.id)
 
     return render(request, "veille/fuzzy_veille.html", {"profile": profile})
 
@@ -683,8 +689,8 @@ def contact(request): return render(request, "veille/contact.html")
 def fonctionnalites(request): return render(request, "veille/fonctionnalites.html")
 def recherches(request): return render(request, "veille/recherches.html")
 def resultats(request): return render(request, "veille/resultats.html")
-
 def premium(request): return render(request, "veille/premium.html")
+
 
 # ------------------------------------------------------------
 # ✅ REGISTER & LOGIN
