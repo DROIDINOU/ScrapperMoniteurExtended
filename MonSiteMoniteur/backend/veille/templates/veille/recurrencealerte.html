@@ -16,7 +16,7 @@
                 <div class="card-body">
 
                     <p class="mb-3">
-                         <strong>Choisissez</strong> à quelle fréquence votre veille doit être exécutée automatiquement.
+                        <strong>Choisissez</strong> à quelle fréquence votre veille doit être exécutée automatiquement.
                     </p>
 
                     <form id="recurrenceForm" method="POST" action="{% url 'update_veille_recurrence' veille.id %}">
@@ -56,9 +56,10 @@
                 </div>
             </div>
 
-            <div class="alert alert-info mt-3 text-center">
-                🔄 Votre veille sera exécutée automatiquement selon la récurrence définie.
+            <div id="autoAlert" class="alert alert-info mt-3 text-center" style="transition: opacity 0.5s ease;">
+                📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
             </div>
+
 
         </div>
     </div>
@@ -68,6 +69,27 @@
 {% block extra_scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+const alertBox = document.getElementById("autoAlert");
+
+  if (!alertBox) {
+    console.log("❌ Échec : élément #autoAlert introuvable.");
+    return;
+  }
+
+  console.log("✅ Élément #autoAlert trouvé.");
+
+  // Affiche l'alerte
+  alertBox.textContent = "Votre veille TVA a bien été créée.";
+  alertBox.style.display = "block";
+  alertBox.classList.add("show");
+  console.log("🔔 Alerte affichée.");
+
+  // Masque l'alerte après 5 secondes
+  setTimeout(() => {
+    alertBox.classList.remove("show");
+    alertBox.style.display = "none";
+    console.log("🕒 Alerte masquée après délai.");
+  }, 5000);
     const frequencySelect = document.getElementById("frequency");
     const weekdayBlock = document.getElementById("weekdayBlock");
 
@@ -79,5 +101,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 });
+
+
 </script>
 {% endblock %}

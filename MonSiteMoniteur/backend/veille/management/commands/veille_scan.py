@@ -74,7 +74,8 @@ class Command(BaseCommand):
 
         # Envoi d'un email dans tous les cas (ajout ou pas de nouveaux événements)
         self.send_update_email(veille.user, societe, saved)
-    print("on arrive ici au moins?????????????????????????????????????")
+
+
     def send_update_email(self, user, societe, saved):
         """Envoie un email à l'utilisateur concernant les événements (même s'il n'y a pas de nouveaux événements)"""
         subject = "🔄 Mise à jour de votre veille"

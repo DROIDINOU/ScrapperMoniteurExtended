@@ -36,7 +36,6 @@ class Command(BaseCommand):
         keywords = [k.strip() for k in [profile.keyword1, profile.keyword2, profile.keyword3] if k]
 
         if not keywords and not (decision_type or date_from):
-            print("voila le putain de coupable!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             self.stdout.write(self.style.WARNING("⚠️ Aucun mot-clé défini et aucun filtre fourni."))
             return
 

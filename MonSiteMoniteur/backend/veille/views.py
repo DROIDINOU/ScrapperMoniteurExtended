@@ -104,7 +104,6 @@ def veille_fuzzy(request):
                 fail_silently=False,
             )
 
-            messages.success(request, "✅ Veille créée et scan lancé avec succès.")
             return redirect("set_recurrence", veille_id=veille_obj.id)
 
         except Exception as e:
@@ -169,8 +168,6 @@ def maveille(request):
             )
 
         threading.Thread(target=run_scan).start()
-
-        messages.success(request, "✅ Veille TVA créée, calcul en cours…")
         return redirect("set_recurrence", veille_id=veille_obj.id)
 
     return render(request, "veille/maveille.html")
