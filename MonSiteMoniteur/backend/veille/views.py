@@ -304,15 +304,8 @@ def veille_dashboard(request):
             # Mettre à jour le résultat total pour la veille de type "TVA"
             veille.result_count = total_annexes + total_decisions
             # Ajouter les totaux dans le tableau pour cette veille
-            tableau.append({
-                "veille": veille,
-                "societe": None,
-                "total_annexes": total_annexes,
-                "total_decisions": total_decisions,
-                "annexes": None,
-                "decisions": None,
-            })
-
+            veille.total_annexes = total_annexes
+            veille.total_decisions = total_decisions
     # Debug : Afficher le contenu final du tableau avant de rendre la page
     print("\n✅ FIN DASHBOARD (tableau généré)")
     print(f"Tableau final: {tableau}")

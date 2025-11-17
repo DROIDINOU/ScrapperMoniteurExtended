@@ -10,198 +10,193 @@
     </div>
 
     {% if veilles %}
-        <div class="accordion" id="accordionVeilles">
-            {% for veille in veilles %}
-                <div class="card mb-0 shadow-sm border-0">
+    <div class="accordion" id="accordionVeilles">
+        {% for veille in veilles %}
+        <div class="card mb-0 shadow-sm border-0">
 
-                    <!-- HEADER -->
-                    <div class="card-header bg-light text-dark d-flex justify-content-between align-items-center">
+            <!-- HEADER -->
+            <div class="card-header bg-light text-dark d-flex justify-content-between align-items-center">
 
-                        <button class="btn btn-link text-dark fw-bold text-decoration-none toggle-arrow"
+                <button class="btn btn-link text-dark fw-bold text-decoration-none toggle-arrow"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#collapse{{ veille.id }}"
+                        aria-expanded="false"
+                        aria-controls="collapse{{ veille.id }}">
+                    {{ veille.nom }}
+                    <small class="text-muted">(Veille - {{ veille.type }})</small>
+                    <!-- 🔽/🔼 FLÈCHE -->
+                    <span class="ms-2 arrow-icon">▼</span>
+                </button>
+
+                <div class="d-flex align-items-center">
+                    {% if veille.type == "TVA" %}
+                    <div class="dropdown me-3">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
                                 type="button"
-                                data-bs-toggle="collapse"
-                                data-bs-target="#collapse{{ veille.id }}"
-                                aria-expanded="false"
-                                aria-controls="collapse{{ veille.id }}">
-                            {{ veille.nom }}
-                            <small class="text-muted">(Veille - {{ veille.type }})</small>
-                            <!-- 🔽/🔼 FLÈCHE -->
-                            <span class="ms-2 arrow-icon">▼</span>
+                                data-bs-toggle="dropdown"
+                                aria-expanded="false">
+                            Détails TVA
                         </button>
-
-<div class="d-flex align-items-center">
-    {% if veille.type == "TVA" %}
-    <div class="dropdown me-3">
-        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                type="button"
-                data-bs-toggle="dropdown"
-                aria-expanded="false">
-            Détails TVA
-        </button>
-        <ul class="dropdown-menu">
-            {% for entry in tableau %}
-                {% if entry.veille.id == veille.id and entry.societe %}
-                    <li class="dropdown-item">
-                        <strong>{{ entry.societe.numero_tva }}</strong><br>
-                        {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
-                    </li>
-                {% endif %}
-            {% endfor %}
-        </ul>
-    </div>
-{% endif %}
-    {% for entry in tableau %}
-        {% if entry.veille.id == veille.id and entry.societe == None %}
-            <span class="badge bg-secondary text-white me-2">
-                {{ entry.total_annexes|default:"0" }} annexe(s)
-            </span>
-            <span class="badge" style="background-color:#f0f0f0;color:#333;">
-                {{ entry.total_decisions|default:"0" }} décision(s)
-            </span>
-        {% endif %}
-    {% endfor %}
-
-    <!-- Formulaire poubelle juste après les badges -->
-    <form method="POST"
-          action="{% url 'supprimer_veille' veille.id %}"
-          class="ms-3">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-link text-dark p-0"
-                onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
-            <i class="fa-solid fa-trash fa-lg"></i>
-        </button>
-    </form>
-</div>
-</div> <!-- ← fermeture du card-header -->
-                    <!-- COLLAPSE -->
-                    <div id="collapse{{ veille.id }}"
-                         class="accordion-collapse collapse"
-                         data-bs-parent="#accordionVeilles">
-
-                        <div class="card-body bg-white">
-
-
+                        <ul class="dropdown-menu">
                             {% for entry in tableau %}
-                                {% if entry.veille.pk == veille.pk %}
-
-                                        <div class="row">
-{% if entry.societe %}
-    <div class="mb-2">
-        <span class="badge bg-primary text-white">
-            {{ entry.societe.numero_tva|slice:":4" }}.
-            {{ entry.societe.numero_tva|slice:"4:7" }}.
-            {{ entry.societe.numero_tva|slice:"7:10" }}
-        </span>
-    </div>
-{% endif %}
-
-                                            <!-- DECISIONS -->
-                                            <div class="col-md-6 mb-3">
-                                                <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
-                                                    Décisions judiciaires ({{ entry.decisions|length }})
-                                                </h5>
-
-                                                {% for ev in entry.decisions %}
-                                                    <div class="event-row mb-2">
-                                                        <div class="fw-semibold" style="color:#333;">
-                                                            {{ ev.titre|default:"Titre non disponible" }}
-                                                        </div>
-                                                        <small class="text-muted">
-                                                            {{ ev.date_publication }}
-                                                            {% if ev.source %}
-                                                                · <a href="{{ ev.source }}" target="_blank"
-                                                                     class="btn btn-sm btn-outline-secondary py-0">Texte Moniteur Belge</a>
-
-                                                                · <button class="btn btn-sm btn-outline-secondary py-0"
-                                                                          data-bs-toggle="modal"
-                                                                          data-bs-target="#metaModal{{ forloop.counter }}{{ veille.id }}">
-                                                                    Détails
-                                                                </button>
-                                                            {% endif %}
-                                                        </small>
-                                                    </div>
-
-                                                    <!-- MODAL -->
-                                                    <div class="modal fade"
-                                                         id="metaModal{{ forloop.counter }}{{ veille.id }}"
-                                                         tabindex="-1" aria-hidden="true">
-                                                        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-                                                            <div class="modal-content">
-                                                                <div class="modal-header bg-light">
-                                                                    <h5 class="modal-title">Métadonnées de la décision</h5>
-                                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                                                </div>
-
-                                                                <div class="modal-body">
-                                                                    <ul class="list-group">
-                                                                        <li class="list-group-item"><strong>Titre :</strong> {{ ev.titre }}</li>
-                                                                        <li class="list-group-item"><strong>Date :</strong> {{ ev.date_publication }}</li>
-                                                                        <li class="list-group-item"><strong>TVA :</strong> {{ ev.TVA }}</li>
-                                                                        <li class="list-group-item"><strong>Extra :</strong> {{ ev.extra_keyword }}</li>
-                                                                        <li class="list-group-item"><strong>Jugement :</strong> {{ ev.date_jugement }}</li>
-                                                                        <li class="list-group-item"><strong>Administrateurs :</strong> {{ ev.administrateur }}</li>
-                                                                        <li class="list-group-item"><strong>Adresses BCE :</strong> {{ ev.adresses_by_bce }}</li>
-                                                                        <li class="list-group-item"><strong>Adresses eJustice :</strong> {{ ev.adresses_by_ejustice }}</li>
-                                                                    </ul>
-                                                                </div>
-
-                                                                <div class="modal-footer">
-                                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                {% empty %}
-                                                    <p class="text-muted fst-italic">Aucune décision trouvée.</p>
-                                                {% endfor %}
-                                            </div>
-
-                                            <!-- ANNEXES -->
-
-                                            <div class="col-md-6">
-
-                                                <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
-                                                    Annexes publiées ({{ entry.annexes|length }})
-                                                </h5>
-
-                                                {% for ev in entry.annexes %}
-                                                    <div class="event-row mb-2">
-                                                        <div class="fw-semibold" style="color:#333;">
-                                                            {{ ev.rubrique|default:ev.titre }}
-                                                        </div>
-                                                        <small class="text-muted">
-                                                            {{ ev.date_publication }}
-                                                            {% if ev.source %}
-                                                                · <a href="{{ ev.source }}" target="_blank"
-                                                                     class="btn btn-sm btn-outline-secondary py-0">PDF</a>
-                                                            {% endif %}
-                                                        </small>
-                                                    </div>
-                                                {% empty %}
-                                                    <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
-                                                {% endfor %}
-                                            </div>
-
-                                        </div>
-
-                                {% endif %}
+                            {% if entry.veille.id == veille.id and entry.societe %}
+                            <li class="dropdown-item">
+                                <strong>{{ entry.societe.numero_tva }}</strong><br>
+                                {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
+                            </li>
+                            {% endif %}
                             {% endfor %}
-
-                        </div>
+                        </ul>
                     </div>
+                    {% endif %}
+                    <span class="badge bg-secondary text-white me-2">
+    {{ veille.total_annexes|default:"0" }} annexe(s)
+</span>
+<span class="badge" style="background-color:#f0f0f0;color:#333;">
+    {{ veille.total_decisions|default:"0" }} décision(s)
+</span>
 
+
+                    <!-- Formulaire poubelle juste après les badges -->
+                    <form method="POST"
+                          action="{% url 'supprimer_veille' veille.id %}"
+                          class="ms-3">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-link text-dark p-0"
+                                onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
+                            <i class="fa-solid fa-trash fa-lg"></i>
+                        </button>
+                    </form>
                 </div>
-            {% endfor %}
+            </div> <!-- ← fermeture du card-header -->
+            <!-- COLLAPSE -->
+<div id="collapse{{ veille.id }}"
+     class="accordion-collapse collapse"
+     data-bs-parent="#accordionVeilles">
+
+    <div class="card-body bg-white">
+
+        {% for entry in tableau %}
+            {% if entry.veille.pk == veille.pk %}
+
+            <div class="row">
+                {% if entry.societe %}
+                <div class="mb-2">
+                    <span class="badge bg-primary text-white">
+                        {{ entry.societe.numero_tva|slice:":4" }}.
+                        {{ entry.societe.numero_tva|slice:"4:7" }}.
+                        {{ entry.societe.numero_tva|slice:"7:10" }}
+                    </span>
+                </div>
+                {% endif %}
+
+                <!-- DECISIONS -->
+                <div class="col-md-6 mb-3">
+                    <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
+                        Décisions judiciaires ({{ entry.decisions|length }})
+                    </h5>
+
+                    {% if entry.decisions %}
+                        {% for ev in entry.decisions %}
+                            <div class="event-row mb-2">
+                                <div class="fw-semibold" style="color:#333;">
+                                    {{ ev.titre|default:"Titre non disponible" }}
+                                </div>
+                                <small class="text-muted">
+                                    {{ ev.date_publication }}
+                                    {% if ev.source %}
+                                        · <a href="{{ ev.source }}" target="_blank"
+                                             class="btn btn-sm btn-outline-secondary py-0">Texte Moniteur Belge</a>
+                                        · <button class="btn btn-sm btn-outline-secondary py-0"
+                                                  data-bs-toggle="modal"
+                                                  data-bs-target="#metaModal{{ forloop.counter }}{{ veille.id }}">
+                                            Détails
+                                        </button>
+                                    {% endif %}
+                                </small>
+                            </div>
+
+                            <!-- MODAL -->
+                            <div class="modal fade"
+                                 id="metaModal{{ forloop.counter }}{{ veille.id }}"
+                                 tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                    <div class="modal-content">
+                                        <div class="modal-header bg-light">
+                                            <h5 class="modal-title">Métadonnées de la décision</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <ul class="list-group">
+                                                <li class="list-group-item"><strong>Titre :</strong> {{ ev.titre }}</li>
+                                                <li class="list-group-item"><strong>Date :</strong> {{ ev.date_publication }}</li>
+                                                <li class="list-group-item"><strong>TVA :</strong> {{ ev.TVA }}</li>
+                                                <li class="list-group-item"><strong>Extra :</strong> {{ ev.extra_keyword }}</li>
+                                                <li class="list-group-item"><strong>Jugement :</strong> {{ ev.date_jugement }}</li>
+                                                <li class="list-group-item"><strong>Administrateurs :</strong> {{ ev.administrateur }}</li>
+                                                <li class="list-group-item"><strong>Adresses BCE :</strong> {{ ev.adresses_by_bce }}</li>
+                                                <li class="list-group-item"><strong>Adresses eJustice :</strong> {{ ev.adresses_by_ejustice }}</li>
+                                            </ul>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted fst-italic">Aucune décision trouvée.</p>
+                    {% endif %}
+                </div>
+
+                <!-- ANNEXES -->
+                <div class="col-md-6">
+                    <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
+                        Annexes publiées ({{ entry.annexes|length }})
+                    </h5>
+
+                    {% if entry.annexes %}
+                        {% for ev in entry.annexes %}
+                            <div class="event-row mb-2">
+                                <div class="fw-semibold" style="color:#333;">
+                                    {{ ev.rubrique|default:ev.titre }}
+                                </div>
+                                <small class="text-muted">
+                                    {{ ev.date_publication }}
+                                    {% if ev.source %}
+                                        · <a href="{{ ev.source }}" target="_blank"
+                                             class="btn btn-sm btn-outline-secondary py-0">PDF</a>
+                                    {% endif %}
+                                </small>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
+                    {% endif %}
+                </div>
+
+            </div>
+
+            {% endif %}
+        {% endfor %}
+
+    </div>
+</div>
+
+
         </div>
+        {% endfor %}
+    </div>
 
     {% else %}
-        <div class="text-center py-5">
-            <p class="text-muted mb-4"><em>Vous n'avez encore créé aucune veille...</em></p>
-            <a href="{% url 'maveille' %}" class="btn btn-primary me-2">Créer une veille TVA</a>
-            <a href="{% url 'veille_fuzzy' %}" class="btn btn-outline-primary">Créer une veille mots-clés</a>
-        </div>
+    <div class="text-center py-5">
+        <p class="text-muted mb-4"><em>Vous n'avez encore créé aucune veille...</em></p>
+        <a href="{% url 'maveille' %}" class="btn btn-primary me-2">Créer une veille TVA</a>
+        <a href="{% url 'veille_fuzzy' %}" class="btn btn-outline-primary">Créer une veille mots-clés</a>
+    </div>
     {% endif %}
 </div>
-    </div>
+</div>
 {% endblock %}

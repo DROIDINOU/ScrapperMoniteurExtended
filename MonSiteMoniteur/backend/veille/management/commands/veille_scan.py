@@ -6,6 +6,7 @@ from django.db import IntegrityError
 from django.core.mail import send_mail
 import re
 
+
 class Command(BaseCommand):
     help = "Scan une TVA et enregistre les ANNEXES dans VeilleEvenement"
 
