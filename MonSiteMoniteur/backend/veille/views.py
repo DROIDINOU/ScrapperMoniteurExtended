@@ -22,6 +22,9 @@ from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 import threading
 from django.core.exceptions import ValidationError
+from datetime import datetime
+
+
 
 
 def home_marketing(request):
@@ -36,6 +39,17 @@ def privacy(request):
         "site_name": "Moniteur AI",
         "contact_email": "contact@moniteur-ai.com"
     })
+
+
+def parse_date_doc(raw_date):
+    """Convertit une string ISO 'YYYY-MM-DD' en objet date, sinon renvoie la valeur brute."""
+    if not raw_date:
+        return None
+    try:
+        return datetime.strptime(raw_date, "%Y-%m-%d").date()
+    except Exception:
+        return raw_date
+
 
 def cgu(request):
     return render(request, "veille/cgu.html")
@@ -277,7 +291,7 @@ def veille_dashboard(request):
                 for hit in results.get("hits", []):  # Utilisation de .get pour éviter une erreur si "hits" n'existe pas
                     decision = {
                         "titre": hit.get("title", "Titre non disponible"),
-                        "date_publication": hit.get("date_doc", "Date non disponible"),
+                        "date_publication": parse_date_doc(hit.get("date_doc")),
                         "source": hit.get("url", "URL non disponible"),
                         # 🧠 Champs additionnels (pour modale)
                         "TVA": hit.get("TVA"),
@@ -290,6 +304,8 @@ def veille_dashboard(request):
                         "denoms_by_bce": hit.get("denoms_by_bce"),
                         "denoms_by_ejustice_flat": hit.get("denoms_by_ejustice_flat"),
                     }
+
+                    print(decisions)
 
                     decisions.append(decision)
 
@@ -382,7 +398,7 @@ def scan_decisions(request, tva):
                 veille=soc.veille,
                 societe=soc,  # ✅ c’est CE paramètre qui manque
                 type="DECISION",
-                date_publication=doc.get("date_doc"),
+                date_publication=parse_date_doc(doc.get("date_doc")),
                 source=doc.get("url") or f"no-url-{doc.get('date_doc')}",
                 defaults={
                     "rubrique": ", ".join(doc.get("extra_keyword") or []),
