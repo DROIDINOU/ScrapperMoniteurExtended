@@ -129,35 +129,59 @@
                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                         </div>
                                         <div class="modal-body">
-                                            <ul class="list-group">
-                                                <li class="list-group-item"><strong>Titre :</strong> {{ ev.titre }}</li>
-                                                <li class="list-group-item"><strong>Date :</strong> {{ ev.date_publication|date:"d/m/Y" }}</li>
-                                                <li class="list-group-item"><strong>TVA :</strong>
-                                                    <ul class="mb-0">
-                                                        {% for numero in ev.TVA %}
-                                                        <li>{{ numero }}</li>
-                                                        {% empty %}
-                                                        <li>Aucun numéro TVA</li>
-                                                        {% endfor %}
-                                                    </ul>
-                                                </li>
-                                                <li class="list-group-item"><strong>Extra :</strong> {{ ev.extra_keyword
-                                                    }}
-                                                </li>
-                                                <li class="list-group-item"><strong>Jugement :</strong> {{
-                                                    ev.date_jugement }}
-                                                </li>
-                                                <li class="list-group-item"><strong>Administrateurs :</strong> {{
-                                                    ev.administrateur }}
-                                                </li>
-                                                <li class="list-group-item"><strong>Adresses BCE :</strong> {{
-                                                    ev.adresses_by_bce }}
-                                                </li>
-                                                <li class="list-group-item"><strong>Adresses eJustice :</strong> {{
-                                                    ev.adresses_by_ejustice }}
-                                                </li>
-                                            </ul>
-                                        </div>
+    <ul class="list-group">
+        <li class="list-group-item">
+            <strong>Titre :</strong>
+            {% if ev.titre %}{{ ev.titre }}{% else %}Pas de données disponibles{% endif %}
+        </li>
+
+        <li class="list-group-item">
+            <strong>Date :</strong>
+            {% if ev.date_publication %}
+                {{ ev.date_publication|date:"d/m/Y" }}
+            {% else %}
+                Pas de données disponibles
+            {% endif %}
+        </li>
+
+        <li class="list-group-item">
+            <strong>TVA :</strong>
+            <ul class="mb-0">
+                {% for numero in ev.TVA %}
+                    <li>{{ numero }}</li>
+                {% empty %}
+                    <li>Aucun numéro TVA</li>
+                {% endfor %}
+            </ul>
+        </li>
+
+        <li class="list-group-item">
+            <strong>Extra :</strong>
+            {% if ev.extra_keyword %}{{ ev.extra_keyword }}{% else %}Pas de données disponibles{% endif %}
+        </li>
+
+        <li class="list-group-item">
+            <strong>Jugement :</strong>
+            {% if ev.date_jugement %}{{ ev.date_jugement }}{% else %}Pas de données disponibles{% endif %}
+        </li>
+
+        <li class="list-group-item">
+            <strong>Administrateurs :</strong>
+            {% if ev.administrateur %}{{ ev.administrateur }}{% else %}Pas de données disponibles{% endif %}
+        </li>
+
+        <li class="list-group-item">
+            <strong>Adresses BCE :</strong>
+            {% if ev.adresses_by_bce %}{{ ev.adresses_by_bce }}{% else %}Pas de données disponibles{% endif %}
+        </li>
+
+        <li class="list-group-item">
+            <strong>Adresses eJustice :</strong>
+            {% if ev.adresses_by_ejustice %}{{ ev.adresses_by_ejustice }}{% else %}Pas de données disponibles{% endif %}
+        </li>
+    </ul>
+</div>
+
                                         <div class="modal-footer">
                                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                                                 Fermer
