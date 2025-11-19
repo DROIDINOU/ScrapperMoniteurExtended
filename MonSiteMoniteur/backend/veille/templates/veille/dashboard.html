@@ -111,7 +111,7 @@
                                     ·
                                     <button class="btn btn-sm btn-outline-secondary py-0"
                                             data-bs-toggle="modal"
-                                            data-bs-target="#metaModal{{ forloop.counter }}{{ veille.id }}">
+                                            data-bs-target="#metaModal{{ forloop.parentloop.counter }}_{{ forloop.counter }}">
                                         Détails
                                     </button>
                                     {% endif %}
@@ -120,7 +120,7 @@
 
                             <!-- MODAL -->
                             <div class="modal fade"
-                                 id="metaModal{{ forloop.counter }}{{ veille.id }}"
+                                 id="metaModal{{ forloop.parentloop.counter }}_{{ forloop.counter }}"
                                  tabindex="-1" aria-hidden="true">
                                 <div class="modal-dialog modal-lg modal-dialog-scrollable">
                                     <div class="modal-content">
@@ -160,10 +160,43 @@
             {% if ev.extra_keyword %}{{ ev.extra_keyword }}{% else %}Pas de données disponibles{% endif %}
         </li>
 
-        <li class="list-group-item">
-            <strong>Jugement :</strong>
-            {% if ev.date_jugement %}{{ ev.date_jugement }}{% else %}Pas de données disponibles{% endif %}
-        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+    <div>
+        <strong>Jugement :</strong>
+        {% if ev.date_jugement %}
+            {{ ev.date_jugement.date }}
+        {% else %}
+            Pas de données disponibles
+        {% endif %}
+    </div>
+
+    {% if ev.date_jugement.confidence >= 0.9 %}
+        {% comment %}Vert{% endcomment %}
+        <span class="confidence"
+              style="font-size:0.9em; padding:3px 8px; border-radius:5px;
+                     background:#d4edda; border:1px solid #28a745;">
+            {{ ev.date_jugement.confidence }} %
+        </span>
+
+    {% elif ev.date_jugement.confidence >= 0.5 %}
+        {% comment %}Orange{% endcomment %}
+        <span class="confidence"
+              style="font-size:0.9em; padding:3px 8px; border-radius:5px;
+                     background:#fff3cd; border:1px solid #ffa500;">
+            {{ ev.date_jugement.confidence }} %
+        </span>
+
+    {% else %}
+        {% comment %}Rouge{% endcomment %}
+        <span class="confidence"
+              style="font-size:0.9em; padding:3px 8px; border-radius:5px;
+                     background:#f8d7da; border:1px solid #dc3545;">
+            {{ ev.date_jugement.confidence }} %
+        </span>
+
+    {% endif %}
+</li>
+
 
         <li class="list-group-item">
             <strong>Administrateurs :</strong>
@@ -171,9 +204,25 @@
         </li>
 
         <li class="list-group-item">
-            <strong>Adresses BCE :</strong>
-            {% if ev.adresses_by_bce %}{{ ev.adresses_by_bce }}{% else %}Pas de données disponibles{% endif %}
-        </li>
+    <strong>Adresses BCE :</strong>
+    {% if ev.adresses_by_bce %}
+        <ul>
+        {% for entry in ev.adresses_by_bce %}
+            <li>
+                <strong>BCE :</strong> {{ entry.bce }}
+                <ul>
+                    {% for adr in entry.adresses %}
+                        <li>{{ adr.adresse }} (type : {{ adr.source }})</li>
+                    {% endfor %}
+                </ul>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        Pas de données disponibles
+    {% endif %}
+</li>
+
 
         <li class="list-group-item">
             <strong>Adresses eJustice :</strong>
