@@ -741,6 +741,8 @@ def fonctionnalites(request): return render(request, "veille/fonctionnalites.htm
 def recherches(request): return render(request, "veille/recherches.html")
 def resultats(request): return render(request, "veille/resultats.html")
 def premium(request): return render(request, "veille/premium.html")
+def info_utilisation(request): return render(request, "veille/info.html")
+
 
 
 # ------------------------------------------------------------

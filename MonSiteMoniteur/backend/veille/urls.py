@@ -31,6 +31,8 @@ urlpatterns = [
     path("scan-keywords/<int:veille_id>/", views.scan_decisions_keywords, name="scan_decisions_keywords"),
     path('api/search/tva/', views.api_search_tva, name='api_search_tva'),
     path('contact/', views.contact, name='contact'),
+    path('info_utilisation/', views.info_utilisation, name='info_utilisation'),
+
     path('fonctionnalites/', views.fonctionnalites, name='fonctionnalites'),
     path('recherches/', views.recherches, name='recherches'),
     path('resultats/', views.resultats, name='resultats'),

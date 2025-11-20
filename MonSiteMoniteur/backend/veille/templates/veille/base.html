@@ -41,6 +41,9 @@
           <li class="nav-item {% if request.resolver_match.url_name == 'veille_fuzzy' %}active{% endif %}">
             <a class="nav-link" href="{% url 'veille_fuzzy' %}">🧾 Veille mots-clés</a>
           </li>
+          <li class="nav-item {% if request.resolver_match.url_name == 'info_utilisation' %}active{% endif %}">
+  <a class="nav-link" href="{% url 'info_utilisation' %}">ℹ️ Info utilisation</a>
+</li>
           <li class="nav-item {% if request.resolver_match.url_name == 'contact' %}active{% endif %}">
             <a class="nav-link" href="{% url 'contact' %}">📨 Contact</a>
           </li>

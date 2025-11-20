@@ -1,0 +1,37 @@
+{% extends 'veille/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="text-center mb-4" style="font-size: 2rem; color: #333;">
+        ℹ️ Informations d’utilisation
+    </h2>
+
+    <div class="alert alert-secondary text-center py-3">
+        Cette page vous explique comment utiliser l’outil de veille juridique.
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <p class="lead" style="color:#555;">
+                Bienvenue dans <strong>Moniteur AI</strong>.
+                Ici, vous pouvez créer des veilles basées sur des <em>mots-clés</em> ou sur des <em>numéros de TVA</em>.
+            </p>
+
+            <hr>
+
+            <h5 class="mb-3">Comment ça marche ?</h5>
+            <ul class="list-group list-group-flush mb-4">
+                <li class="list-group-item">📊 <strong>Tableau de bord</strong> : visualisez toutes vos veilles en un seul endroit.</li>
+                <li class="list-group-item">🧾 <strong>Veille TVA</strong> : surveillez les décisions liées à une société via son numéro de TVA.</li>
+                <li class="list-group-item">🧾 <strong>Veille mots-clés</strong> : suivez les décisions publiées en fonction de mots-clés choisis.</li>
+                <li class="list-group-item">📨 <strong>Notifications</strong> : recevez un email lorsque de nouvelles décisions sont détectées.</li>
+            </ul>
+
+            <p class="text-muted fst-italic">
+                Vous pouvez créer plusieurs veilles, les supprimer à tout moment, et consulter les détails directement depuis le tableau de bord.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
