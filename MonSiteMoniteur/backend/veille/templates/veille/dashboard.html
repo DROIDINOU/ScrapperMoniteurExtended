@@ -95,43 +95,56 @@
                         {% endif %}
 
                         <!-- DECISIONS -->
-<div class="col-md-6 mb-3">
-    <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
-        Décisions judiciaires ({{ entry.decisions|length }})
-    </h5>
+                        <div class="{% if veille.type == 'KEYWORD' %}col-12{% else %}col-md-6{% endif %} mb-3">
+                            <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
+                                Décisions judiciaires ({{ entry.decisions|length }})
+                            </h5>
 
-    {% if entry.decisions %}
-    {% for ev in entry.decisions|dictsort:"score" reversed %}
-        {% if ev.score and ev.score > 0.9 %}
-            <div class="event-row mb-2">
-                <div class="fw-semibold" style="color:#333;">
-                    {{ ev.titre|default:"Titre non disponible" }}
-                </div>
-                <small class="text-muted">
-                    {{ ev.date_publication }}
-                    {% if ev.source %}
-                        · <a href="{{ ev.source }}" target="_blank"
-                            class="btn btn-sm btn-outline-secondary py-0">Texte Moniteur Belge</a>
-                    {% endif %}
-                    {% if ev.score %}
-                        · Score:
-                        {% if ev.score == 1 %}
-                            <span class="badge bg-success text-white">{{ ev.score }}</span>
-                        {% else %}
-                            <span class="badge bg-info text-dark">{{ ev.score }}</span>
-                        {% endif %}
-                    {% endif %}
-                </small>
-            </div>
-        {% endif %}
-    {% endfor %}
-{% else %}
-    <p class="text-muted fst-italic">Aucune décision trouvée.</p>
-{% endif %}
+                            {% if entry.decisions %}
+                            {% for ev in entry.decisions|dictsort:"score" reversed %}
+                            {% if ev.score and ev.score > 0.9 %}
+                            <div class="event-row mb-2">
+                                <div class="fw-semibold" style="color:#333;">
+                                    {{ ev.titre|default:"Titre non disponible" }}
+                                </div>
+                                <small class="text-muted">
+                                    {{ ev.date_publication }}
+                                    {% if ev.source %}
+                                    · <a href="{{ ev.source }}" target="_blank"
+                                         class="btn btn-sm btn-outline-secondary py-0 me-3">Texte Moniteur Belge</a>
+                                    {% endif %}
 
-</div>
+                                    {% if ev.TVA %}
+                                    · <span class="ms-2">TVA(s):</span>
+                                    <ul class="list-inline d-inline ms-2 me-3">
+                                        {% for tva in ev.TVA %}
+                                        <li class="list-inline-item badge bg-primary text-white">{{ tva }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                    {% endif %}
+
+                                    {% if ev.score %}
+                                    · <span class="ms-2">Score:</span>
+                                    {% if ev.score == 1 %}
+                                    <span class="badge bg-success text-white ms-1">{{ ev.score }}</span>
+                                    {% else %}
+                                    <span class="badge bg-info text-dark ms-1">{{ ev.score }}</span>
+                                    {% endif %}
+                                    {% endif %}
+                                </small>
+
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% else %}
+                            <p class="text-muted fst-italic">Aucune décision trouvée.</p>
+                            {% endif %}
 
 
+                        </div>
+
+
+                        {% if veille.type != "KEYWORD" %}
                         <!-- ANNEXES -->
                         <div class="col-md-6">
                             <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;padding-left:80px;">
@@ -139,24 +152,26 @@
                             </h5>
 
                             {% if entry.annexes %}
-                                {% for ev in entry.annexes %}
-                                    <div class="event-row mb-2">
-                                        <div class="fw-semibold" style="color:#333;">
-                                            {{ ev.rubrique|default:ev.titre }}
-                                        </div>
-                                        <small class="text-muted">
-                                            {{ ev.date_publication }}
-                                            {% if ev.source %}
-                                                · <a href="{{ ev.source }}" target="_blank"
-                                                    class="btn btn-sm btn-outline-secondary py-0">PDF</a>
-                                            {% endif %}
-                                        </small>
-                                    </div>
-                                {% endfor %}
+                            {% for ev in entry.annexes %}
+                            <div class="event-row mb-2">
+                                <div class="fw-semibold" style="color:#333;">
+                                    {{ ev.rubrique|default:ev.titre }}
+                                </div>
+                                <small class="text-muted">
+                                    {{ ev.date_publication }}
+                                    {% if ev.source %}
+                                    · <a href="{{ ev.source }}" target="_blank"
+                                         class="btn btn-sm btn-outline-secondary py-0">PDF</a>
+                                    {% endif %}
+                                </small>
+                            </div>
+                            {% endfor %}
                             {% else %}
-                                <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
+                            <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
                             {% endif %}
                         </div>
+                        {% endif %}
+
 
                     </div>
 

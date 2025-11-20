@@ -108,12 +108,13 @@ class Command(BaseCommand):
                                 "titre": hit.get("title") or query,
                                 "score": score_display,
                                 "rank_position": i,
+                                "tva_list": hit.get("TVA") or [],  # ✅ ajout TVA
                             },
                         )
                         if not created:
                             obj.score = score_display
                             obj.rank_position = i
-                            obj.save(update_fields=["score", "rank_position"])
+                            obj.save(update_fields=["score", "rank_position", "tva_list"])
                         else:
                             saved += 1
                     except IntegrityError:
@@ -142,6 +143,7 @@ class Command(BaseCommand):
                                 "rubrique": ", ".join(hit.get("extra_keyword") or []),
                                 "titre": hit.get("title") or query,
                                 "score": None,  # pas de similarité calculée
+                                "tva_list": hit.get("TVA") or [],  # ✅ ajout TVA
                             },
                         )
                         if created:
@@ -217,6 +219,7 @@ class Command(BaseCommand):
                                     "rubrique": ", ".join(hit.get("extra_keyword") or []),
                                     "titre": hit.get("title") or query,
                                     "score": round(final_score, 3),
+                                    "tva_list": hit.get("TVA") or [],
                                 },
                             )
                             if not created:

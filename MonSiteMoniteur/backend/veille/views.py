@@ -143,6 +143,7 @@ def veille_fuzzy(request):
                     "date_publication": d.date_publication,  # 👈 corriger ici
                     "source": d.source,
                     "score": d.score,
+                    "tva_list": d.tva_list,  # ✅ ajout TVA
                 }
                 for d in decisions
             ],
@@ -267,6 +268,8 @@ def veille_dashboard(request):
                 try:
                     search_res = index.search("", {"filter": f'url = "{ev.source}"'})
                     hits = search_res.get("hits", [])
+                    if hits:
+                        print("Premier hit complet:", hits[0])
                     print(f"🔍 Recherche Meili pour URL={ev.source} → {len(hits)} résultat(s)")
                     if hits:
                         print("Premier hit:", hits[0])

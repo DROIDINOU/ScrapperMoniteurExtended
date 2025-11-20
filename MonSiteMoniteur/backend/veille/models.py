@@ -114,6 +114,8 @@ class VeilleEvenement(models.Model):
     score = models.FloatField(null=True, blank=True)
     # ✅ Nouveau champ pour stocker la position de ranking MeiliSearch (mode plein texte)
     rank_position = models.IntegerField(null=True, blank=True)
+    # ✅ Nouveau champ pour stocker les TVA (même nom que dans MeiliSearch)
+    tva_list = models.JSONField(null=True, blank=True)
 
     class Meta:
         constraints = [

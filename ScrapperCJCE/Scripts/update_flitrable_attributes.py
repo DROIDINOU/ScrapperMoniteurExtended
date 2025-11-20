@@ -38,7 +38,7 @@ except meilisearch.errors.MeiliSearchAPIError as e:
 index.update_filterable_attributes([
     "keyword", "extra_keyword", "date_doc",
     "denom_fallback_bce", "TVA",
-    "admins_detectes", "denoms_fallback_bce_flat", "adresses_by_ejustice",
+    "admins_detectes", "denoms_fallback_bce_flat", "adresses_by_ejustice", "url",
     "adresses_fallback_bce_flat", "adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat"
 ])
 
