@@ -110,6 +110,11 @@ class VeilleEvenement(models.Model):
     rubrique = models.CharField(max_length=500, blank=True, null=True)
     titre = models.CharField(max_length=500, blank=True, null=True)
 
+    # ✅ Nouveau champ pour stocker le score de similarité
+    score = models.FloatField(null=True, blank=True)
+    # ✅ Nouveau champ pour stocker la position de ranking MeiliSearch (mode plein texte)
+    rank_position = models.IntegerField(null=True, blank=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(

@@ -25,7 +25,6 @@
                         aria-controls="collapse{{ veille.id }}">
                     {{ veille.nom }}
                     <small class="text-muted">(Veille - {{ veille.type }})</small>
-                    <!-- 🔽/🔼 FLÈCHE -->
                     <span class="ms-2 arrow-icon">▼</span>
                 </button>
 
@@ -51,12 +50,15 @@
                     </div>
                     {% endif %}
                     <span class="badge bg-secondary text-white me-2">
-    {{ veille.total_annexes|default:"0" }} annexe(s)
-</span>
+                        {{ veille.total_annexes|default:"0" }} annexe(s)
+                    </span>
                     <span class="badge" style="background-color:#f0f0f0;color:#333;">
-    {{ veille.total_decisions|default:"0" }} décision(s)
-</span>
-
+                        {% for entry in tableau %}
+                            {% if entry.veille.id == veille.id %}
+                                {{ entry.total_decisions|default:"0" }} décision(s)
+                            {% endif %}
+                        {% endfor %}
+                    </span>
 
                     <!-- Formulaire poubelle juste après les badges -->
                     <form method="POST"
@@ -70,6 +72,7 @@
                     </form>
                 </div>
             </div> <!-- ← fermeture du card-header -->
+
             <!-- COLLAPSE -->
             <div id="collapse{{ veille.id }}"
                  class="accordion-collapse collapse"
@@ -83,191 +86,75 @@
                     <div class="row">
                         {% if entry.societe %}
                         <div class="mb-2">
-                    <span class="badge bg-primary text-white">
-                        {{ entry.societe.numero_tva|slice:":4" }}.
-                        {{ entry.societe.numero_tva|slice:"4:7" }}.
-                        {{ entry.societe.numero_tva|slice:"7:10" }}
-                    </span>
+                            <span class="badge bg-primary text-white">
+                                {{ entry.societe.numero_tva|slice:":4" }}.
+                                {{ entry.societe.numero_tva|slice:"4:7" }}.
+                                {{ entry.societe.numero_tva|slice:"7:10" }}
+                            </span>
                         </div>
                         {% endif %}
 
                         <!-- DECISIONS -->
-                        <div class="col-md-6 mb-3">
-                            <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
-                                Décisions judiciaires ({{ entry.decisions|length }})
-                            </h5>
+<div class="col-md-6 mb-3">
+    <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
+        Décisions judiciaires ({{ entry.decisions|length }})
+    </h5>
 
-                            {% if entry.decisions %}
-                            {% for ev in entry.decisions %}
-                            <div class="event-row mb-2">
-                                <div class="fw-semibold" style="color:#333;">
-                                    {{ ev.titre|default:"Titre non disponible" }}
-                                </div>
-                                <small class="text-muted">
-                                    {{ ev.date_publication }}
-                                    {% if ev.source %}
-                                    · <a href="{{ ev.source }}" target="_blank"
-                                         class="btn btn-sm btn-outline-secondary py-0">Texte Moniteur Belge</a>
-                                    ·
-                                    <button class="btn btn-sm btn-outline-secondary py-0"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#metaModal{{ forloop.parentloop.counter }}_{{ forloop.counter }}">
-                                        Détails
-                                    </button>
-                                    {% endif %}
-                                </small>
-                            </div>
-
-                            <!-- MODAL -->
-                            <div class="modal fade"
-                                 id="metaModal{{ forloop.parentloop.counter }}_{{ forloop.counter }}"
-                                 tabindex="-1" aria-hidden="true">
-                                <div class="modal-dialog modal-lg modal-dialog-scrollable">
-                                    <div class="modal-content">
-                                        <div class="modal-header bg-light">
-                                            <h5 class="modal-title">Métadonnées de la décision</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body">
-    <ul class="list-group">
-        <li class="list-group-item">
-            <strong>Titre :</strong>
-            {% if ev.titre %}{{ ev.titre }}{% else %}Pas de données disponibles{% endif %}
-        </li>
-
-        <li class="list-group-item">
-            <strong>Date :</strong>
-            {% if ev.date_publication %}
-                {{ ev.date_publication|date:"d/m/Y" }}
-            {% else %}
-                Pas de données disponibles
-            {% endif %}
-        </li>
-
-        <li class="list-group-item">
-            <strong>TVA :</strong>
-            <ul class="mb-0">
-                {% for numero in ev.TVA %}
-                    <li>{{ numero }}</li>
-                {% empty %}
-                    <li>Aucun numéro TVA</li>
-                {% endfor %}
-            </ul>
-        </li>
-
-        <li class="list-group-item">
-            <strong>Extra :</strong>
-            {% if ev.extra_keyword %}{{ ev.extra_keyword }}{% else %}Pas de données disponibles{% endif %}
-        </li>
-
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-    <div>
-        <strong>Jugement :</strong>
-        {% if ev.date_jugement %}
-            {{ ev.date_jugement.date }}
-        {% else %}
-            Pas de données disponibles
+    {% if entry.decisions %}
+    {% for ev in entry.decisions|dictsort:"score" reversed %}
+        {% if ev.score and ev.score > 0.9 %}
+            <div class="event-row mb-2">
+                <div class="fw-semibold" style="color:#333;">
+                    {{ ev.titre|default:"Titre non disponible" }}
+                </div>
+                <small class="text-muted">
+                    {{ ev.date_publication }}
+                    {% if ev.source %}
+                        · <a href="{{ ev.source }}" target="_blank"
+                            class="btn btn-sm btn-outline-secondary py-0">Texte Moniteur Belge</a>
+                    {% endif %}
+                    {% if ev.score %}
+                        · Score:
+                        {% if ev.score == 1 %}
+                            <span class="badge bg-success text-white">{{ ev.score }}</span>
+                        {% else %}
+                            <span class="badge bg-info text-dark">{{ ev.score }}</span>
+                        {% endif %}
+                    {% endif %}
+                </small>
+            </div>
         {% endif %}
-    </div>
+    {% endfor %}
+{% else %}
+    <p class="text-muted fst-italic">Aucune décision trouvée.</p>
+{% endif %}
 
-    {% if ev.date_jugement.confidence >= 0.9 %}
-        {% comment %}Vert{% endcomment %}
-        <span class="confidence"
-              style="font-size:0.9em; padding:3px 8px; border-radius:5px;
-                     background:#d4edda; border:1px solid #28a745;">
-            {{ ev.date_jugement.confidence }} %
-        </span>
-
-    {% elif ev.date_jugement.confidence >= 0.5 %}
-        {% comment %}Orange{% endcomment %}
-        <span class="confidence"
-              style="font-size:0.9em; padding:3px 8px; border-radius:5px;
-                     background:#fff3cd; border:1px solid #ffa500;">
-            {{ ev.date_jugement.confidence }} %
-        </span>
-
-    {% else %}
-        {% comment %}Rouge{% endcomment %}
-        <span class="confidence"
-              style="font-size:0.9em; padding:3px 8px; border-radius:5px;
-                     background:#f8d7da; border:1px solid #dc3545;">
-            {{ ev.date_jugement.confidence }} %
-        </span>
-
-    {% endif %}
-</li>
-
-
-        <li class="list-group-item">
-            <strong>Administrateurs :</strong>
-            {% if ev.administrateur %}{{ ev.administrateur }}{% else %}Pas de données disponibles{% endif %}
-        </li>
-
-        <li class="list-group-item">
-    <strong>Adresses BCE :</strong>
-    {% if ev.adresses_by_bce %}
-        <ul>
-        {% for entry in ev.adresses_by_bce %}
-            <li>
-                <strong>BCE :</strong> {{ entry.bce }}
-                <ul>
-                    {% for adr in entry.adresses %}
-                        <li>{{ adr.adresse }} (type : {{ adr.source }})</li>
-                    {% endfor %}
-                </ul>
-            </li>
-        {% endfor %}
-        </ul>
-    {% else %}
-        Pas de données disponibles
-    {% endif %}
-</li>
-
-
-        <li class="list-group-item">
-            <strong>Adresses eJustice :</strong>
-            {% if ev.adresses_by_ejustice %}{{ ev.adresses_by_ejustice }}{% else %}Pas de données disponibles{% endif %}
-        </li>
-    </ul>
 </div>
 
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                                Fermer
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                            {% else %}
-                            <p class="text-muted fst-italic">Aucune décision trouvée.</p>
-                            {% endif %}
-                        </div>
 
                         <!-- ANNEXES -->
                         <div class="col-md-6">
-                            <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
+                            <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;padding-left:80px;">
                                 Annexes publiées ({{ entry.annexes|length }})
                             </h5>
 
                             {% if entry.annexes %}
-                            {% for ev in entry.annexes %}
-                            <div class="event-row mb-2">
-                                <div class="fw-semibold" style="color:#333;">
-                                    {{ ev.rubrique|default:ev.titre }}
-                                </div>
-                                <small class="text-muted">
-                                    {{ ev.date_publication }}
-                                    {% if ev.source %}
-                                    · <a href="{{ ev.source }}" target="_blank"
-                                         class="btn btn-sm btn-outline-secondary py-0">PDF</a>
-                                    {% endif %}
-                                </small>
-                            </div>
-                            {% endfor %}
+                                {% for ev in entry.annexes %}
+                                    <div class="event-row mb-2">
+                                        <div class="fw-semibold" style="color:#333;">
+                                            {{ ev.rubrique|default:ev.titre }}
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ ev.date_publication }}
+                                            {% if ev.source %}
+                                                · <a href="{{ ev.source }}" target="_blank"
+                                                    class="btn btn-sm btn-outline-secondary py-0">PDF</a>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                {% endfor %}
                             {% else %}
-                            <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
+                                <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
                             {% endif %}
                         </div>
 
@@ -278,7 +165,6 @@
 
                 </div>
             </div>
-
 
         </div>
         {% endfor %}

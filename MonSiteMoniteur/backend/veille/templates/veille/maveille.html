@@ -64,15 +64,25 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
 {% block extra_scripts %}
 <script>
+window.addEventListener("load", () => {
+    console.log("TEST ID ===");
+    console.log("validateBtn =", document.getElementById("validateBtn"));
+    console.log("bulkInput =", document.getElementById("bulkInput"));
+    console.log("cleanResult =", document.getElementById("cleanResult"));
+});
+</script>
+
+<script>
+console.log("JS chargé !");
 document.addEventListener("DOMContentLoaded", function () {
+    console.log("JS chargé !");
     const validateBtn = document.getElementById("validateBtn");
     const submitBtn = document.getElementById("submitBtn");
     const bulkInput = document.getElementById("bulkInput");
     const cleanResult = document.getElementById("cleanResult");
+    console.log(cleanResult);
     const invalidResults = document.getElementById("invalidResults");
     const invalidNumbersList = document.getElementById("invalidNumbersList");
     const hiddenInput = document.getElementById("tva_clean_hidden");
@@ -83,6 +93,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     .replace(/[.\-]/g, ' ')
                     .replace(/\s+/g, ' ')
                     .trim();
+        console.log("Texte normalisé :", t);
         const re = /(?:BE\s*)?((?:\d\s*){10})/gi;
         const found = [];
         let m;
@@ -96,6 +107,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
     validateBtn.addEventListener("click", function () {
+        console.log("=== CLIC ⚡ VALIDATE ===");
         const text = bulkInput.value;
         const tvas = extraireTVA(text);
 
@@ -117,12 +129,20 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         if (validNumbers.length > 0) {
+        console.log("cleanResult avant ajout : ", cleanResult); // Devrait retourner l'élément
             cleanResult.style.display = "block";
+            cleanResult.style.zIndex = "9999";  // Assure que l'élément est au-dessus des autres éléments
             cleanResult.innerHTML = `<strong>Numéros TVA validés :</strong><br>${validNumbers.join("<br>")}`;
+            console.log("Position de cleanResult : ", cleanResult.getBoundingClientRect());
             submitBtn.style.display = "block";
             hiddenInput.value = validNumbers.join(" "); // IMPORTANT
+            console.log("Contenu injecté dans cleanResult :", validNumbers.join("<br>"));
+
+            console.log("cleanResult après ajout : ", cleanResult); // Devrait afficher le contenu injecté
         } else {
+           console.log("cleanResult faux ajout 1: ", cleanResult); // Devrait retourner l'élément
             cleanResult.style.display = "block";
+            console.log("cleanResult après ajout1 : ", cleanResult); // Devrait afficher le contenu injecté
             cleanResult.innerHTML = "<strong>Aucun numéro TVA valide détecté.</strong>";
             submitBtn.style.display = "none";
             hiddenInput.value = "";
@@ -151,3 +171,5 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 </script>
 {% endblock %}
+{% endblock %}
+

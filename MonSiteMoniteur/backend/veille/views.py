@@ -70,23 +70,28 @@ def recurrence_view(request, veille_id):
     veille = get_object_or_404(Veille, pk=veille_id, user=request.user)
     return render(request, "veille/recurrencealerte.html", {"veille": veille})
 
-
 @login_required
 def veille_fuzzy(request):
     profile = request.user.userprofile
 
     if request.method == "POST":
+        # Sauvegarde des mots-clés
         profile.keyword1 = request.POST.get("keyword1")
         profile.keyword2 = request.POST.get("keyword2")
         profile.keyword3 = request.POST.get("keyword3")
         profile.save()
 
+        # Nom de la veille
         veille_nom = request.POST.get("veille_nom", "").strip()
         if not veille_nom:
             veille_nom = f"Veille Mots-clés — {request.user.username}"
 
+        # Récupération des filtres
         decision_type = request.POST.get("decision_type")
         date_from = request.POST.get("date_from")
+
+        # ⚠️ Rue est désormais un filtre booléen (true/false)
+        rue_filter = request.POST.get("rue") == "true"
 
         # ✅ Création avec validation
         veille_obj = Veille(
@@ -100,14 +105,16 @@ def veille_fuzzy(request):
             veille_obj.save()
         except ValidationError as e:
             messages.error(request, e.messages[0])
-            return redirect("fuzzy_veille")
+            return redirect("veille_fuzzy")
 
         try:
+            # Passage du filtre Rue comme booléen
             call_command(
                 "scan_keywords",
                 veille_id=veille_obj.id,
                 decision_type=decision_type,
                 date_from=date_from,
+                rue=rue_filter,   # 👈 booléen
             )
             send_mail(
                 'Veille juridique créée avec succès',
@@ -122,8 +129,30 @@ def veille_fuzzy(request):
             messages.error(request, f"❌ Une erreur s'est produite lors du lancement du scan : {e}")
             return redirect("set_recurrence", veille_id=veille_obj.id)
 
-    return render(request, "veille/fuzzy_veille.html", {"profile": profile})
+    # 👉 Ici, on prépare les données pour le template
+    veilles = Veille.objects.filter(user=request.user)
+    tableau = []
+    for veille in veilles:
+        decisions = VeilleEvenement.objects.filter(veille=veille, type="DECISION")
+        tableau.append({
+            "veille": veille,
+            "decisions": [
+                {
+                    "titre": d.titre,
+                    "rubrique": d.rubrique,
+                    "date_publication": d.date_publication,  # 👈 corriger ici
+                    "source": d.source,
+                    "score": d.score,
+                }
+                for d in decisions
+            ],
+            "total_decisions": decisions.count(),
+        })
 
+    return render(request, "veille/fuzzy_veille.html", {
+        "profile": profile,
+        "tableau": tableau,  # 👈 on passe le tableau enrichi au template
+    })
 
 @login_required
 def update_veille_recurrence(request, veille_id):
@@ -229,6 +258,7 @@ def veille_dashboard(request):
             decisions_queryset = veille.evenements.filter(type="DECISION", societe__isnull=True)
 
             decisions = []
+            total_decisions = 0  # Compte des décisions pour la veille de type "KEYWORD"
 
             for ev in decisions_queryset:
                 hit_data = None
@@ -250,6 +280,7 @@ def veille_dashboard(request):
                     "date_publication": ev.date_publication or "Date non disponible",
                     "source": ev.source,
                     # Champs enrichis Meili
+                    "score": ev.score,  # 👈 ajout du score uniquement pour KEYWORD
                     "TVA": hit_data.get("TVA") if hit_data else None,
                     "extra_keyword": hit_data.get("extra_keyword") if hit_data else None,
                     "date_jugement": hit_data.get("date_jugement") if hit_data else None,
@@ -262,14 +293,15 @@ def veille_dashboard(request):
                 }
 
                 decisions.append(decision)
+                total_decisions += 1  # Incrémenter le compteur de décisions
 
-            veille.result_count = annexes.count() + len(decisions)
-
+            veille.result_count = annexes.count() + total_decisions  # Total des annexes + décisions
             tableau.append({
                 "veille": veille,
                 "societe": None,
                 "annexes": annexes,
                 "decisions": decisions,
+                "total_decisions": total_decisions,  # Assurez-vous d'inclure total_decisions
             })
 
         elif veille.type == "TVA":
@@ -293,7 +325,6 @@ def veille_dashboard(request):
                         "titre": hit.get("title", "Titre non disponible"),
                         "date_publication": parse_date_doc(hit.get("date_doc")),
                         "source": hit.get("url", "URL non disponible"),
-                        # 🧠 Champs additionnels (pour modale)
                         "TVA": hit.get("TVA"),
                         "extra_keyword": hit.get("extra_keyword"),
                         "date_jugement": hit.get("date_jugement"),
@@ -304,8 +335,6 @@ def veille_dashboard(request):
                         "denoms_by_bce": hit.get("denoms_by_bce"),
                         "denoms_by_ejustice_flat": hit.get("denoms_by_ejustice_flat"),
                     }
-
-                    print(decisions)
 
                     decisions.append(decision)
 
@@ -321,6 +350,7 @@ def veille_dashboard(request):
                     "societe": societe,
                     "annexes": annexes,
                     "decisions": decisions,  # Ajout des décisions récupérées de MeiliSearch
+                    "total_decisions": total_decisions,  # Ajout du total des décisions dans le tableau
                 })
 
             # Mettre à jour le résultat total pour la veille de type "TVA"
@@ -328,6 +358,7 @@ def veille_dashboard(request):
             # Ajouter les totaux dans le tableau pour cette veille
             veille.total_annexes = total_annexes
             veille.total_decisions = total_decisions
+
     # Debug : Afficher le contenu final du tableau avant de rendre la page
     print("\n✅ FIN DASHBOARD (tableau généré)")
     print(f"Tableau final: {tableau}")
@@ -338,7 +369,6 @@ def veille_dashboard(request):
         "veille/dashboard.html",
         {"tableau": tableau, "veilles": veilles},
     )
-
 
 
 @login_required

@@ -10,6 +10,20 @@ main {
     flex-grow: 1;  /* Cela permet à main de prendre tout l'espace disponible */
 }
 
+#cleanResult {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    min-height: 30px;
+    padding: 10px;
+    margin-top: 20px;  /* Ajuster si nécessaire */
+    background-color: #e9f7fd;  /* Ajouter une couleur de fond pour le voir facilement */
+    border: 1px solid #bce0fd;  /* Ajouter une bordure pour plus de visibilité */
+    border-radius: 5px;
+    z-index: 10; /* Garantir qu'il est au-dessus d'autres éléments */
+}
+
+
 #submitButton {
     background: linear-gradient(90deg, #28a745, #218838); /* Un vert plus agréable */
     border: none;
@@ -27,6 +41,10 @@ main {
     align-items: center;
 }
 
+/* Le conteneur parent doit être positionné de manière relative */
+.card-body {
+    position: relative;
+}
 /* ----- CARD ----- */
 .societe-card {
     border: 1px solid #d0d0d0;
@@ -155,6 +173,12 @@ main {
     height: 2px;
     background: #4e73df;
     opacity: 0.4;
+}
+
+#validateBtn {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 9999;
 }
 
 footer {

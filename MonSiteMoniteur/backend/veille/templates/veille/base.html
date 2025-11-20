@@ -1,6 +1,5 @@
 {% load static %}
 
-<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -113,18 +112,19 @@ window.addEventListener("pageshow", function (event) {
 
 </script>
 <script>
-  // Fermer automatiquement les alertes après 5 secondes
+  // Fermer automatiquement toutes les alertes sauf cleanResult après 5 secondes
   setTimeout(function() {
     document.querySelectorAll('.alert').forEach(function(alert) {
-      let bsAlert = new bootstrap.Alert(alert);
-      bsAlert.close();
+      // Ne pas fermer cleanResult
+      if (alert.id !== 'cleanResult') {
+        let bsAlert = new bootstrap.Alert(alert);
+        bsAlert.close();
+      }
     });
   }, 5000); // délai en ms
 </script>
 
 
-{% block extra_scripts %}
 
-    {% endblock %}
+{% block extra_scripts %} {% endblock %}
 </body>
-</html>

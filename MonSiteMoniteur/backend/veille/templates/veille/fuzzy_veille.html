@@ -14,7 +14,7 @@
 
         <!-- NOM DE LA VEILLE -->
         <div class="form-group mb-3">
-            <label><strong>Nom de la veille</strong></label>
+            <label><strong>Nom de votre veille</strong></label>
             <input type="text"
                    name="veille_nom"
                    class="form-control form-control-sm"
@@ -31,41 +31,55 @@
                    id="keyword1">
         </div>
 
+
+
         <!-- ACCORDÉON FILTRES -->
-        <div class="accordion" id="filtersAccordion">
-            <div class="accordion-item">
-                <h2 class="accordion-header" id="headingFilters">
-                    <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFilters">
-                        Ajouter des filtres supplémentaires
-                    </button>
-                </h2>
-                <div id="collapseFilters" class="accordion-collapse collapse">
-                    <div class="accordion-body">
+<div class="accordion" id="filtersAccordion">
+    <div class="accordion-item">
+        <h2 class="accordion-header" id="headingFilters">
+            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFilters">
+                Ajouter des filtres supplémentaires
+            </button>
+        </h2>
+        <div id="collapseFilters" class="accordion-collapse collapse">
+            <div class="accordion-body">
 
-                        <div class="form-group mb-3">
-                            <label for="decision_type">Type de décision</label>
-                            <select id="decision_type" name="decision_type" class="form-control form-control-sm">
-                                <option value="">Sélectionnez un type de décision</option>
-                                <option value="faillite">Faillite</option>
-                                <option value="rapportee">Faillite rapportée</option>
-                                <option value="radiation">Radiation</option>
-                                <option value="dissolution">Dissolution</option>
-                                <option value="liquidation">Liquidation</option>
-                                <option value="condamnation">Condamnation</option>
-                                <option value="ouverture">Ouverture</option>
-                                <option value="cloture">Clôture</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label for="date_from">Date de publication (début)</label>
-                            <input type="date" id="date_from" name="date_from" class="form-control form-control-sm">
-                        </div>
-
-                    </div>
+                <!-- Filtre Type de décision -->
+                <div class="form-group mb-3">
+                    <label for="decision_type">Type de décision</label>
+                    <select id="decision_type" name="decision_type" class="form-control form-control-sm">
+                        <option value="">Sélectionnez un type de décision</option>
+                        <option value="faillite">Faillite</option>
+                        <option value="rapportee">Faillite rapportée</option>
+                        <option value="radiation">Radiation</option>
+                        <option value="dissolution">Dissolution</option>
+                        <option value="liquidation">Liquidation</option>
+                        <option value="condamnation">Condamnation</option>
+                        <option value="ouverture">Ouverture</option>
+                        <option value="cloture">Clôture</option>
+                    </select>
                 </div>
+
+                <!-- Filtre Date de publication -->
+                <div class="form-group mb-3">
+                    <label for="date_from">Date de publication (début)</label>
+                    <input type="date" id="date_from" name="date_from" class="form-control form-control-sm">
+                </div>
+
+                <!-- Filtre par Rue -->
+<div class="form-group mb-3">
+    <label for="rue">Filtrer par Rue</label>
+    <select id="rue" name="rue" class="form-control form-control-sm">
+        <option value="">Ne pas filtrer</option>
+        <option value="true">Activer le filtre Rue</option>
+    </select>
+</div>
+
             </div>
         </div>
+    </div>
+</div>
+
 
         <!-- BOUTONS -->
         <div class="d-flex justify-content-between mt-3 flex-wrap" id="btnContainer">
