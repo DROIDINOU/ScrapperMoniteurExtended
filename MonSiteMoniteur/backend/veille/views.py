@@ -284,7 +284,9 @@ def veille_dashboard(request):
                     "source": ev.source,
                     # Champs enrichis Meili
                     "score": ev.score,  # 👈 ajout du score uniquement pour KEYWORD
-                    "TVA": hit_data.get("TVA") if hit_data else None,
+                    "TVA": [
+                        f"{tva[:4]}.{tva[4:7]}.{tva[7:10]}" for tva in (hit_data.get("TVA") or [])
+                    ] if hit_data else None,
                     "extra_keyword": hit_data.get("extra_keyword") if hit_data else None,
                     "date_jugement": hit_data.get("date_jugement") if hit_data else None,
                     "administrateur": hit_data.get("administrateur") if hit_data else None,
