@@ -151,17 +151,24 @@ document.addEventListener("DOMContentLoaded", function () {
     // -----------------------------------------
     function lockForm() {
 
-        if (veilleNom) veilleNom.readOnly = true;
-        if (keywordInput) keywordInput.readOnly = true;
-        if (decisionType) decisionType.disabled = true;
-        if (dateFrom) dateFrom.disabled = true;
+    if (veilleNom) veilleNom.readOnly = true;
+    if (veilleNom) veilleNom.style.pointerEvents = "none";
 
-        validateBtn.style.display = "none";
-        resetBtn.style.display = "inline-block";
+    if (keywordInput) keywordInput.readOnly = true;
+    if (keywordInput) keywordInput.style.pointerEvents = "none";
 
-        submitButton.disabled = false;
-        submitButton.style.cursor = "pointer";
-    }
+    if (decisionType) decisionType.readOnly = true;
+    if (decisionType) decisionType.style.pointerEvents = "none";
+
+    if (dateFrom) dateFrom.readOnly = true;  // remplace disabled !
+    if (dateFrom) dateFrom.style.pointerEvents = "none";
+
+    validateBtn.style.display = "none";
+    resetBtn.style.display = "inline-block";
+
+    submitButton.disabled = false;
+    submitButton.style.cursor = "pointer";
+}
 
     // -----------------------------------------
     // 🔄 REMETTRE LE FORMULAIRE COMME AU DÉBUT

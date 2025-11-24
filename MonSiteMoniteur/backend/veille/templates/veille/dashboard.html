@@ -53,12 +53,9 @@
                         {{ veille.total_annexes|default:"0" }} annexe(s)
                     </span>
                     <span class="badge" style="background-color:#f0f0f0;color:#333;">
-                        {% for entry in tableau %}
-                            {% if entry.veille.id == veille.id %}
-                                {{ entry.total_decisions|default:"0" }} décision(s)
-                            {% endif %}
-                        {% endfor %}
+                       {{ veille.total_decisions|default:"0" }} décision(s)
                     </span>
+
 
                     <!-- Formulaire poubelle juste après les badges -->
                     <form method="POST"
@@ -101,8 +98,7 @@
                             </h5>
 
                             {% if entry.decisions %}
-                            {% for ev in entry.decisions|dictsort:"score" reversed %}
-                            {% if ev.score and ev.score > 0.9 %}
+                            {% for ev in entry.decisions %}
                             <div class="event-row mb-2">
                                 <div class="fw-semibold" style="color:#333;">
                                     {{ ev.titre|default:"Titre non disponible" }}
@@ -114,27 +110,28 @@
                                          class="btn btn-sm btn-outline-secondary py-0 me-3">Texte Moniteur Belge</a>
                                     {% endif %}
 
-                                    {% if ev.TVA %}
+                                    {% if ev.tva_list %}
                                     · <span class="ms-2">TVA(s):</span>
                                     <ul class="list-inline d-inline ms-2 me-3">
-                                        {% for tva in ev.TVA %}
+                                        {% for tva in ev.tva_list %}
                                         <li class="list-inline-item badge bg-primary text-white">{{ tva }}</li>
                                         {% endfor %}
                                     </ul>
                                     {% endif %}
 
-                                    {% if ev.score %}
                                     · <span class="ms-2">Score:</span>
-                                    {% if ev.score == 1 %}
-                                    <span class="badge bg-success text-white ms-1">{{ ev.score }}</span>
+
+                                    {% if ev.score == None %}
+                                    <span class="badge bg-secondary text-white ms-1">—</span>
+                                    {% elif ev.score == 1 %}
+                                    <span class="badge bg-success text-white ms-1">{{ ev.score|floatformat:2  }}</span>
                                     {% else %}
-                                    <span class="badge bg-info text-dark ms-1">{{ ev.score }}</span>
+                                    <span class="badge bg-info text-dark ms-1">{{ ev.score|floatformat:2  }}</span>
                                     {% endif %}
-                                    {% endif %}
+
                                 </small>
 
                             </div>
-                            {% endif %}
                             {% endfor %}
                             {% else %}
                             <p class="text-muted fst-italic">Aucune décision trouvée.</p>

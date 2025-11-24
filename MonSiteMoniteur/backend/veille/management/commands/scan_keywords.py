@@ -11,9 +11,10 @@ from ...keywords import KEYWORD_GROUPS
 threshold_flat = 0.6
 threshold_ejustice = 0.6
 
+
 def similarity(a, b):
-    """Calcule une similarité entre deux chaînes (0 à 1)."""
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
 
 def clean_address_raw(addr: str) -> str:
     if not addr:
@@ -28,20 +29,79 @@ def clean_address_raw(addr: str) -> str:
         if kw in addr:
             addr = addr.split(kw)[0]
             break
+
     addr = re.sub(r"\d{3}\.\d{3}\.\d{3}", "", addr)
     addr = re.sub(r"\d{4}-\d{2}-\d{2}", "", addr)
     addr = re.sub(r"\d{2}/\d{2}/\d{4}", "", addr)
     addr = re.sub(r"\d{5}-\d{4}-\d{3}", "", addr)
+
     return addr.strip()
+
+
+# ===========================================================
+#  TABLE DE MAPPING ENTRE MOTS-CLÉS "HUMAINS"
+#  ET LES KEYWORDS TECHNIQUES DE MEILISEARCH
+# ===========================================================
+
+DECISION_MAP = {
+    "ouverture": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if k.startswith("ouverture_")
+    ],
+
+    "cloture": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if k.startswith("cloture_")
+    ],
+
+    "faillite": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if "faillite" in k
+    ],
+
+    "liquidation": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if "liquidation" in k and not k.startswith("ouverture_") and not k.startswith("cloture_")
+    ],
+
+    "dissolution": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if "dissolution" in k
+    ],
+
+    "effacement": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if "effacement" in k
+    ],
+
+    "radiation": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if "radiation" in k
+    ],
+
+    "condamnation": [
+        k for ks in KEYWORD_GROUPS.values()
+        for k in ks
+        if k == "condamnation"
+    ],
+}
+
 
 class Command(BaseCommand):
     help = "Scan MeiliSearch pour une veille mots-clés avec filtres"
 
     def add_arguments(self, parser):
-        parser.add_argument("--veille_id", required=True, help="ID de la veille")
-        parser.add_argument("--decision_type", type=str, help="Filtrer par type de décision (extra_keyword)")
-        parser.add_argument("--date_from", type=str, help="Filtrer par date (YYYY-MM-DD)")
-        parser.add_argument("--rue", action="store_true", help="Activer la recherche sur les champs d'adresse")
+        parser.add_argument("--veille_id", required=True)
+        parser.add_argument("--decision_type", type=str)
+        parser.add_argument("--date_from", type=str)
+        parser.add_argument("--rue", action="store_true")
 
     def handle(self, *args, **options):
         veille_id = options["veille_id"]
@@ -49,185 +109,101 @@ class Command(BaseCommand):
         date_from = options["date_from"]
         rue_filter = options["rue"]
 
-        self.stdout.write(f"🔍 Veille ID : {veille_id}")
+        print(f"\n\n🔍 VEILLE ID = {veille_id}")
+        print(f"decision_type = {decision_type}")
+        print(f"date_from = {date_from}")
+        print(f"rue = {rue_filter}")
 
         try:
             veille = Veille.objects.get(id=veille_id, type="KEYWORD")
         except Veille.DoesNotExist:
-            self.stdout.write(self.style.ERROR("❌ Veille introuvable"))
+            print("❌ Veille introuvable")
             return
 
         profile = veille.user.userprofile
         keywords = [k.strip() for k in [profile.keyword1, profile.keyword2, profile.keyword3] if k]
+
         if not keywords:
-            keywords = [""]
+            keywords = [" "]
+        # Un score Meili n’a de sens que si un vrai mot-clé texte a été entré
+        has_real_keyword = any(k.strip() for k in [profile.keyword1, profile.keyword2, profile.keyword3])
 
         client = MeiliClient(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
         index = client.index("moniteur_docs")
 
-        saved = 0
-        is_fulltext = not (decision_type or date_from or rue_filter)
+        print("\n⚠️ Meili ne sait PAS filtrer sur extra_keyword (ARRAY). Filtrage Python activé.")
 
-        for kw in keywords:
-            filters = []
-            if decision_type:
-                decision_type = decision_type.lower()
-                possible_keywords = [
-                    key for group_keywords in KEYWORD_GROUPS.values()
-                    for key in group_keywords if decision_type in key.lower()
-                ]
-                if possible_keywords:
-                    filter_extra = " OR ".join([f"extra_keyword = '{p}'" for p in possible_keywords])
-                    filters.append(f"({filter_extra})")
+        VeilleEvenement.objects.filter(veille=veille).delete()
+        inserted = 0
+
+        # --- NOUVEAU SYSTÈME DE FILTRAGE ---
+        decision_key = (decision_type or "").lower()
+        possible_keywords = DECISION_MAP.get(decision_key, [])
+
+        print("\n🟦 TYPE DEMANDÉ =", decision_key)
+        print("🟩 possible_keywords =", possible_keywords)
+
+        # -----------------------------------------
+        # 🔄 boucle sur les mots-clés utilisateur
+        # -----------------------------------------
+        for query in keywords:
+
+            params = {"limit": 200, "showRankingScore": True}
 
             if date_from:
-                filters.append(f"date_doc >= {date_from}")
+                params["filter"] = f"date_doc >= {date_from}"
 
-            filter_string = " AND ".join(filters) if filters else ""
-            query = kw or ""
+            result = index.search(query, params)
+            hits = result.get("hits", [])
+            print(result["hits"][0])
 
-            # -------------------------
-            # Cas 1 : plein texte
-            # -------------------------
-            if is_fulltext:
-                result = index.search(query, {"limit": 200})
-                hits = result.get("hits", [])
-                N = len(hits)
+            print(f"\n🟧 Meili a renvoyé {len(hits)} documents")
 
-                for i, hit in enumerate(hits):
-                    try:
-                        score_display = round(1.0 - (i / max(N - 1, 1)), 3) if N > 1 else 1.0
-                        obj, created = VeilleEvenement.objects.get_or_create(
-                            veille=veille,
-                            societe=None,
-                            type="DECISION",
-                            date_publication=hit.get("date_doc"),
-                            source=hit.get("url") or "",
-                            defaults={
-                                "rubrique": ", ".join(hit.get("extra_keyword") or []),
-                                "titre": hit.get("title") or query,
-                                "score": score_display,
-                                "rank_position": i,
-                                "tva_list": hit.get("TVA") or [],  # ✅ ajout TVA
-                            },
-                        )
-                        if not created:
-                            obj.score = score_display
-                            obj.rank_position = i
-                            obj.save(update_fields=["score", "rank_position", "tva_list"])
-                        else:
-                            saved += 1
-                    except IntegrityError:
-                        continue
-                continue
+            # -------- FILTRE PYTHON STRICT --------
+            filtered_hits = []
+            for hit in hits:
+                extra = hit.get("extra_keyword") or []
+                extra_lower = [x.lower() for x in extra]
 
-            # -------------------------
-            # Cas 2 : filtré par type/date (sans rue)
-            # -------------------------
-            elif not rue_filter:
-                params = {"limit": 200}
-                if filter_string:
-                    params["filter"] = filter_string
-                result = index.search(query, params)
-                hits = result.get("hits", [])
+                python_pass = True
+                if decision_type:
+                    python_pass = any(e in possible_keywords for e in extra_lower)
 
-                for hit in hits:
-                    try:
-                        obj, created = VeilleEvenement.objects.get_or_create(
-                            veille=veille,
-                            societe=None,
-                            type="DECISION",
-                            date_publication=hit.get("date_doc"),
-                            source=hit.get("url") or "",
-                            defaults={
-                                "rubrique": ", ".join(hit.get("extra_keyword") or []),
-                                "titre": hit.get("title") or query,
-                                "score": None,  # pas de similarité calculée
-                                "tva_list": hit.get("TVA") or [],  # ✅ ajout TVA
-                            },
-                        )
-                        if created:
-                            saved += 1
-                    except IntegrityError:
-                        continue
+                print("\n---- HIT ----")
+                print("URL:", hit.get("url"))
+                print("EXTRA:", extra)
+                print("PYTHON MATCH:", python_pass)
 
-            # -------------------------
-            # Cas 3 : filtré par rue
-            # -------------------------
-            else:
-                attrs = ["adresses_all_flat", "adresses_ejustice_flat", "adresses_bce_flat"]
+                if python_pass:
+                    filtered_hits.append(hit)
+                else:
+                    print("❌ rejeté")
 
-                params_flat = {"limit": 200, "matchingStrategy": "last", "attributesToSearchOn": attrs}
-                if filter_string:
-                    params_flat["filter"] = filter_string
-                result_flat = index.search(query, params_flat)
+            # -----------------------------------------
+            # 🔄 insertion en base
+            # -----------------------------------------
+            for hit in filtered_hits:
 
-                params_ejustice = {"limit": 200, "matchingStrategy": "last", "attributesToSearchOn": attrs}
-                if filter_string:
-                    params_ejustice["filter"] = filter_string
-                result_ejustice = index.search(query, params_ejustice)
+                extra = hit.get("extra_keyword") or []
 
-                hits = result_flat.get("hits", []) + result_ejustice.get("hits", [])
+                try:
+                    obj, created = VeilleEvenement.objects.get_or_create(
+                        veille=veille,
+                        societe=None,
+                        type="DECISION",
+                        date_publication=hit.get("date_doc"),
+                        source=hit.get("url") or "",
+                        defaults={
+                            "rubrique": ", ".join(extra),
+                            "titre": hit.get("title") or query,
+                            "score": hit.get("_rankingScore") if has_real_keyword else None,
+                            "tva_list": hit.get("TVA") or [],
+                        },
+                    )
+                    if created:
+                        inserted += 1
 
-                for hit in hits:
-                    try:
-                        score_flat = 0
-                        score_ejustice = 0
-                        score_bce = 0
+                except IntegrityError:
+                    continue
 
-                        addr_field_flat = hit.get("adresses_all_flat") or []
-                        if isinstance(addr_field_flat, list):
-                            scores = [similarity(query, addr) for addr in addr_field_flat if isinstance(addr, str)]
-                            score_flat = max(scores) if scores else 0
-                        elif isinstance(addr_field_flat, str):
-                            score_flat = similarity(query, addr_field_flat)
-
-                        addr_field_ejustice = hit.get("adresses_by_ejustice") or []
-                        if isinstance(addr_field_ejustice, list):
-                            scores_ejustice = [
-                                similarity(query, clean_address_raw(addr_obj.get("adresse", "")))
-                                for addr_obj in addr_field_ejustice if isinstance(addr_obj, dict)
-                            ]
-                            score_ejustice = max(scores_ejustice) if scores_ejustice else 0
-                        elif isinstance(addr_field_ejustice, dict):
-                            score_ejustice = similarity(query,
-                                                        clean_address_raw(addr_field_ejustice.get("adresse", "")))
-
-                        addr_field_bce = hit.get("adresses_by_bce") or []
-                        if isinstance(addr_field_bce, list):
-                            scores_bce = [
-                                similarity(query, clean_address_raw(addr_obj.get("adresse", "")))
-                                for addr_obj in addr_field_bce if isinstance(addr_obj, dict)
-                            ]
-                            score_bce = max(scores_bce) if scores_bce else 0
-
-                        final_score = max(score_flat, score_ejustice, score_bce)
-                        add_result = (
-                            score_flat >= threshold_flat or
-                            score_ejustice >= threshold_ejustice or
-                            score_bce >= threshold_flat
-                        )
-
-                        if add_result:
-                            obj, created = VeilleEvenement.objects.get_or_create(
-                                veille=veille,
-                                societe=None,
-                                type="DECISION",
-                                date_publication=hit.get("date_doc"),
-                                source=hit.get("url") or "",
-                                defaults={
-                                    "rubrique": ", ".join(hit.get("extra_keyword") or []),
-                                    "titre": hit.get("title") or query,
-                                    "score": round(final_score, 3),
-                                    "tva_list": hit.get("TVA") or [],
-                                },
-                            )
-                            if not created:
-                                obj.score = round(final_score, 3)
-                                obj.save(update_fields=["score"])
-                            else:
-                                saved += 1
-                    except IntegrityError:
-                        continue
-
-        self.stdout.write(self.style.SUCCESS(f"✅ {saved} résultat(s) ajouté(s)"))
+        print(f"\n\n✅ {inserted} décision(s) réellement ajoutée(s)")

@@ -25,8 +25,6 @@ from django.core.exceptions import ValidationError
 from datetime import datetime
 
 
-
-
 def home_marketing(request):
     if request.user.is_authenticated:
         return redirect("dashboard_veille")
@@ -69,6 +67,7 @@ def send_test_email():
 def recurrence_view(request, veille_id):
     veille = get_object_or_404(Veille, pk=veille_id, user=request.user)
     return render(request, "veille/recurrencealerte.html", {"veille": veille})
+
 
 @login_required
 def veille_fuzzy(request):
@@ -114,7 +113,7 @@ def veille_fuzzy(request):
                 veille_id=veille_obj.id,
                 decision_type=decision_type,
                 date_from=date_from,
-                rue=rue_filter,   # 👈 booléen
+                rue=rue_filter,  # 👈 booléen
             )
             send_mail(
                 'Veille juridique créée avec succès',
@@ -154,6 +153,7 @@ def veille_fuzzy(request):
         "profile": profile,
         "tableau": tableau,  # 👈 on passe le tableau enrichi au template
     })
+
 
 @login_required
 def update_veille_recurrence(request, veille_id):
@@ -224,26 +224,19 @@ def maveille(request):
     return render(request, "veille/maveille.html")
 
 
-
 @login_required
 def veille_dashboard(request):
-    print("\n----------------------------------------")
-    print("🟦 DASHBOARD : chargement des veilles…")
-    print("----------------------------------------")
-
     veilles = (
         Veille.objects.filter(user=request.user)
-        .prefetch_related(
+            .prefetch_related(
             "societes",
             Prefetch(
                 "evenements",
                 queryset=VeilleEvenement.objects.select_related("societe").order_by("-date_publication")
             ),
         )
-        .order_by("-date_creation")
+            .order_by("-date_creation")
     )
-
-    print(f"✅ Nombre de veilles trouvées : {veilles.count()}")
 
     tableau = []
 
@@ -252,122 +245,100 @@ def veille_dashboard(request):
     index = client.index(settings.INDEX_NAME)
 
     for veille in veilles:
-        print(f"\n🔔 Veille ID={veille.id} ({veille.type}) : {veille.nom}")
 
         if veille.type == "KEYWORD":
             annexes = veille.evenements.filter(type="ANNEXE", societe__isnull=True)
-            decisions_queryset = veille.evenements.filter(type="DECISION", societe__isnull=True)
+
+            decisions_queryset = veille.evenements.filter(
+                type="DECISION",
+                societe__isnull=True
+            )
 
             decisions = []
-            total_decisions = 0  # Compte des décisions pour la veille de type "KEYWORD"
+            total_decisions = 0
 
             for ev in decisions_queryset:
-                hit_data = None
-
-                # Recherche du document correspondant dans MeiliSearch via l'URL
-                try:
-                    search_res = index.search("", {"filter": f'url = "{ev.source}"'})
-                    hits = search_res.get("hits", [])
-                    if hits:
-                        print("Premier hit complet:", hits[0])
-                    print(f"🔍 Recherche Meili pour URL={ev.source} → {len(hits)} résultat(s)")
-                    if hits:
-                        print("Premier hit:", hits[0])
-                    if hits:
-                        hit_data = hits[0]
-                except Exception as e:
-                    print(f"⚠️ Erreur Meili pour {ev.source}: {e}")
-
-                decision = {
+                decisions.append({
                     "titre": ev.titre or "Titre non disponible",
-                    "date_publication": ev.date_publication or "Date non disponible",
+                    "date_publication": ev.date_publication,
                     "source": ev.source,
-                    # Champs enrichis Meili
-                    "score": ev.score,  # 👈 ajout du score uniquement pour KEYWORD
-                    "TVA": [
-                        f"{tva[:4]}.{tva[4:7]}.{tva[7:10]}" for tva in (hit_data.get("TVA") or [])
-                    ] if hit_data else None,
-                    "extra_keyword": hit_data.get("extra_keyword") if hit_data else None,
-                    "date_jugement": hit_data.get("date_jugement") if hit_data else None,
-                    "administrateur": hit_data.get("administrateur") if hit_data else None,
-                    "adresses_by_bce": hit_data.get("adresses_by_bce") if hit_data else None,
-                    "adresses_by_ejustice": hit_data.get("adresses_by_ejustice") if hit_data else None,
-                    "adresses_all_flat": hit_data.get("adresses_all_flat") if hit_data else None,
-                    "denoms_by_bce": hit_data.get("denoms_by_bce") if hit_data else None,
-                    "denoms_by_ejustice_flat": hit_data.get("denoms_by_ejustice_flat") if hit_data else None,
-                }
+                    "score": ev.score,  # 👈 Score bien transmis ici
+                    "rubrique": ev.rubrique,
+                    "tva_list": ev.tva_list,
+                    "extra_keyword": ev.rubrique,
+                })
+                total_decisions += 1
 
-                decisions.append(decision)
-                total_decisions += 1  # Incrémenter le compteur de décisions
+            # 🟢 CORRIGÉ : en dehors de la boucle
+            veille.total_decisions = total_decisions
+            veille.total_annexes = annexes.count()
 
-            veille.result_count = annexes.count() + total_decisions  # Total des annexes + décisions
             tableau.append({
                 "veille": veille,
                 "societe": None,
                 "annexes": annexes,
                 "decisions": decisions,
-                "total_decisions": total_decisions,  # Assurez-vous d'inclure total_decisions
+                "total_decisions": total_decisions,
             })
 
+
         elif veille.type == "TVA":
-            print(f"    -> TVA : {veille.societes.count()} sociétés surveillées")
-            total_annexes = 0  # Initialisation du total des annexes pour la TVA
-            total_decisions = 0  # Initialisation du total des décisions pour la TVA
-            veille.result_count = 0  # Initialisation du total des événements (annexes + décisions)
+
+            total_decisions = 0
+            total_annexes = 0
 
             for societe in veille.societes.all():
-                print(f"        🔎 Société : {societe.numero_tva} (ID={societe.id})")
+                soc_annexes = veille.evenements.filter(
+                    type="ANNEXE",
+                    societe=societe
+                )
 
-                # Récupérer les annexes pour cette société
-                annexes = veille.evenements.filter(type="ANNEXE", societe=societe)
+                soc_decisions_db = veille.evenements.filter(
+                    type="DECISION",
+                    societe=societe
+                )
 
-                # Recherche des décisions judiciaires dans MeiliSearch
-                tva = societe.numero_tva
-                results = index.search("", {"filter": f'TVA IN ["{tva}"]'})  # Recherche de décisions pour cette TVA
-                decisions = []
-                for hit in results.get("hits", []):  # Utilisation de .get pour éviter une erreur si "hits" n'existe pas
-                    decision = {
-                        "titre": hit.get("title", "Titre non disponible"),
-                        "date_publication": parse_date_doc(hit.get("date_doc")),
-                        "source": hit.get("url", "URL non disponible"),
-                        "TVA": hit.get("TVA"),
-                        "extra_keyword": hit.get("extra_keyword"),
-                        "date_jugement": hit.get("date_jugement"),
-                        "administrateur": hit.get("administrateur"),
-                        "adresses_by_bce": hit.get("adresses_by_bce"),
-                        "adresses_by_ejustice": hit.get("adresses_by_ejustice"),
-                        "adresses_all_flat": hit.get("adresses_all_flat"),
-                        "denoms_by_bce": hit.get("denoms_by_bce"),
-                        "denoms_by_ejustice_flat": hit.get("denoms_by_ejustice_flat"),
-                    }
-
-                    decisions.append(decision)
-
-                # Mise à jour des totaux pour la veille de type "TVA"
-                total_annexes += annexes.count()
-                total_decisions += len(decisions)
-
-                print(f"           ➤ annexes = {annexes.count()} | décisions = {len(decisions)}")
-                print(f"Résultat brut MeiliSearch pour {tva}: {results}")
-
+                # Ajoute au tableau
                 tableau.append({
                     "veille": veille,
                     "societe": societe,
-                    "annexes": annexes,
-                    "decisions": decisions,  # Ajout des décisions récupérées de MeiliSearch
-                    "total_decisions": total_decisions,  # Ajout du total des décisions dans le tableau
+                    "annexes": soc_annexes,
+                    "decisions": [
+                        {
+                            "titre": d.titre,
+                            "rubrique": d.rubrique,
+                            "date_publication": d.date_publication,
+                            "source": d.source,
+                            "score": d.score,
+                            "tva_list": d.tva_list,
+                        }
+                        for d in soc_decisions_db
+                    ],
+                    "total_annexes": soc_annexes.count(),
+                    "total_decisions": soc_decisions_db.count(),
                 })
 
-            # Mettre à jour le résultat total pour la veille de type "TVA"
-            veille.result_count = total_annexes + total_decisions
-            # Ajouter les totaux dans le tableau pour cette veille
+                total_annexes += soc_annexes.count()
+                total_decisions += soc_decisions_db.count()
+
             veille.total_annexes = total_annexes
             veille.total_decisions = total_decisions
 
     # Debug : Afficher le contenu final du tableau avant de rendre la page
-    print("\n✅ FIN DASHBOARD (tableau généré)")
-    print(f"Tableau final: {tableau}")
-    print("\n✅ FIN DASHBOARD (tableau généré)\n")
+    print("\n====== DEBUG TVA DB ======")
+
+    for ev in VeilleEvenement.objects.filter(type="DECISION"):
+        print(f"[DECISION] veille={ev.veille.id} societe={ev.societe} date={ev.date_publication} titre={ev.titre}")
+
+    print("====== FIN DEBUG ======\n")
+    # 🔥 UNE FOIS que tableau est complètement rempli
+    for veille in veilles:
+        if veille.type == "TVA":
+            veille.total_decisions = sum(
+                entry["total_decisions"]
+                for entry in tableau
+                if entry["veille"].id == veille.id
+            )
 
     return render(
         request,
@@ -378,7 +349,6 @@ def veille_dashboard(request):
 
 @login_required
 def scan_decisions_keywords(request, veille_id):
-    print(">>> SCAN KEYWORDS", veille_id)
     call_command("scan_keywords", veille=veille_id)
     messages.success(request, "✅ Scan mots-clés lancé.")
     return redirect("dashboard_veille")
@@ -386,9 +356,6 @@ def scan_decisions_keywords(request, veille_id):
 
 @login_required
 def lancer_scan(request, tva):
-    print(">>> lancer_scan VUE APPELÉE")
-    print(f">>> TVA reçue = {tva}")
-
     try:
         # ✅ retrouver la veille de l'utilisateur liée à cette TVA
         soc = VeilleSociete.objects.filter(
@@ -400,8 +367,6 @@ def lancer_scan(request, tva):
             messages.error(request, "❌ Cette TVA n'est pas dans vos veilles.")
             return redirect("dashboard_veille")
 
-        print(f"➡️ Scan déclenché pour TVA {soc.numero_tva} sur veille ID={soc.veille.id}")
-
         # ✅ on passe l'ID de la veille
         call_command("veille_scan", tva=soc.numero_tva, veille=soc.veille.id)
 
@@ -411,14 +376,12 @@ def lancer_scan(request, tva):
         )
 
     except Exception as e:
-        print(f"❌ ERREUR veille_scan : {e}")
         messages.error(request, f"❌ Erreur lors du scan TVA : {e}")
 
     return redirect("dashboard_veille")
 
 
 def scan_decisions(request, tva):
-
     client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
     index = client.index(settings.INDEX_NAME)
 
@@ -428,10 +391,10 @@ def scan_decisions(request, tva):
     count = 0
 
     for soc in societes:
-        for doc in results["hits"]:
+        for doc in results.get("hits", []):
             VeilleEvenement.objects.get_or_create(
                 veille=soc.veille,
-                societe=soc,  # ✅ c’est CE paramètre qui manque
+                societe=soc,  # ✅ FIX ICI !!!
                 type="DECISION",
                 date_publication=parse_date_doc(doc.get("date_doc")),
                 source=doc.get("url") or f"no-url-{doc.get('date_doc')}",
@@ -440,12 +403,10 @@ def scan_decisions(request, tva):
                     "titre": doc.get("title") or "",
                 }
             )
-
             count += 1
 
     messages.success(request, f"⚖️ {count} décision(s) trouvée(s) pour TVA {tva}")
     return redirect("dashboard_veille")
-
 
 # ------------------------------------------------------------
 # ✅ AUTOCOMPLETE RUE
@@ -461,7 +422,6 @@ def api_autocomplete_rue(request):
     try:
         response = client.index(settings.INDEX_RUE_NAME).search(query, {"limit": 7})
     except Exception as e:
-        print("❌ ERREUR connexion MeiliSearch :", e)
         return JsonResponse([], safe=False)
 
     hits = response.get("hits", [])
@@ -482,6 +442,7 @@ def supprimer_veille(request, pk):
         return redirect('dashboard_veille')
 
     return redirect('dashboard_veille')
+
 
 # ------------------------------------------------------------
 # ✅ FICHE SOCIETÉ (BCE)
@@ -561,6 +522,7 @@ def api_societes(request):
         data = [{"bce": row[0], "nom": row[1]} for row in cur.fetchall()]
 
     return JsonResponse(data, safe=False)
+
 
 # ------------------------------------------------------------
 # ✅ AUTOCOMPLETE MOT-CLÉ
@@ -735,14 +697,27 @@ def api_search_tva(request):
 # ✅ PAGES
 # ------------------------------------------------------------
 def home(request): return render(request, "veille/app_home.html")
-def charts(request): return render(request, "veille/charts.html")
-def contact(request): return render(request, "veille/contact.html")
-def fonctionnalites(request): return render(request, "veille/fonctionnalites.html")
-def recherches(request): return render(request, "veille/recherches.html")
-def resultats(request): return render(request, "veille/resultats.html")
-def premium(request): return render(request, "veille/premium.html")
-def info_utilisation(request): return render(request, "veille/info.html")
 
+
+def charts(request): return render(request, "veille/charts.html")
+
+
+def contact(request): return render(request, "veille/contact.html")
+
+
+def fonctionnalites(request): return render(request, "veille/fonctionnalites.html")
+
+
+def recherches(request): return render(request, "veille/recherches.html")
+
+
+def resultats(request): return render(request, "veille/resultats.html")
+
+
+def premium(request): return render(request, "veille/premium.html")
+
+
+def info_utilisation(request): return render(request, "veille/info.html")
 
 
 # ------------------------------------------------------------
