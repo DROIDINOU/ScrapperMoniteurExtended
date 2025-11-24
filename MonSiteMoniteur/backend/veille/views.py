@@ -74,31 +74,36 @@ def veille_fuzzy(request):
     profile = request.user.userprofile
 
     if request.method == "POST":
-        # Sauvegarde des mots-clés
-        profile.keyword1 = request.POST.get("keyword1")
-        profile.keyword2 = request.POST.get("keyword2")
-        profile.keyword3 = request.POST.get("keyword3")
-        profile.save()
 
-        # Nom de la veille
+        # 🔹 Sauvegarde éventuelle de mots-clés (si tu veux les garder)
+
+
+        # 🔹 Nom de la veille
         veille_nom = request.POST.get("veille_nom", "").strip()
         if not veille_nom:
             veille_nom = f"Veille Mots-clés — {request.user.username}"
 
-        # Récupération des filtres
-        decision_type = request.POST.get("decision_type")
-        date_from = request.POST.get("date_from")
+        # 🔹 Récupération des filtres
+        decision_type = request.POST.get("decision_type", "").strip()
+        date_from = request.POST.get("date_from", "").strip()
+        rue_value = request.POST.get("rue", "").strip()   # <-- le texte de la rue
 
-        # ⚠️ Rue est désormais un filtre booléen (true/false)
-        rue_filter = request.POST.get("rue") == "true"
+        # 🔥 Correction fondamentale : RUE = chaîne vide ou texte
+        if not decision_type and not date_from and not rue_value:
+            messages.error(
+                request,
+                "Vous devez sélectionner au moins un filtre (type de décision, date ou rue)."
+            )
+            return redirect("veille_fuzzy")
 
-        # ✅ Création avec validation
+        # 🔹 Création de la veille
         veille_obj = Veille(
             user=request.user,
             nom=veille_nom,
             type="KEYWORD",
             last_scan=now()
         )
+
         try:
             veille_obj.full_clean()
             veille_obj.save()
@@ -106,29 +111,32 @@ def veille_fuzzy(request):
             messages.error(request, e.messages[0])
             return redirect("veille_fuzzy")
 
+        # 🔥 Passage correct au management command :
+        # rue != booléen —> rue = texte !
         try:
-            # Passage du filtre Rue comme booléen
             call_command(
                 "scan_keywords",
                 veille_id=veille_obj.id,
-                decision_type=decision_type,
-                date_from=date_from,
-                rue=rue_filter,  # 👈 booléen
+                decision_type=decision_type or "",
+                date_from=date_from or "",
+                rue=rue_value or "",    # <-- c’est maintenant un texte, pas un bool
             )
+
             send_mail(
                 'Veille juridique créée avec succès',
-                f'Votre veille juridique a été créée avec succès.\nNom de la veille : {veille_nom}',
+                f'Votre veille "{veille_nom}" a bien été créée.',
                 settings.EMAIL_HOST_USER,
                 [request.user.email],
                 fail_silently=False,
             )
+
             return redirect("set_recurrence", veille_id=veille_obj.id)
 
         except Exception as e:
-            messages.error(request, f"❌ Une erreur s'est produite lors du lancement du scan : {e}")
+            messages.error(request, f"❌ Erreur lors du lancement du scan : {e}")
             return redirect("set_recurrence", veille_id=veille_obj.id)
 
-    # 👉 Ici, on prépare les données pour le template
+    # Si GET : on affiche
     veilles = Veille.objects.filter(user=request.user)
     tableau = []
     for veille in veilles:
@@ -139,10 +147,9 @@ def veille_fuzzy(request):
                 {
                     "titre": d.titre,
                     "rubrique": d.rubrique,
-                    "date_publication": d.date_publication,  # 👈 corriger ici
+                    "date_publication": d.date_publication,
                     "source": d.source,
-                    "score": d.score,
-                    "tva_list": d.tva_list,  # ✅ ajout TVA
+                    "tva_list": d.tva_list,
                 }
                 for d in decisions
             ],
@@ -151,9 +158,8 @@ def veille_fuzzy(request):
 
     return render(request, "veille/fuzzy_veille.html", {
         "profile": profile,
-        "tableau": tableau,  # 👈 on passe le tableau enrichi au template
+        "tableau": tableau,
     })
-
 
 @login_required
 def update_veille_recurrence(request, veille_id):
@@ -259,20 +265,17 @@ def veille_dashboard(request):
 
             for ev in decisions_queryset:
                 # 🔥 Filtrage : si veille mots‐clés → score obligatoire > 0.9
-                if veille.type == "KEYWORD":
-                    if ev.score is None or ev.score <= 0.9:
-                        continue
                 decisions.append({
                     "titre": ev.titre or "Titre non disponible",
                     "date_publication": ev.date_publication,
                     "source": ev.source,
-                    "score": ev.score,  # 👈 Score bien transmis ici
                     "rubrique": ev.rubrique,
                     "tva_list": ev.tva_list,
                     "extra_keyword": ev.rubrique,
                 })
                 total_decisions += 1
 
+            # TRIER LES DÉCISIONS PAR SCORE (haut -> bas)
             # 🟢 CORRIGÉ : en dehors de la boucle
             veille.total_decisions = total_decisions
             veille.total_annexes = annexes.count()
@@ -313,7 +316,6 @@ def veille_dashboard(request):
                             "rubrique": d.rubrique,
                             "date_publication": d.date_publication,
                             "source": d.source,
-                            "score": d.score,
                             "tva_list": d.tva_list,
                         }
                         for d in soc_decisions_db

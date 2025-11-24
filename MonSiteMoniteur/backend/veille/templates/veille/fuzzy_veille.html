@@ -3,9 +3,9 @@
 {% block content %}
 
 <div class="container py-4">
-    <h2 class="mb-3 text-primary text-center">Veille par mots-clés (Fuzzy Search)</h2>
+    <h2 class="mb-3 text-primary text-center">Veille par filtres</h2>
     <p class="text-muted text-center">
-        Entrez des mots-clés. Dès qu’une décision judiciaire contient l’un d’eux, une alerte est créée.
+        Configurez vos critères. Dès qu’une décision judiciaire correspond, une alerte est créée.
     </p>
 
     <!-- Formulaire centré -->
@@ -22,64 +22,56 @@
                    id="veille_nom">
         </div>
 
-        <!-- MOT-CLÉ -->
-        <div class="form-group mb-3">
-            <label>Mot-clé n°1</label>
-            <input type="text" name="keyword1" class="form-control form-control-sm"
-                   value="{{ profile.keyword1|default_if_none:'' }}"
-                   placeholder="ex : dissolution"
-                   id="keyword1">
-        </div>
-
-
-
         <!-- ACCORDÉON FILTRES -->
-<div class="accordion" id="filtersAccordion">
-    <div class="accordion-item">
-        <h2 class="accordion-header" id="headingFilters">
-            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFilters">
-                Ajouter des filtres supplémentaires
-            </button>
-        </h2>
-        <div id="collapseFilters" class="accordion-collapse collapse">
-            <div class="accordion-body">
+        <div class="accordion" id="filtersAccordion">
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingFilters">
+                    <button class="accordion-button" type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseFilters">
+                        Ajouter des filtres
+                    </button>
+                </h2>
 
-                <!-- Filtre Type de décision -->
-                <div class="form-group mb-3">
-                    <label for="decision_type">Type de décision</label>
-                    <select id="decision_type" name="decision_type" class="form-control form-control-sm">
-                        <option value="">Sélectionnez un type de décision</option>
-                        <option value="faillite">Faillite</option>
-                        <option value="rapportee">Faillite rapportée</option>
-                        <option value="radiation">Radiation</option>
-                        <option value="dissolution">Dissolution</option>
-                        <option value="liquidation">Liquidation</option>
-                        <option value="condamnation">Condamnation</option>
-                        <option value="ouverture">Ouverture</option>
-                        <option value="cloture">Clôture</option>
-                    </select>
+                <div id="collapseFilters" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+
+                        <!-- Filtre Type de décision -->
+                        <div class="form-group mb-3">
+                            <label for="decision_type">Type de décision</label>
+                            <select id="decision_type" name="decision_type" class="form-control form-control-sm">
+                                <option value="">Sélectionnez un type de décision</option>
+                                <option value="faillite">Faillite</option>
+                                <option value="rapportee">Faillite rapportée</option>
+                                <option value="radiation">Radiation</option>
+                                <option value="dissolution">Dissolution</option>
+                                <option value="liquidation">Liquidation</option>
+                                <option value="condamnation">Condamnation</option>
+                                <option value="ouverture">Ouverture</option>
+                                <option value="cloture">Clôture</option>
+                            </select>
+                        </div>
+
+                        <!-- Filtre Date de publication -->
+                        <div class="form-group mb-3">
+                            <label for="date_from">Date de publication (début)</label>
+                            <input type="date" id="date_from" name="date_from" class="form-control form-control-sm">
+                        </div>
+
+                        <!-- Filtre Rue précise -->
+                        <div class="form-group mb-3">
+                            <label for="rue">Rue (nom exact ou partiel)</label>
+                            <input type="text"
+                                   id="rue"
+                                   name="rue"
+                                   placeholder="ex : Rue de Birmingham"
+                                   class="form-control form-control-sm">
+                        </div>
+
+                    </div>
                 </div>
-
-                <!-- Filtre Date de publication -->
-                <div class="form-group mb-3">
-                    <label for="date_from">Date de publication (début)</label>
-                    <input type="date" id="date_from" name="date_from" class="form-control form-control-sm">
-                </div>
-
-                <!-- Filtre par Rue -->
-<div class="form-group mb-3">
-    <label for="rue">Filtrer par Rue</label>
-    <select id="rue" name="rue" class="form-control form-control-sm">
-        <option value="">Ne pas filtrer</option>
-        <option value="true">Activer le filtre Rue</option>
-    </select>
-</div>
-
             </div>
         </div>
-    </div>
-</div>
-
 
         <!-- BOUTONS -->
         <div class="d-flex justify-content-between mt-3 flex-wrap" id="btnContainer">
@@ -112,23 +104,8 @@
     </form>
 </div>
 
-<!-- Modal Erreur -->
-<div class="modal fade" id="validationModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Erreur de Validation</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="modalMessage"></div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 {% endblock %}
+
 {% block extra_scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
@@ -137,70 +114,45 @@ document.addEventListener("DOMContentLoaded", function () {
     const submitButton = document.getElementById("submitButton");
 
     const veilleNom = document.getElementById("veille_nom");
-    const keywordInput = document.getElementById("keyword1");
     const decisionType = document.querySelector("select[name='decision_type']");
     const dateFrom = document.querySelector("input[name='date_from']");
+    const rueField = document.querySelector("input[name='rue']");
 
-    const btnContainer = document.getElementById("btnContainer");
-
-    // --- Bouton Reset ---
     let resetBtn = document.getElementById("resetBtn");
 
-    // -----------------------------------------
-    // 🔐 BLOQUER LE FORMULAIRE APRÈS VALIDATION
-    // -----------------------------------------
     function lockForm() {
 
-    if (veilleNom) veilleNom.readOnly = true;
-    if (veilleNom) veilleNom.style.pointerEvents = "none";
+        if (veilleNom) { veilleNom.readOnly = true; veilleNom.style.pointerEvents = "none"; }
+        if (decisionType) { decisionType.readOnly = true; decisionType.style.pointerEvents = "none"; }
+        if (dateFrom) { dateFrom.readOnly = true; dateFrom.style.pointerEvents = "none"; }
+        if (rueField) { rueField.readOnly = true; rueField.style.pointerEvents = "none"; }
 
-    if (keywordInput) keywordInput.readOnly = true;
-    if (keywordInput) keywordInput.style.pointerEvents = "none";
+        validateBtn.style.display = "none";
+        resetBtn.style.display = "inline-block";
 
-    if (decisionType) decisionType.readOnly = true;
-    if (decisionType) decisionType.style.pointerEvents = "none";
+        submitButton.disabled = false;
+        submitButton.style.cursor = "pointer";
+    }
 
-    if (dateFrom) dateFrom.readOnly = true;  // remplace disabled !
-    if (dateFrom) dateFrom.style.pointerEvents = "none";
-
-    validateBtn.style.display = "none";
-    resetBtn.style.display = "inline-block";
-
-    submitButton.disabled = false;
-    submitButton.style.cursor = "pointer";
-}
-
-    // -----------------------------------------
-    // 🔄 REMETTRE LE FORMULAIRE COMME AU DÉBUT
-    // -----------------------------------------
     function resetForm() {
 
-    // Réactiver champs
-    veilleNom.readOnly = false;
-    keywordInput.readOnly = false;
-    decisionType.disabled = false;
-    dateFrom.disabled = false;
+        veilleNom.readOnly = false;
+        decisionType.disabled = false;
+        dateFrom.disabled = false;
+        rueField.disabled = false;
 
-    // Vider les champs
-    veilleNom.value = "";
-    keywordInput.value = "";
-    decisionType.value = "";
-    dateFrom.value = "";
+        veilleNom.value = "";
+        decisionType.value = "";
+        dateFrom.value = "";
+        rueField.value = "";
 
-    // Réafficher bouton "Valider"
-    validateBtn.style.display = "inline-block";
+        validateBtn.style.display = "inline-block";
+        resetBtn.style.display = "none";
 
-    // Masquer bouton reset
-    resetBtn.style.display = "none";
+        submitButton.disabled = true;
+        submitButton.style.cursor = "not-allowed";
+    }
 
-    // Désactiver bouton submit
-    submitButton.disabled = true;
-    submitButton.style.cursor = "not-allowed";
-}
-
-    // -----------------------------------------
-    // ✔ VALIDATION
-    // -----------------------------------------
     function validateFields() {
         let ok = true;
         let error = "";
@@ -211,36 +163,21 @@ document.addEventListener("DOMContentLoaded", function () {
             veilleNom.value = "";
         }
 
-        if (keywordInput.value.length > 100) {
-            ok = false;
-            error = "Le mot-clé ne doit pas dépasser 100 caractères.";
-            keywordInput.value = "";
-        }
-
         if (!ok) {
             alert(error);
             submitButton.disabled = true;
             return;
         }
 
-        // OK → activer submit + bloquer formulaire
         lockForm();
     }
 
-    // -----------------------------------------
-    // 📌 EVENTS
-    // -----------------------------------------
     validateBtn.addEventListener("click", validateFields);
     resetBtn.addEventListener("click", resetForm);
-    // 🆕 Remise à zéro forcée AU RECHARGEMENT / RETOUR PAGE
-// 🔥 Si l'utilisateur revient sur la page via le bouton "Retour",
-// on reset entièrement le formulaire.
-window.addEventListener("pageshow", function (event) {
-    if (event.persisted) {
-        resetForm();
-    }
-});
-});
 
+    window.addEventListener("pageshow", function (event) {
+        if (event.persisted) resetForm();
+    });
+});
 </script>
 {% endblock %}

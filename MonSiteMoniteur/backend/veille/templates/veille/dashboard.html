@@ -3,6 +3,7 @@
 
 {% block content %}
 <div class="container mt-4">
+
     <h2 class="text-center mb-4" style="font-size: 2rem; color: #333;">Tableau de bord de veille</h2>
 
     <div class="alert alert-info text-center py-2">
@@ -11,6 +12,7 @@
 
     {% if veilles %}
     <div class="accordion" id="accordionVeilles">
+
         {% for veille in veilles %}
         <div class="card mb-0 shadow-sm border-0">
 
@@ -29,6 +31,7 @@
                 </button>
 
                 <div class="d-flex align-items-center">
+
                     {% if veille.type == "TVA" %}
                     <div class="dropdown me-3">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
@@ -39,36 +42,39 @@
                         </button>
                         <ul class="dropdown-menu">
                             {% for entry in tableau %}
-                            {% if entry.veille.id == veille.id and entry.societe %}
-                            <li class="dropdown-item">
-                                <strong>{{ entry.societe.numero_tva }}</strong><br>
-                                {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
-                            </li>
-                            {% endif %}
+                                {% if entry.veille.id == veille.id and entry.societe %}
+                                <li class="dropdown-item">
+                                    <strong>{{ entry.societe.numero_tva }}</strong><br>
+                                    {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
+                                </li>
+                                {% endif %}
                             {% endfor %}
                         </ul>
                     </div>
                     {% endif %}
+
                     <span class="badge bg-secondary text-white me-2">
                         {{ veille.total_annexes|default:"0" }} annexe(s)
                     </span>
+
                     <span class="badge" style="background-color:#f0f0f0;color:#333;">
-                       {{ veille.total_decisions|default:"0" }} décision(s)
+                        {{ veille.total_decisions|default:"0" }} décision(s)
                     </span>
 
-
-                    <!-- Formulaire poubelle juste après les badges -->
                     <form method="POST"
                           action="{% url 'supprimer_veille' veille.id %}"
                           class="ms-3">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-link text-dark p-0"
+                        <button type="submit"
+                                class="btn btn-link text-dark p-0"
                                 onclick="return confirm('Voulez-vous vraiment supprimer cette veille ?');">
                             <i class="fa-solid fa-trash fa-lg"></i>
                         </button>
                     </form>
+
                 </div>
-            </div> <!-- ← fermeture du card-header -->
+
+            </div>
 
             <!-- COLLAPSE -->
             <div id="collapse{{ veille.id }}"
@@ -81,6 +87,7 @@
                     {% if entry.veille.pk == veille.pk %}
 
                     <div class="row">
+
                         {% if entry.societe %}
                         <div class="mb-2">
                             <span class="badge bg-primary text-white">
@@ -93,6 +100,7 @@
 
                         <!-- DECISIONS -->
                         <div class="{% if veille.type == 'KEYWORD' %}col-12{% else %}col-md-6{% endif %} mb-3">
+
                             <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;">
                                 Décisions judiciaires ({{ entry.decisions|length }})
                             </h5>
@@ -100,33 +108,54 @@
                             {% if entry.decisions %}
                             {% for ev in entry.decisions %}
                             <div class="event-row mb-2">
+
                                 <div class="fw-semibold" style="color:#333;">
                                     {{ ev.titre|default:"Titre non disponible" }}
                                 </div>
+
                                 <small class="text-muted">
+
                                     {{ ev.date_publication }}
+
                                     {% if ev.source %}
                                     · <a href="{{ ev.source }}" target="_blank"
-                                         class="btn btn-sm btn-outline-secondary py-0 me-3">Texte Moniteur Belge</a>
+                                         class="btn btn-sm btn-outline-secondary py-0 me-3">
+                                        Texte Moniteur Belge
+                                    </a>
                                     {% endif %}
 
                                     {% if ev.tva_list %}
-                                    · <span class="ms-2">TVA(s):</span>
-                                    <ul class="list-inline d-inline ms-2 me-3">
-                                        {% for tva in ev.tva_list %}
-                                        <li class="list-inline-item badge bg-primary text-white">{{ tva }}</li>
-                                        {% endfor %}
-                                    </ul>
-                                    {% endif %}
 
-                                    · <span class="ms-2">Score:</span>
+                                    <!-- BADGE BLEU + BOUTON -->
+                                    <div class="d-inline-flex align-items-center mt-1">
 
-                                    {% if ev.score == 1 %}
-                                    <span class="badge bg-success text-white ms-1">{{ ev.score|floatformat:2 }}</span>
-                                    {% elif ev.score and ev.score > 0.9 %}
-                                    <span class="badge bg-info text-dark ms-1">{{ ev.score|floatformat:2 }}</span>
-                                    {% else %}
-                                    <span class="badge bg-secondary text-white ms-1">—</span>
+                                        <span class="badge border border-primary text-primary bg-light ms-2">
+                                            TVA(s): {{ ev.tva_list|length }}
+                                        </span>
+
+                                        <button class="btn btn-sm btn-outline-primary py-0 ms-2"
+                                                type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#tva-list-{{ veille.id }}-{{ entry.id }}-{{ forloop.counter }}"
+                                                aria-expanded="false"
+                                                aria-controls="tva-list-{{ veille.id }}-{{ entry.id }}-{{ forloop.counter }}">
+                                            Voir la liste
+                                        </button>
+
+                                    </div>
+
+                                    <!-- LISTE TVA -->
+                                    <div class="collapse mt-2"
+                                         id="tva-list-{{ veille.id }}-{{ entry.id }}-{{ forloop.counter }}">
+                                        <ul class="list-inline">
+                                            {% for tva in ev.tva_list %}
+                                            <li class="list-inline-item badge bg-primary text-white mb-1">
+                                                {{ tva|slice:":4" }}.{{ tva|slice:"4:7" }}.{{ tva|slice:"7:10" }}
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+
                                     {% endif %}
 
                                 </small>
@@ -137,23 +166,25 @@
                             <p class="text-muted fst-italic">Aucune décision trouvée.</p>
                             {% endif %}
 
-
                         </div>
 
-
-                        {% if veille.type != "KEYWORD" %}
                         <!-- ANNEXES -->
+                        {% if veille.type != "KEYWORD" %}
                         <div class="col-md-6">
-                            <h5 class="border-bottom pb-2" style="font-size:1.1rem;color:#5a5a5a;padding-left:80px;">
+
+                            <h5 class="border-bottom pb-2"
+                                style="font-size:1.1rem;color:#5a5a5a;padding-left:80px;">
                                 Annexes publiées ({{ entry.annexes|length }})
                             </h5>
 
                             {% if entry.annexes %}
                             {% for ev in entry.annexes %}
                             <div class="event-row mb-2">
+
                                 <div class="fw-semibold" style="color:#333;">
                                     {{ ev.rubrique|default:ev.titre }}
                                 </div>
+
                                 <small class="text-muted">
                                     {{ ev.date_publication }}
                                     {% if ev.source %}
@@ -161,14 +192,15 @@
                                          class="btn btn-sm btn-outline-secondary py-0">PDF</a>
                                     {% endif %}
                                 </small>
+
                             </div>
                             {% endfor %}
                             {% else %}
                             <p class="text-muted fst-italic">Aucune annexe trouvée.</p>
                             {% endif %}
+
                         </div>
                         {% endif %}
-
 
                     </div>
 
@@ -176,10 +208,12 @@
                     {% endfor %}
 
                 </div>
+
             </div>
 
         </div>
         {% endfor %}
+
     </div>
 
     {% else %}
@@ -189,5 +223,6 @@
         <a href="{% url 'veille_fuzzy' %}" class="btn btn-outline-primary">Créer une veille mots-clés</a>
     </div>
     {% endif %}
+
 </div>
 {% endblock %}

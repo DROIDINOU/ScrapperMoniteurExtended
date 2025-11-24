@@ -111,7 +111,6 @@ class VeilleEvenement(models.Model):
     titre = models.CharField(max_length=500, blank=True, null=True)
 
     # ✅ Nouveau champ pour stocker le score de similarité
-    score = models.FloatField(null=True, blank=True)
     # ✅ Nouveau champ pour stocker la position de ranking MeiliSearch (mode plein texte)
     rank_position = models.IntegerField(null=True, blank=True)
     # ✅ Nouveau champ pour stocker les TVA (même nom que dans MeiliSearch)

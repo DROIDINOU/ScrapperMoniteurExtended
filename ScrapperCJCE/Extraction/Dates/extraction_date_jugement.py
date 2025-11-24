@@ -268,7 +268,7 @@ def extract_jugement_date(text):
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             return make_date_result(nettoyer_sortie(match.group(1)), "regex", 0.9)
-    print("on arrive ici au moins une fois !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
     # ==========================================================
     # 🔹 3. FALLBACK
     # ==========================================================

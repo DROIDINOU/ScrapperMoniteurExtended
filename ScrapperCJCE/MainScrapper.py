@@ -72,8 +72,8 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2024-11-28")  # début
-    to_date = date.fromisoformat("2024-11-29")  # date.today()  # fin
+    from_date = date.fromisoformat("2023-01-02")  # début
+    to_date = date.fromisoformat("2025-11-18")  # date.today()  # fin
     locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
@@ -150,11 +150,12 @@ def main():
     client = meilisearch.Client(meili_url, meili_key)
     try:
         index = client.get_index(index_name)
-        delete_task = index.delete()
-        client.wait_for_task(delete_task.task_uid)
-        print(f"[🗑️] Ancien index '{index_name}' supprimé.")
+        print(f"[ℹ️] Index '{index_name}' déjà existant.")
     except meilisearch.errors.MeilisearchApiError:
-        print(f"[ℹ️] Aucun index existant à supprimer ({index_name}).")
+        print(f"[➕] Création d’un nouvel index '{index_name}'…")
+        create_task = client.create_index(index_name, {"primaryKey": "id"})
+        client.wait_for_task(create_task.task_uid)
+        index = client.get_index(index_name)
 
     create_task = client.create_index(index_name, {"primaryKey": "id"})
     client.wait_for_task(create_task.task_uid)
