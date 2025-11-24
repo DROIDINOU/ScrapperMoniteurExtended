@@ -121,12 +121,12 @@
 
                                     · <span class="ms-2">Score:</span>
 
-                                    {% if ev.score == None %}
-                                    <span class="badge bg-secondary text-white ms-1">—</span>
-                                    {% elif ev.score == 1 %}
-                                    <span class="badge bg-success text-white ms-1">{{ ev.score|floatformat:2  }}</span>
+                                    {% if ev.score == 1 %}
+                                    <span class="badge bg-success text-white ms-1">{{ ev.score|floatformat:2 }}</span>
+                                    {% elif ev.score and ev.score > 0.9 %}
+                                    <span class="badge bg-info text-dark ms-1">{{ ev.score|floatformat:2 }}</span>
                                     {% else %}
-                                    <span class="badge bg-info text-dark ms-1">{{ ev.score|floatformat:2  }}</span>
+                                    <span class="badge bg-secondary text-white ms-1">—</span>
                                     {% endif %}
 
                                 </small>

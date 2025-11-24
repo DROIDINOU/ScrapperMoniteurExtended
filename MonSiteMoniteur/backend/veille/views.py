@@ -258,6 +258,10 @@ def veille_dashboard(request):
             total_decisions = 0
 
             for ev in decisions_queryset:
+                # 🔥 Filtrage : si veille mots‐clés → score obligatoire > 0.9
+                if veille.type == "KEYWORD":
+                    if ev.score is None or ev.score <= 0.9:
+                        continue
                 decisions.append({
                     "titre": ev.titre or "Titre non disponible",
                     "date_publication": ev.date_publication,
