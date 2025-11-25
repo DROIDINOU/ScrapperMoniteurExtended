@@ -28,6 +28,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--veille_id", required=True)
+        parser.add_argument("--keyword", type=str, default="")
         parser.add_argument("--decision_type", type=str)
         parser.add_argument("--date_from", type=str)
         parser.add_argument("--rue", type=str)
@@ -53,7 +54,6 @@ class Command(BaseCommand):
         client = MeiliClient(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
         index = client.index("moniteur_docs")
 
-        VeilleEvenement.objects.filter(veille=veille).delete()
         inserted = 0
 
         possible_keywords = DECISION_MAP.get(decision_type, [])

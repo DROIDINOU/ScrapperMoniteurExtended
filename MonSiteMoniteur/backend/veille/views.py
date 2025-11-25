@@ -75,33 +75,36 @@ def veille_fuzzy(request):
 
     if request.method == "POST":
 
-        # 🔹 Sauvegarde éventuelle de mots-clés (si tu veux les garder)
-
-
         # 🔹 Nom de la veille
         veille_nom = request.POST.get("veille_nom", "").strip()
         if not veille_nom:
             veille_nom = f"Veille Mots-clés — {request.user.username}"
 
         # 🔹 Récupération des filtres
+        keyword = request.POST.get("keyword", "").strip()          # 🟢 MANQUAIT !
         decision_type = request.POST.get("decision_type", "").strip()
         date_from = request.POST.get("date_from", "").strip()
-        rue_value = request.POST.get("rue", "").strip()   # <-- le texte de la rue
+        rue_value = request.POST.get("rue", "").strip()
 
-        # 🔥 Correction fondamentale : RUE = chaîne vide ou texte
-        if not decision_type and not date_from and not rue_value:
+        # 🔥 Vérification minimale
+        if not (keyword or decision_type or date_from or rue_value):
             messages.error(
                 request,
-                "Vous devez sélectionner au moins un filtre (type de décision, date ou rue)."
+                "Vous devez sélectionner au moins un filtre (mot-clé, type de décision, date ou rue)."
             )
             return redirect("veille_fuzzy")
 
-        # 🔹 Création de la veille
+        # 🔹 Création de la veille AVEC les bons champs
         veille_obj = Veille(
             user=request.user,
             nom=veille_nom,
             type="KEYWORD",
-            last_scan=now()
+            last_scan=now(),
+
+            keyword=keyword or None,
+            decision_type=decision_type or None,
+            date_from=date_from or None,
+            rue=rue_value or None,
         )
 
         try:
@@ -111,15 +114,15 @@ def veille_fuzzy(request):
             messages.error(request, e.messages[0])
             return redirect("veille_fuzzy")
 
-        # 🔥 Passage correct au management command :
-        # rue != booléen —> rue = texte !
+        # 🔥 Lancement correct du scan
         try:
             call_command(
                 "scan_keywords",
                 veille_id=veille_obj.id,
+                keyword=keyword or "",
                 decision_type=decision_type or "",
                 date_from=date_from or "",
-                rue=rue_value or "",    # <-- c’est maintenant un texte, pas un bool
+                rue=rue_value or "",
             )
 
             send_mail(
@@ -130,13 +133,13 @@ def veille_fuzzy(request):
                 fail_silently=False,
             )
 
-            return redirect("set_recurrence", veille_id=veille_obj.id)
+            return redirect("recurrence_view", veille_id=veille_obj.id)
 
         except Exception as e:
             messages.error(request, f"❌ Erreur lors du lancement du scan : {e}")
-            return redirect("set_recurrence", veille_id=veille_obj.id)
+            return redirect("recurrence_view", veille_id=veille_obj.id)
 
-    # Si GET : on affiche
+    # GET → affichage
     veilles = Veille.objects.filter(user=request.user)
     tableau = []
     for veille in veilles:
@@ -161,20 +164,53 @@ def veille_fuzzy(request):
         "tableau": tableau,
     })
 
+
 @login_required
 def update_veille_recurrence(request, veille_id):
     veille = get_object_or_404(Veille, pk=veille_id, user=request.user)
 
+    print("\n" + "="*80)
+    print("🟦 DEBUG update_veille_recurrence")
+    print(f"➡️ Veille ID   : {veille.id}")
+    print(f"➡️ Avant update : recurrence={veille.recurrence}, weekday={veille.recurrence_weekday}")
+    print("="*80)
+
     if request.method == "POST":
+
+        print("📥 POST reçu :", request.POST)
+
         recurrence = request.POST.get("recurrence")
-        if recurrence in ["instant", "daily", "weekly", "monthly"]:
-            veille.recurrence = recurrence
-            veille.save()
-            messages.success(request, "Fréquence des alertes mise à jour.")
+        weekday = request.POST.get("weekday")
+        weekday = weekday if weekday else None
+
+        print(f"➡️ Valeur POST recurrence = {recurrence}")
+        print(f"➡️ Valeur POST weekday    = {weekday}")
+
+        allowed = ["none", "daily", "weekly", "monthly"]
+
+        if recurrence not in allowed:
+            print("❌ ERREUR : recurrence NON reconnue")
+            messages.error(request, f"Valeur de récurrence invalide : {recurrence}")
+            return redirect("dashboard_veille")
+
+        # appliquer la récurrence
+        veille.recurrence = recurrence
+
+        if recurrence == "weekly":
+            veille.recurrence_weekday = weekday
         else:
-            messages.error(request, "Valeur de récurrence invalide.")
+            veille.recurrence_weekday = None
+
+        veille.save()
+
+        print("✔️ Mise à jour FAITE !")
+        print(f"➡️ Après update : recurrence={veille.recurrence}, weekday={veille.recurrence_weekday}")
+        print("="*80 + "\n")
+
+        messages.success(request, "Fréquence des alertes mise à jour.")
 
     return redirect("dashboard_veille")
+
 
 
 def maveille(request):
@@ -225,7 +261,7 @@ def maveille(request):
 
         threading.Thread(target=run_scan).start()
 
-        return redirect("set_recurrence", veille_id=veille_obj.id)
+        return redirect("recurrence_view", veille_id=veille_obj.id)
 
     return render(request, "veille/maveille.html")
 

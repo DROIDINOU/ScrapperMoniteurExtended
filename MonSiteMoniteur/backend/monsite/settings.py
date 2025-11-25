@@ -45,6 +45,9 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['juriscope.onrender.com', 'localhost', '127.0.0.1', '6297ec3f0568.ngrok-free.app']
 
+TIME_ZONE = "Europe/Brussels"
+USE_TZ = True
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

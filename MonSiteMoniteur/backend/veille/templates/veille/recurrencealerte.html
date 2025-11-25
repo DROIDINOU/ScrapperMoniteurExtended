@@ -2,64 +2,48 @@
 
 {% block content %}
 <div class="container-fluid">
-    <h1 class="h3 mb-4 text-gray-800 text-center">Configurer la récurrence de votre veille</h1>
+    <h1 class="h3 mb-4 text-gray-800 text-center">
+        Configurer la récurrence de votre veille
+    </h1>
 
     <div class="row">
         <div class="col-md-8 offset-md-2">
 
             <div class="card shadow mb-4">
-
                 <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-primary">Définissez la fréquence d'exécution</h6>
+                    <h6 class="m-0 font-weight-bold text-primary">Définissez la fréquence</h6>
                 </div>
 
                 <div class="card-body">
 
-                    <p class="mb-3">
-                        <strong>Choisissez</strong> à quelle fréquence votre veille doit être exécutée automatiquement.
-                    </p>
-
-                    <form id="recurrenceForm" method="POST" action="{% url 'update_veille_recurrence' veille.id %}">
+                    <form method="POST" action="{% url 'update_veille_recurrence' veille.id %}">
                         {% csrf_token %}
 
-                        <!-- FREQUENCE -->
                         <label class="font-weight-bold">Fréquence</label>
-                        <select name="frequency" id="frequency" class="form-control mb-3" required>
-                            <option value="">-- Sélectionnez une fréquence --</option>
-                            <option value="daily">Quotidienne</option>
-                            <option value="weekly">Hebdomadaire</option>
-                            <option value="monthly">Mensuelle</option>
-                        </select>
+                                  <select name="recurrence" id="recurrence" class="form-control mb-3" required>
+                                      <option value="">-- Sélectionnez une fréquence --</option>
+                                      <option value="none" {% if veille.recurrence == 'none' %}selected{% endif %}>Aucune (désactivée)</option>
+                                      <option value="daily" {% if veille.recurrence == 'daily' %}selected{% endif %}>Quotidienne</option>
+                                      <option value="weekly" {% if veille.recurrence == 'weekly' %}selected{% endif %}>Hebdomadaire</option>
+                                      <option value="monthly" {% if veille.recurrence == 'monthly' %}selected{% endif %}>Mensuelle</option>
+                                  </select>
 
-                        <!-- JOUR DE LA SEMAINE -->
-                        <div id="weekdayBlock" style="display:none;">
-                            <label class="font-weight-bold">Jour de la semaine (si hebdomadaire)</label>
-                            <select name="weekday" class="form-control mb-3">
-                                <option value="">-- Choisissez un jour --</option>
-                                <option value="monday">Lundi</option>
-                                <option value="tuesday">Mardi</option>
-                                <option value="wednesday">Mercredi</option>
-                                <option value="thursday">Jeudi</option>
-                                <option value="friday">Vendredi</option>
-                                <option value="saturday">Samedi</option>
-                                <option value="sunday">Dimanche</option>
-                            </select>
-                        </div>
-                        <!-- BOUTONS -->
+
+
                         <div class="d-flex justify-content-between mt-3">
-                            <a href="{% url 'dashboard_veille' %}" class="btn btn-outline-secondary flex-fill me-2">Annuler</a>
-                            <button type="submit" class="btn btn-success flex-fill">Enregistrer la récurrence</button>
+                            <a href="{% url 'dashboard_veille' %}" class="btn btn-outline-secondary flex-fill me-2">
+                                Annuler
+                            </a>
+
+                            <button type="submit" class="btn btn-success flex-fill">
+                                Enregistrer
+                            </button>
                         </div>
+
                     </form>
 
-                    <hr>
                 </div>
             </div>
-
-            <div id="autoAlert" class="alert alert-info mt-3 text-center" style="transition: opacity 0.5s ease;">
-                📊 Les résultats apparaîtront automatiquement dans votre tableau de bord.
-            </div>
-
 
         </div>
     </div>
@@ -68,40 +52,7 @@
 
 {% block extra_scripts %}
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-const alertBox = document.getElementById("autoAlert");
-
-  if (!alertBox) {
-    console.log("❌ Échec : élément #autoAlert introuvable.");
-    return;
-  }
-
-  console.log("✅ Élément #autoAlert trouvé.");
-
-  // Affiche l'alerte
-  alertBox.textContent = "Votre veille TVA a bien été créée.";
-  alertBox.style.display = "block";
-  alertBox.classList.add("show");
-  console.log("🔔 Alerte affichée.");
-
-  // Masque l'alerte après 5 secondes
-  setTimeout(() => {
-    alertBox.classList.remove("show");
-    alertBox.style.display = "none";
-    console.log("🕒 Alerte masquée après délai.");
-  }, 5000);
-    const frequencySelect = document.getElementById("frequency");
-    const weekdayBlock = document.getElementById("weekdayBlock");
-
-    frequencySelect.addEventListener("change", function () {
-        if (this.value === "weekly") {
-            weekdayBlock.style.display = "block";
-        } else {
-            weekdayBlock.style.display = "none";
-        }
-    });
-});
-
+console.log("🔥 TEMPLATE CHARGÉ — FORMULAIRE OK");
 
 </script>
 {% endblock %}

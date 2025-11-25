@@ -42,7 +42,7 @@ class Veille(models.Model):
     ]
 
     RECURRENCE_CHOICES = [
-        ("instant", "Immédiate"),
+        ("none", "Aucune (désactivée)"),
         ("daily", "Journalier"),
         ("weekly", "Hebdomadaire"),
         ("monthly", "Mensuel"),
@@ -52,36 +52,59 @@ class Veille(models.Model):
     nom = models.CharField(max_length=255)
     type = models.CharField(max_length=10, choices=TYPE)
     date_creation = models.DateTimeField(auto_now_add=True)
-    # 🚀 Ajout pour CRON
+    # Champs pour les veilles Keywords
+    keyword = models.CharField(max_length=255, null=True, blank=True)
+    decision_type = models.CharField(max_length=50, null=True, blank=True)
+    date_from = models.DateField(null=True, blank=True)
+    rue = models.CharField(max_length=255, null=True, blank=True)
+
+    # 🔄 Pour le CRON / tâche planifiée
     last_scan = models.DateTimeField(null=True, blank=True)
 
     recurrence = models.CharField(
         max_length=20,
-        choices=[
-            ("instant", "Immédiate"),
-            ("daily", "Tous les jours"),
-            ("weekly", "Chaque semaine"),
-            ("monthly", "Chaque mois"),
-        ],
-        default="instant"
+        choices=RECURRENCE_CHOICES,
+        default="none"
     )
+
+    # 🟦 Pour les veilles WEEKLY
+    recurrence_weekday = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        choices=[
+            ("monday", "Lundi"),
+            ("tuesday", "Mardi"),
+            ("wednesday", "Mercredi"),
+            ("thursday", "Jeudi"),
+            ("friday", "Vendredi"),
+            ("saturday", "Samedi"),
+            ("sunday", "Dimanche"),
+        ]
+    )
+
+    # 🟩 Pour les veilles MONTHLY
+    recurrence_day_of_month = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    # 🔵 AJOUT ICI
+    def is_recurrence_none(self):
+        return (not self.recurrence) or self.recurrence == "none"
 
     def clean(self):
         """ Limitation du nombre de veilles par utilisateur """
         max_veilles = 1 if not self.user.userprofile.is_premium else 10
-
-        # Nombre de veilles déjà existantes pour cet utilisateur
         nb = Veille.objects.filter(user=self.user).count()
 
-        # Si c'est une nouvelle veille (pas un update)
         if not self.pk and nb >= max_veilles:
             raise ValidationError(
                 f"Limite atteinte : {max_veilles} veille(s) autorisée(s) pour ce type de compte."
             )
 
     def save(self, *args, **kwargs):
-        """ Appeler la validation des veilles avant de sauvegarder """
-        self.clean()  # Appelle la validation des veilles
+        self.clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
