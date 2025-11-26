@@ -26,9 +26,13 @@
                         aria-expanded="false"
                         aria-controls="collapse{{ veille.id }}">
                     {{ veille.nom }}
-                    <small class="text-muted">(Veille - {{ veille.type }})</small>
+                    <small class="text-muted">
+                        (Veille - {{ veille.type }}) 🕒
+                        Date de création: {{ veille.date_creation|date:"d/m/Y" }}
+                    </small>
                     <span class="ms-2 arrow-icon">▼</span>
                 </button>
+
 
                 <div class="d-flex align-items-center">
 
@@ -42,12 +46,12 @@
                         </button>
                         <ul class="dropdown-menu">
                             {% for entry in tableau %}
-                                {% if entry.veille.id == veille.id and entry.societe %}
-                                <li class="dropdown-item">
-                                    <strong>{{ entry.societe.numero_tva }}</strong><br>
-                                    {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
-                                </li>
-                                {% endif %}
+                            {% if entry.veille.id == veille.id and entry.societe %}
+                            <li class="dropdown-item">
+                                <strong>{{ entry.societe.numero_tva }}</strong><br>
+                                {{ entry.annexes|length }} annexe(s), {{ entry.decisions|length }} décision(s)
+                            </li>
+                            {% endif %}
                             {% endfor %}
                         </ul>
                     </div>
@@ -120,8 +124,8 @@
                                     {% if ev.source %}
                                     · <a href="{{ ev.source }}" target="_blank"
                                          class="btn btn-sm btn-outline-secondary py-0 me-3">
-                                        Texte Moniteur Belge
-                                    </a>
+                                    Texte Moniteur Belge
+                                </a>
                                     {% endif %}
 
                                     {% if ev.tva_list %}
