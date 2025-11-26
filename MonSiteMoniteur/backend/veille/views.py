@@ -71,8 +71,10 @@ def recurrence_view(request, veille_id):
 
 @login_required
 def veille_fuzzy(request):
-    profile = request.user.userprofile
-
+    profile, _ = UserProfile.objects.get_or_create(
+        user=request.user,
+        defaults={'is_premium': request.user.is_superuser}
+    )
     if request.method == "POST":
 
         # 🔹 Nom de la veille
@@ -212,8 +214,14 @@ def update_veille_recurrence(request, veille_id):
     return redirect("dashboard_veille")
 
 
-
 def maveille(request):
+
+    # 🟢 S'assurer que le profil utilisateur existe (utile pour la limite premium)
+    profile, _ = UserProfile.objects.get_or_create(
+        user=request.user,
+        defaults={'is_premium': request.user.is_superuser}
+    )
+
     if request.method == "POST":
         raw = request.POST.get("tva_list", "")
         nom_veille = request.POST.get("nom_veille", "").strip()

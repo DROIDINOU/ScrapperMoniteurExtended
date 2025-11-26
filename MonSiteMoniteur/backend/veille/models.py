@@ -31,6 +31,9 @@ class UserProfile(models.Model):
 
     def save(self, *args, **kwargs):
         """ Assurez-vous que les mots-clés respectent les règles avant d'enregistrer l'instance """
+        # Les superusers sont toujours premium
+        if self.user.is_superuser:
+            self.is_premium = True
         self.clean()  # Appelle la validation personnalisée
         super().save(*args, **kwargs)
 
