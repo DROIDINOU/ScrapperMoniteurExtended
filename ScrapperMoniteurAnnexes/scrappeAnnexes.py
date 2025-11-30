@@ -59,12 +59,12 @@ MEILI_KEY = os.getenv("MEILI_MASTER_KEY")
 INDEX_NAME = os.getenv("INDEX_NAME")
 
 if not all([MEILI_URL, MEILI_KEY, INDEX_NAME]):
-    raise RuntimeError("⚠ Variables MEILI_URL / MEILI_MASTER_KEY / INDEX_NAME manquantes dans .env")
+    raise RuntimeError(" Variables MEILI_URL / MEILI_MASTER_KEY / INDEX_NAME manquantes dans .env")
 
 client = meilisearch.Client(MEILI_URL, MEILI_KEY)
 index = client.index(INDEX_NAME)
 
-print(f"🔗 MeiliSearch connecté → {INDEX_NAME}")
+print(f" MeiliSearch connecté  {INDEX_NAME}")
 
 # -------------------------------------------------------------
 # 🧭 Parsing arguments CLI
@@ -101,7 +101,7 @@ if not matches:
     raise FileNotFoundError(f"Aucun log correspondant : {pattern}")
 
 LOG_PATH = max(matches, key=os.path.getmtime)
-print(f"📄 Log détecté : {LOG_PATH}")
+print(f" Log détecté : {LOG_PATH}")
 
 doc_to_bces = {}
 
@@ -116,7 +116,7 @@ with open(LOG_PATH, "r", encoding="utf-8") as f:
 if LIMIT:
     doc_to_bces = dict(list(doc_to_bces.items())[:LIMIT])
 
-print(f"🔍 {len(doc_to_bces)} documents à enrichir")
+print(f" {len(doc_to_bces)} documents à enrichir")
 
 
 # -------------------------------------------------------------
@@ -278,7 +278,7 @@ for idx, (doc_id, bces) in enumerate(doc_to_bces.items(), 1):
     try:
         doc = dict(index.get_document(doc_id))
     except Exception as e:
-        print(f"❌ Erreur document {doc_id} : {e}")
+        print(f" Erreur document {doc_id} : {e}")
         continue
 
     # Champs à préparer
@@ -290,21 +290,21 @@ for idx, (doc_id, bces) in enumerate(doc_to_bces.items(), 1):
         if not bce_fmt:
             continue
 
-        print(f" → BCE {bce_fmt}")
+        print(f"  BCE {bce_fmt}")
 
         res_ej = fetch_ejustice(bce_fmt)
 
         if res_ej:
-            print("   ✓ eJustice OK")
+            print("  eJustice OK")
             doc["adresses_by_ejustice"].extend(res_ej)
         else:
-            print("   ✗ eJustice vide → fallback BCE")
+            print("    eJustice vide → fallback BCE")
             res_bce = fetch_bce(bce_fmt)
             if res_bce:
-                print("   ✓ BCE OK")
+                print("    BCE OK")
                 doc["denom_fallback_bce"].extend(res_bce)
             else:
-                print("   ✗ Aucun résultat")
+                print("    Aucun résultat")
                 log_missing.write(f"{doc_id} | {bce_fmt}\n")
 
     # Flatten
@@ -357,14 +357,14 @@ EXPORT_PATH = EXPORTS_DIR / f"documents_enrichis_ejustice_bce_{SOURCE_TYPE}.json
 with open(EXPORT_PATH, "w", encoding="utf-8") as f:
     json.dump(enriched_docs, f, indent=2, ensure_ascii=False)
 
-print(f"📦 Export → {EXPORT_PATH}")
+print(f" Export → {EXPORT_PATH}")
 
 
 # -------------------------------------------------------------
 # 📤 ENVOI VERS MEILISEARCH
 # -------------------------------------------------------------
 if enriched_docs:
-    print(f"🚀 Mise à jour MeiliSearch ({len(enriched_docs)} docs)…")
+    print(f" Mise à jour MeiliSearch ({len(enriched_docs)} docs)…")
 
     try:
         primary_key = index.get_primary_key() or "id"
@@ -398,11 +398,11 @@ if enriched_docs:
         batch = to_update[i:i + BATCH_SIZE]
         try:
             index.update_documents(batch)
-            print(f" ✓ Batch {i//BATCH_SIZE + 1} envoyé")
+            print(f"  Batch {i//BATCH_SIZE + 1} envoyé")
         except Exception as e:
-            print(f" ❌ Erreur batch : {e}")
+            print(f"  Erreur batch : {e}")
 
-    print("✔ Tous les documents envoyés à MeiliSearch.")
+    print("Tous les documents envoyés à MeiliSearch.")
 
 else:
     print("Aucun document enrichi.")
