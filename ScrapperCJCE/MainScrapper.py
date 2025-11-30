@@ -171,6 +171,7 @@ print(f"[✅] Index '{index_name}' prêt.")
     # --------------------------------------------------------------------------------------------------------------
 
     def get_page_amount(session, start_date, end_date, keyword):
+        print("[DEBUG] get_page_amount() called", flush=True)
         encoded = keyword.replace(" ", "+")
         today = date.today()
         url = (

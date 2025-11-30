@@ -16,6 +16,8 @@ def retry(url, session, params=None, retries=3, delay=10):
     Fait jusqu'à 'retries' tentatives avec un timeout.
     Empêche les blocages indéfinis.
     """
+    print("[DEBUG] retry() called with", url, flush=True)
+
     for attempt in range(1, retries + 1):
         try:
             response = session.get(url, params=params, timeout=(5, 30))  # ⏱️ 5s connect / 30s lecture

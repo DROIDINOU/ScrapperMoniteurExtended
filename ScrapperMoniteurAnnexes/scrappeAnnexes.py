@@ -400,7 +400,7 @@ if enriched_docs:
             index.update_documents(batch)
             print(f"  Batch {i//BATCH_SIZE + 1} envoyé")
         except Exception as e:
-            print(f"  Erreur batch : {e}")
+            print(f"Erreur batch: {e}")
 
     print("Tous les documents envoyés à MeiliSearch.")
 
