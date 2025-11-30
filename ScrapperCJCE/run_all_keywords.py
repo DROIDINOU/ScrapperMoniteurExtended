@@ -28,20 +28,19 @@ TO = date.today().isoformat()
 csv_global = BASE_DIR / "exports" / "moniteur_enrichissement.csv"
 if csv_global.exists():
     csv_global.unlink()
-    print("🧹 CSV global supprimé (démarrage pipeline propre).")
+    print(" CSV global supprimé (démarrage pipeline propre).")
 
 
 print("\n Lancement du scraping principal…\n")
 # ========== 1️⃣ SCRAPING PRINCIPAL ==========
 for kw in KEYWORDS:
     print(f"️ Scraping : {kw}")
-    result = subprocess.run(
+    subprocess.run(
         [sys.executable, "MainScrapper.py", kw, FROM, TO],
-        capture_output=True,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         text=True
     )
-    print(result.stdout)
-    print(result.stderr)
 
 print("\n Tous les mots-clefs ont été scrapés !\n")
 
@@ -58,13 +57,12 @@ print("\n Lancement de l'enrichissement eJustice + BCE…\n")
 
 for src, label in ANNEXES_SOURCES:
     print(f" Enrichissement pour : {label}")
-    result = subprocess.run(
+    subprocess.run(
         [sys.executable, str(SCRAPPE_ANNEXES), "--source", src],
-        capture_output=True,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         text=True,
-        cwd=str(ANNEXES_DIR)  # IMPORTANT : exécuter dans le bon dossier
+        cwd=str(ANNEXES_DIR)
     )
-    print(result.stdout)
-    print(result.stderr)
 
-print("\n🎯 Pipeline complet terminé : scraping + enrichissement !\n")
+print("\n Pipeline complet terminé : scraping + enrichissement !\n")
