@@ -144,7 +144,7 @@ def trouver_personne_dans_texte(texte: str, chemin_csv: str, mots_clefs: list) -
                             trouves.add(nom)
                             break
     else:
-        print("❌ Fichier CSV introuvable.")
+        print(" Fichier CSV introuvable.")
 
     # Si trouvé via CSV → on renvoie (on NE nettoie PAS, on suppose le CSV propre)
     if trouves:

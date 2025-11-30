@@ -32,39 +32,16 @@ from Constante.mesconstantes import JOURMAPBIS, MOISMAPBIS, ANNEEMAPBIS, TVA_INS
 # ----------------------------------------------------------------------------------------------------------------------
 def verifier_tva_belge(num_tva: str) -> bool:
     """
-    Vérifie si un numéro de TVA belge est valide selon la règle du modulo 97.
-    Format attendu : 10 chiffres (avec ou sans le préfixe 'BE').
-
-    Règle officielle :
-    ➤ Les 8 premiers chiffres représentent le numéro de base.
-    ➤ Les 2 derniers sont des chiffres de contrôle = 97 - (base % 97).
-
-    Exemple :
-        - BE0123456749 → valide
-        - BE0123456700 → invalide
-
-    Returns:
-        True si le numéro est valide, False sinon.
+    Vérification *tolérante* pour le scraping :
+    - on garde les numéros avec au moins 10 chiffres
+    - PAS de contrôle modulo 97 (trop de cas bizarres dans le Moniteur)
     """
-
-    # Supprimer tout sauf les chiffres
     chiffres = re.sub(r"\D", "", num_tva or "")
 
-    # En Belgique : toujours 10 chiffres
-    if len(chiffres) != 10:
-        return False
-
-    base = int(chiffres[:-2])
-    cle = int(chiffres[-2:])
-
-    # Calcul modulo 97 (la clé doit être = 97 - (base % 97))
-    reste = base % 97
-    cle_calculee = 97 - reste
-    if cle_calculee == 0:
-        cle_calculee = 97  # cas particulier
-
-    return cle == cle_calculee
-
+    # tu peux ajuster la règle selon ce que tu veux tolérer :
+    # - len == 10 strict
+    # - ou len >= 10 si tu veux garder TVA + suffixe établissement
+    return len(chiffres) >= 10
 # ----------------------------------------------------------------------------------------------------------------------
 #                                         FONCTIONS ACCES DE FICHIERS
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1009,9 +986,9 @@ def verifier_si_premiere_adresse_est_bien_rapprochee_du_nom(nom: Any, texte: str
     if not (first_cp and first_num):
         # Rien trouvé après le nom
         if logger:
-            logger.warning(f"[❗️Aucun CP+num après nom] DOC={doc_hash} | adresse='{adresse}' | trouvé: CP={first_cp}, num={first_num}")
+            logger.warning(f"[️Aucun CP+num après nom] DOC={doc_hash} | adresse='{adresse}' | trouvé: CP={first_cp}, num={first_num}")
         else:
-            print(f"[❗️Aucun CP+num après nom] DOC={doc_hash} | adresse='{adresse}' | trouvé: CP={first_cp}, num={first_num}")
+            print(f"[️Aucun CP+num après nom] DOC={doc_hash} | adresse='{adresse}' | trouvé: CP={first_cp}, num={first_num}")
         return
 
     # Comparaison stricte
@@ -1409,11 +1386,11 @@ def charger_indexes_bce():
 
     # ⚡ 1️⃣ Si le cache existe, on recharge directement
     if os.path.exists(CACHE_FILE):
-        print("[⚡] Chargement des index BCE depuis le cache pickle…")
+        print(" Chargement des index BCE depuis le cache pickle…")
         try:
             with open(CACHE_FILE, "rb") as f:
                 payload = pickle.load(f)
-                print("[✅] Cache BCE chargé avec succès.")
+                print(" Cache BCE chargé avec succès.")
                 return (
                     payload["denom_index"],
                     payload.get("type_entite_by_bce", {}),
@@ -1422,10 +1399,10 @@ def charger_indexes_bce():
                     payload["establishment_index"],
                 )
         except Exception as e:
-            print(f"[⚠️] Erreur de lecture du cache ({e}), rechargement depuis les CSV…")
+            print(f" Erreur de lecture du cache ({e}), rechargement depuis les CSV…")
 
     # 🐢 2️⃣ Sinon : rechargement depuis les CSV
-    print("[🐢] Chargement initial des fichiers CSV BCE…")
+    print(" Chargement initial des fichiers CSV BCE…")
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     # ⚙️ build_denom_index renvoie maintenant 2 objets
@@ -1453,7 +1430,7 @@ def charger_indexes_bce():
         skip_public=True
     )
 
-    print(f"[✅] Index BCE chargés : "
+    print(f" Index BCE chargés : "
           f"{len(denom_index)} dénoms, "
           f"{len(address_index)} adresses, "
           f"{len(enterprise_index)} entreprises, "
@@ -1474,9 +1451,9 @@ def charger_indexes_bce():
                 f,
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
-        print("[💾] Index BCE mis en cache pour les prochains runs.")
+        print(" Index BCE mis en cache pour les prochains runs.")
     except Exception as e:
-        print(f"[⚠️] Impossible d’écrire le cache ({e})")
+        print(f" Impossible d’écrire le cache ({e})")
 
     return denom_index, type_entite_by_bce, address_index, enterprise_index, establishment_index
 

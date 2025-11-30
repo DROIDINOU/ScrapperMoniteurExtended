@@ -92,6 +92,27 @@ RX_DELAI_CONTACT = re.compile(
     re.IGNORECASE | re.DOTALL | re.VERBOSE
 )
 
+# ====================================================================================================
+# 🔎 AJOUT : REGEX POUR RÉPARATION COLLECTIVE & ARTICLES DU CODE DE DROIT ÉCONOMIQUE
+# ----------------------------------------------------------------------------------------------------
+# Ces expressions régulières servent à détecter :
+#   - les "actions en réparation collective"
+#   - les références à des articles du Code de droit économique (ex : article XVII.55 CDE)
+#
+# Un logger est également prévu dans detect_tribunal_premiere_instance_keywords()
+# pour vérifier les déclenchements (utile pendant debugging).
+# ====================================================================================================
+
+RX_REPARATION_COLLECTIVE = re.compile(
+    r"(action|procédure)\s+en\s+r[ée]paration\s+collective",
+    re.IGNORECASE,
+)
+
+RX_ARTICLE_CDE = re.compile(
+    r"article\s+([0-9a-zA-Z\./\-]+)\s+du\s+code\s+de\s+droit\s+économique",
+    re.IGNORECASE,
+)
+
 
 # 1. Nettoyage du texte pour éviter les problèmes d'encodage
 def normalize(text):
@@ -147,3 +168,16 @@ def detect_tribunal_premiere_instance_keywords(texte_brut, extra_keywords):
     if match:
         mois = normalize_mois(match.group('nb'))
         add(f"délai de contact {mois}")
+    # ====================================================================================================
+    # 🔎 AJOUT (LOGS) — motifs réparation collective & article du Code de droit économique
+    # ====================================================================================================
+
+    # Action en réparation collective
+    if RX_REPARATION_COLLECTIVE.search(texte_brut):
+        add("action_reparation_collective")
+
+    # Article du Code de droit économique, ex : article XVII.55
+    art = RX_ARTICLE_CDE.search(texte_brut)
+    if art:
+        numero = art.group(1).replace(".", "_").replace("/", "_").replace("-", "_")
+        add(f"article_CDE_{numero}")

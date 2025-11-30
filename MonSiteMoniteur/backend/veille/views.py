@@ -297,6 +297,18 @@ def veille_dashboard(request):
     for veille in veilles:
 
         if veille.type == "KEYWORD":
+            # 🟦 Construire la liste des filtres réellement utilisés
+            filters_used = []
+
+            if veille.decision_type:
+                filters_used.append(f"Type : {veille.decision_type}")
+
+            if veille.date_from:
+                filters_used.append(f"Depuis : {veille.date_from}")
+
+            if veille.rue:
+                filters_used.append(f"Rue contient : {veille.rue}")
+
             annexes = veille.evenements.filter(type="ANNEXE", societe__isnull=True)
 
             decisions_queryset = veille.evenements.filter(
@@ -316,6 +328,7 @@ def veille_dashboard(request):
                     "rubrique": ev.rubrique,
                     "tva_list": ev.tva_list,
                     "extra_keyword": ev.rubrique,
+                    "filters": filters_used,
                 })
                 total_decisions += 1
 
@@ -432,7 +445,7 @@ def lancer_scan(request, tva):
 
 
 def scan_decisions(request, tva):
-    client = meilisearch.Client(settings.MEILI_URL, settings.MEILI_MASTER_KEY)
+    client = meilisearch.Client(settings.MEILI_URL, api_key=settings.MEILI_MASTER_KEY)
     index = client.index(settings.INDEX_NAME)
 
     results = index.search("", {"filter": f'TVA = "{tva}"'})
@@ -467,7 +480,7 @@ def api_autocomplete_rue(request):
     if not query:
         return JsonResponse([], safe=False)
 
-    client = MeiliClient(settings.MEILI_URL, settings.MEILI_SEARCH_KEY)
+    client = MeiliClient(settings.MEILI_URL, api_key=settings.MEILI_SEARCH_KEY)
 
     try:
         response = client.index(settings.INDEX_RUE_NAME).search(query, {"limit": 7})

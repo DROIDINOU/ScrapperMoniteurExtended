@@ -356,7 +356,7 @@ def extract_noms_entreprises(texte_html, doc_id=None):
             texte_html = texte_html.decode("utf-8", errors="ignore")
         except Exception:
             texte_html = texte_html.decode("latin-1", errors="ignore")
-            print("[DEBUG] decoded bytes as latin-1", flush=True)
+            print("DEBUG decoded bytes as latin-1", flush=True)
 
     soup = BeautifulSoup(texte_html, 'html.parser')
     full_text = _canon(soup.get_text(separator=" "))

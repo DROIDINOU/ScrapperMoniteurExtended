@@ -660,7 +660,7 @@ def extract_address(texte_html, doc_id):
                                                                             'établi,', 'siège social', 'siege social',
                                                                             'siège', 'siege'])]
     if not phrases:
-        print("aucune phrase retenue => on ajoute tout le texte")
+        print("aucune phrase retenue  on ajoute tout le texte")
         phrases = [texte]
 
     for phrase in phrases:

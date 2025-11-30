@@ -1,5 +1,6 @@
 import re
 
+
 def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     # --- ANNULATION / MISE À NÉANT D’UN JUGEMENT ---
     pattern_mis_a_neant = (
@@ -24,7 +25,8 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     )
 
     # --- annulation ag
-    pattern_annulation_ag = r"(?:prononc[ée]e?|d[ée]cid[ée]e?)\s+l[’']?annulation\s+de\s+la\s+d[ée]cision\s+de\s+l[’']?assembl[ée]e\s+g[ée]n[ée]rale"
+    pattern_annulation_ag = r"(?:prononc[ée]e?|d[ée]cid[ée]e?)\s+l[’']?annulation\s+" \
+                            r"de\s+la\s+d[ée]cision\s+de\s+l[’']?assembl[ée]e\s+g[ée]n[ée]rale"
     # --- FAILLITE ---
     pattern_ouverture = r"\bouverture\s+de\s+la\s+faillite\b"
 
@@ -42,10 +44,10 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     )
 
     # --- DISSOLUTION ---
-    pattern_cloture_dissolution_judiciaire = (r"\bcl[oô]ture\s+de\s+la\s+dissolution\s+judiciaire\b")
-    pattern_ouverture_dissolution_judiciaire = (r"\bouverture\s+de\s+la\s+dissolution\s+judiciaire\b")
-    pattern_dissolution_judiciaire_generique = (r"\bdissolution\s+judiciaire\b")
-    pattern_dissolution_judiciaire_ultra_generique = (r"\bdissolution\b")
+    pattern_cloture_dissolution_judiciaire = r"\bcl[oô]ture\s+de\s+la\s+dissolution\s+judiciaire\b"
+    pattern_ouverture_dissolution_judiciaire = r"\bouverture\s+de\s+la\s+dissolution\s+judiciaire\b"
+    pattern_dissolution_judiciaire_generique = r"\bdissolution\s+judiciaire\b"
+    pattern_dissolution_judiciaire_ultra_generique = r"\bdissolution\b"
     # --- REORGANISATION JUDICIAIRE ---
     pattern_revocation_plan_reorganisation_judiciaire = r"révocation\s+du\s+plan\s+de\s+réorganisation\s+judiciaire"
     # Pattern combiné pour "refus homologation plan" + "clôture procédure RJ"
@@ -58,7 +60,8 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     pattern_reorg_generique = r"\bréorganisation\s+judiciaire\s+de\b"
     pattern_ouverture_reorg = r"\bouverture\s+de\s+la\s+réorganisation\s+judiciaire\b"
     pattern_prorogation_reorg = r"\bprorogation\s+du\s+sursis\s+de\s+la\s+réorganisation\s+judiciaire\b"
-    pattern_nouveau_plan_reorg = r"\bautorisation\s+de\s+d[ée]p[oô]t\s+d['’]un\s+nouveau\s+plan\s+de\s+la\s+réorganisation\s+judiciaire\b"
+    pattern_nouveau_plan_reorg = r"\bautorisation\s+de\s+d[ée]p[oô]t\s+d['’]un\s+" \
+                                 r"nouveau\s+plan\s+de\s+la\s+réorganisation\s+judiciaire\b"
     pattern_accord_collectif = r"réorganisation\s+judiciaire\s+par\s+accord\s+collectif"
 
     # --- TRANSFERT SOUS AUTORITE DE JUSTICE ---
@@ -149,6 +152,35 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
     )
 
     pattern_report_cessation_paiement = r"report[\s\w,.'’():\-]{0,80}?cessation\s+des\s+paiements"
+
+    # ====================================================================================================
+    # 🔎 AJOUT : REGEX POUR DÉTECTION DES ARTICLES DU CODE DE DROIT ÉCONOMIQUE (via logs)
+    # ----------------------------------------------------------------------------------------------------
+    # Objectif :
+    #   Détecte les références du type :
+    #       - "conformément à l'article III.40 du Code de droit économique"
+    #       - "article XVII.55 du CDE"
+    #       - "articles IV.2 à IV.5 du Code de droit économique"
+    #
+    # Tag généré : article_CDE_<numero>
+    # Exemples :
+    #   article_CDE_III_40
+    #   article_CDE_XVII_55
+    # ====================================================================================================
+
+    RX_ARTICLE_CDE = re.compile(
+        r"""
+        (?:conform[eé]ment\s+à\s+)?                 # optionnel
+        l'?article(?:s)?\s+                         # "article" ou "articles"
+        (?P<num>[IVXLCM\d]+(?:\.\d+)*(?:/\d+)?      # capture : III.40 / XVII.55 / IV.2 / 3.4.2
+        (?:\s*(?:à|-)\s*[IVXLCM\d\.]+)?             # capture plages du type III.2 à III.5 (optionnel)
+        )\s+
+        (?:du|de\s+la)\s+
+        (?:code\s+de\s+droit\s+économique|CDE)      # Code de droit économique ou CDE
+        """,
+        re.IGNORECASE | re.VERBOSE
+    )
+
     if re.search(pattern_annulation_ag, texte_brut, flags=re.IGNORECASE):
         extra_keywords.append("annulation_decision_ag_tribunal_de_l_entreprise")
     if re.search(pattern_designation_liquidateur_remplacement, texte_brut, flags=re.IGNORECASE):
@@ -287,5 +319,19 @@ def detect_tribunal_entreprise_keywords(texte_brut, extra_keywords):
             extra_keywords.append("suspension_effets_ag")
         if re.search(pattern_excusabilite, texte_brut, flags=re.IGNORECASE):
             extra_keywords.append("excusable_tribunal_de_l_entreprise")
+
+        # ====================================================================================================
+        # 🔎 AJOUT — Tag des articles du Code de droit économique
+        # ====================================================================================================
+        art = RX_ARTICLE_CDE.search(texte_brut)
+        if art:
+            num = (
+                art.group("num")
+                    .replace(".", "_")
+                    .replace("/", "_")
+                    .replace("-", "_")
+                    .replace(" ", "")
+            )
+            extra_keywords.append(f"article_CDE_{num}")
 
         extra_keywords = list(dict.fromkeys(extra_keywords))

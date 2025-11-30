@@ -10,7 +10,7 @@ def setup_logger(name="extraction", log_file="logs/extraction.log", level=loggin
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    handler = logging.FileHandler(log_file, encoding='utf-8')
+    handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
     handler.setFormatter(formatter)
 
     logger = logging.getLogger(name)
@@ -32,7 +32,7 @@ def setup_dynamic_logger(name="dynamic_logger", keyword="default", level=logging
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    handler = logging.FileHandler(log_file_path, encoding='utf-8')
+    handler = logging.FileHandler(log_file_path, mode='a', encoding='utf-8')
     handler.setFormatter(formatter)
 
     logger = logging.getLogger(name)

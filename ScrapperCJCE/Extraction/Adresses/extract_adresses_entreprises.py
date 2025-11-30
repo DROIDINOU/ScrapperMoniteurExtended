@@ -207,5 +207,5 @@ def extract_add_entreprises(texte, doc_id=None):
 
     if doc_id:
         loggerfallback3.debug(f"↪️ [Fallback ExtractionId]{f' ID={doc_id}' if doc_id else ''} Aucune adresse trouvée")
-        print(f"❌ ID : {doc_id} | aucune adresse trouvée dans les 5 premières lignes")
+        print(f" ID : {doc_id} | aucune adresse trouvée dans les 5 premières lignes")
     return None

@@ -1,6 +1,7 @@
 import re
 import traceback
 
+
 def detect_radiations_keywords(texte_brut: str, extra_keywords):
     try:
         # 🔹 Nettoyage basique des caractères nuls ou invisibles
@@ -19,6 +20,25 @@ def detect_radiations_keywords(texte_brut: str, extra_keywords):
         # --- PATTERNS critiques : détection directe (on quitte si trouvé)
         # --------------------------------------------------------------------------------------------------------------
         # ***** RETRAITS
+        pattern_radiation_siege_generic = re.compile(
+            r"liste\s+des\s+entit[ée]s?\s+enregistr[ée]es?.{0,200}?"
+            r"adresse\s+(du|de|d['’])?\s*si[èe]ge.{0,80}?"
+            r"(a\s+été\s+)?radi[ée]e?",
+            flags=re.IGNORECASE | re.DOTALL
+        )
+        if pattern_radiation_siege_generic.search(head_text):
+            extra_keywords.append("radiation_adresse_siege")
+            return extra_keywords
+
+        pattern_radiation_fonction = re.compile(
+            r"liste\s+des\s+entit[ée]s?\s+enregistr[ée]es?.{0,200}?"
+            r"fonction.{0,40}?radi[ée]e?\s+d['’]office",
+            flags=re.IGNORECASE | re.DOTALL
+        )
+        if pattern_radiation_fonction.search(head_text):
+            extra_keywords.append("radiation_fonction_bce")
+            return extra_keywords
+
         retrait_non_depot_pattern = re.compile(
             r"liste\s+des\s+entit[ée]s?\s+enregistr[ée]es?.{0,200}?"
             r"retrait\s+de\s+la\s+radiation\s+d['’]?\s*office.{0,200}?"

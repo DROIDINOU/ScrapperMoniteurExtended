@@ -70,68 +70,70 @@ def main():
     # ------------------------------------------------------------------------------------------------------------------
     # CONFIGURATION DE LA PÉRIODE ET DES VARIABLES DE SCRAPING ( à ameliorer)
     # ------------------------------------------------------------------------------------------------------------------
-    assert len(sys.argv) == 2, "Usage: python MainScrapper.py \"mot+clef\""
+    assert len(sys.argv) == 4, "Usage: python MainScrapper.py \"mot+clef\" YYYY-MM-DD YYYY-MM-DD"
+
     keyword = sys.argv[1]
-    from_date = date.fromisoformat("2023-01-02")  # début
-    to_date = date.fromisoformat("2025-11-18")  # date.today()  # fin
-    locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
+    from_date = date.fromisoformat(sys.argv[2])
+    to_date = date.fromisoformat(sys.argv[3])
+
+    print(f" Période de scraping : {from_date} jusqua {to_date}")
+
     # --------------------------------------------------------------------------------------------------------------
     #                 CHARGEMENT DES INDEX BCE
     # --------------------------------------------------------------------------------------------------------------
-    print("[📦] Chargement initial des indexes BCE…")
+    print(" Chargement initial des indexes BCE…")
     denom_index, personnes_physiques, address_index, enterprise_index, establishment_index = charger_indexes_bce()
-    print("[✅] Index BCE chargés :", len(denom_index or {}), "entrées")
+    print(" Index BCE chargés :", len(denom_index or {}), "entrées")
     # A vérifier / modifier
     if not denom_index:
-        raise RuntimeError("❌ Index BCE vides — vérifie le fichier CSV ou pickle.")
+        raise RuntimeError(" Index BCE vides — vérifie le fichier CSV ou pickle.")
     # --------------------------------------------------------------------------------------------------------------
     #                 CONSTRUCTION FICHIER EXPORTS CONTENANT DONNEES NECESSAIRE A APPEL ANNEXES MONITEUR
     # --------------------------------------------------------------------------------------------------------------
     export_dir = "exports"
     os.makedirs(export_dir, exist_ok=True)
-    csv_path = os.path.join(export_dir, "moniteur_enrichissement.csv")
     # --------------------------------------------------------------------------------------------------------------
     #                                    CONFIGURATION DES LOGGERS
     # --------------------------------------------------------------------------------------------------------------
     # **** LOGGER GENERAL
     logger = setup_logger("extraction", level=logging.DEBUG)
-    logger.debug("✅ Logger initialisé dans le script principal.")
+    logger.debug("Logger initialisé dans le script principal.")
     # !!!! LOGGER ERREURS CRITIQUES (le parser devra eventuellement être revu, changement structures pages moniteur)
     logger_critical = setup_dynamic_logger(name="critical", keyword=keyword, level=logging.DEBUG)
-    logger_critical.debug("🔍 Logger 'critical' initialisé ")
+    logger_critical.debug(" Logger 'critical' initialisé ")
 
     # ---- LOGGERS champs manquants
     # -- Fichier bce n'a pas les champs correspondant au num de tva extrait
     logger_champs_manquants_csv_bce = setup_dynamic_logger(name="champs_manquants_obligatoires_csv_bce",
                                                                 keyword=keyword, level=logging.DEBUG)
-    logger_champs_manquants_csv_bce.debug("🔍 Logger 'champs_manquants_obligatoires' initialisé "
+    logger_champs_manquants_csv_bce.debug(" Logger 'champs_manquants_obligatoires' initialisé "
                                           "pour les champs "
                                           " obligatoires.")
     # -- Les champs de vérité à intégrer automatiquement dans Postgre ne sont pas présents
     logger_champs_manquants_obligatoires = setup_dynamic_logger(name="champs_manquants_obligatoires_general",
                                                                  keyword=keyword, level=logging.DEBUG)
 
-    logger_champs_manquants_obligatoires.debug("🔍 Logger 'champs_manquants_obligatoires_general' initialisé "
+    logger_champs_manquants_obligatoires.debug(" Logger 'champs_manquants_obligatoires_general' initialisé "
                                                 "pour les champs"
                                                 " obligatoires.")
 
     # *** LOGGER Tva invalide Va falloir modifier ceci je pense
     logger_tva_invalide = setup_dynamic_logger(name="tva_invalide", keyword=keyword, level=logging.DEBUG)
-    logger_tva_invalide.debug("🔍 Logger 'tva_invalide' initialisé ")
+    logger_tva_invalide.debug(" Logger 'tva_invalide' initialisé ")
     print(">>> CODE À JOUR")
     # ---------------------------------------------------------------------------------------------------------------------
     #                                          VARIABLES D ENVIRONNEMENT
     # ----------------------------------------------------------------------------------------------------------------------
     env_path = Path(__file__).resolve().parents[1] / ".env"
-    print(f"🔍 Loading .env from: {env_path}")
+    print(f" Loading .env from: {env_path}")
 
     # ✅ Force le chargement du .env, même si un .env existe ailleurs
     load_dotenv(dotenv_path=env_path, override=True)
     print("RAW KEY =", repr(os.getenv("MEILI_MASTER_KEY")))
     # 🚨 Debug (temporaires)
-    print("➡️ MEILI_URL =", os.getenv("MEILI_URL"))
-    print("➡️ MEILI_MASTER_KEY =", os.getenv("MEILI_MASTER_KEY"))
-    print("➡️ INDEX_NAME =", os.getenv("INDEX_NAME"))
+    print(" MEILI_URL =", os.getenv("MEILI_URL"))
+    print(" MEILI_MASTER_KEY =", os.getenv("MEILI_MASTER_KEY"))
+    print(" INDEX_NAME =", os.getenv("INDEX_NAME"))
     meili_url = os.getenv("MEILI_URL")
     meili_key = os.getenv("MEILI_MASTER_KEY")
     index_name = os.getenv("INDEX_NAME")
@@ -146,28 +148,16 @@ def main():
     max_workers = 12
     TIMEOUT_RESULT = 90
     TIMEOUT_FUTURE = 120
-    print("[INFO] Initialisation Meilisearch (au début du script)…")
-    client = meilisearch.Client(meili_url, meili_key)
-    try:
-        index = client.get_index(index_name)
-        print(f"[ℹ️] Index '{index_name}' déjà existant.")
-    except meilisearch.errors.MeilisearchApiError:
-        print(f"[➕] Création d’un nouvel index '{index_name}'…")
-        create_task = client.create_index(index_name, {"primaryKey": "id"})
-        client.wait_for_task(create_task.task_uid)
-        index = client.get_index(index_name)
+    client = meilisearch.Client(meili_url, api_key=meili_key)
+    index = client.index(index_name)
 
-    create_task = client.create_index(index_name, {"primaryKey": "id"})
-    client.wait_for_task(create_task.task_uid)
-    index = client.get_index(index_name)
-    print(f"[✅] Index '{index_name}' prêt.")
     # remplacer en prod par ceci a retravailler eventuellement
     """client = meilisearch.Client(meili_url, meili_key)
 try:
     index = client.get_index(index_name)
     delete_task = index.delete()
     client.wait_for_task(delete_task.task_uid)
-    print(f"[🗑️] Ancien index '{index_name}' supprimé.")
+    print(f" Ancien index '{index_name}' supprimé.")
 except meilisearch.errors.MeilisearchApiError:
     print(f"[ℹ️] Aucun index existant à supprimer ({index_name}).")
 
@@ -228,28 +218,21 @@ print(f"[✅] Index '{index_name}' prêt.")
                 if motclef == "Liste+des+entites+enregistrees" and \
                         subtitle_text == "Service public fédéral Economie, P.M.E., Classes moyennes et Énergie":
                     find_linklist_in_items(item, motclef, link_list)
-                elif motclef == "Conseil+d+'+Etat" and subtitle_text == "Conseil d'État" \
-                        and title.lower().startswith("avis prescrit"):
-                    find_linklist_in_items(item, motclef, link_list)
-                elif motclef == "Cour+constitutionnelle" and subtitle_text == "Cour constitutionnelle":
-                    find_linklist_in_items(item, motclef, link_list)
 
-                elif motclef in "tribunal+de+premiere+instance":
-                    if title.lower().startswith("tribunal de première instance"):
+                elif motclef == "tribunal+de+premiere+instance":
+                    if re.search(r"\btribunal\b.*\bpremière\s+instance\b", title, flags=re.IGNORECASE):
                         find_linklist_in_items(item, motclef, link_list)
 
-                elif motclef in "tribunal+de+l":
-                    if (
-                            title.lower().startswith("tribunal de l")
-
-                    ):
+                elif motclef == "tribunal+de+l":
+                    if re.search(r"\btribunal\b.*\bde l['’]entreprise\b", title, flags=re.IGNORECASE):
                         find_linklist_in_items(item, motclef, link_list)
 
-                elif motclef in "cour+d":
-                    if (
-                            title.lower().startswith("cour d'appel")
+                elif motclef == "justice+de+paix":
+                    if re.search(r"\bjustice\s+de\s+paix\b", title, flags=re.IGNORECASE):
+                        find_linklist_in_items(item, motclef, link_list)
 
-                    ):
+                elif motclef == "cour+d":
+                    if re.search(r"\bcour d['’]?appel\b", title, flags=re.IGNORECASE):
                         find_linklist_in_items(item, motclef, link_list)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
@@ -270,8 +253,8 @@ print(f"[✅] Index '{index_name}' prêt.")
 
             response = retry(url, session)
             if not response:
-                print(f"[❌ Abandon définitif pour {url}]")
-                return None  # ⚠️ important : on sort si la page ne répond jamais
+                print(f" Abandon définitif pour {url}]")
+                return None  #  important : on sort si la page ne répond jamais
             soup = BeautifulSoup(response.text, 'html.parser')
             extra_keywords = []
 
@@ -335,10 +318,10 @@ print(f"[✅] Index '{index_name}' prêt.")
                     chemin_csv("curateurs.csv"),
                     ["avocate", "avocat", "Maître", "bureaux", "cabinet", "curateur", "liquidateur"]
                 )
-                print("🧾 ADMIN CSV =", admins_csv)
+                print(" ADMIN CSV =", admins_csv)
 
                 admins_rx = extract_administrateur(texte_brut)
-                print("🧩 admins_rx =", admins_rx)
+                print(" admins_rx =", admins_rx)
 
                 administrateur = dedupe_admins(admins_csv, admins_rx)
                 print("🎯 administrateur après merge =", administrateur)
@@ -404,7 +387,9 @@ print(f"[✅] Index '{index_name}' prêt.")
 
         raw_link_list = ask_belgian_monitor(session, from_date, to_date, keyword)
         link_list = raw_link_list  # on garde le nom pour compatibilité
-
+        print(" Nombre de liens trouvés :", len(link_list))
+        for i, x in enumerate(link_list[:20]):
+            print(i, x)
         scrapped_data = []
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -430,21 +415,21 @@ print(f"[✅] Index '{index_name}' prêt.")
                     if result and isinstance(result, tuple) and len(result) >= 5:
                         scrapped_data.append(result)
                 except concurrent.futures.TimeoutError:
-                    print(f"[⏰] Timeout sur {url}")
+                    print(f" Timeout sur {url}")
                     failed_urls.append(url)
                 except Exception as e:
-                    print(f"[❌] Erreur sur {url}: {type(e).__name__} – {e}")
+                    print(f" Erreur sur {url}: {type(e).__name__} – {e}")
                     failed_urls.append(url)
 
         print(f"[DEBUG] Futures terminées : {sum(f.done() for f in futures)} / {len(futures)}")
-        print(f"[📉] Pages échouées : {len(failed_urls)} / {len(link_list)}")
+        print(f" Pages échouées : {len(failed_urls)} / {len(link_list)}")
 
         # --- 🔁 Sauvegarde pour relancer plus tard ---
         if failed_urls:
             with open("failed_urls.txt", "w", encoding="utf-8") as f:
                 for u in failed_urls:
                     f.write(u + "\n")
-            print("📄 Fichier 'failed_urls.txt' créé avec les pages à relancer.")
+            print(" Fichier 'failed_urls.txt' créé avec les pages à relancer.")
 
     # ✅ Supprime les None avant de les envoyer à Meilisearch
     final.extend(scrapped_data)  # ou final = [r for r in scrapped_data if r is not None]
@@ -479,7 +464,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         "denoms_fallback_bce_flat", "adresses_fallback_bce_flat", "extra_keyword_flatten"
     ])
 
-    print(f"[⚙️] Index '{index_name}' prêt en {time.perf_counter() - start_time:.2f}s.")
+    print(f" Index '{index_name}' prêt en {time.perf_counter() - start_time:.2f}s.")
     documents = []
     with requests.Session() as session:
         for record in tqdm(final, desc="Préparation Meilisearch"):
@@ -499,7 +484,7 @@ print(f"[✅] Index '{index_name}' prêt.")
                 date_jugement = convertir_date(record[10])
             texte = record[3].strip()
             texte = texte.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
-            doc_hash = generate_doc_hash_from_html(record[3], record[1])  # ✅ Hash du texte brut + date
+            doc_hash = generate_doc_hash_from_html(record[3], record[1])  # Hash du texte brut + date
             # ✅ Construction du document avec administrateurs structurés
             admins = record[11] or []
 
@@ -519,7 +504,7 @@ print(f"[✅] Index '{index_name}' prêt.")
 
             admins_detectes = []
             if admin_struct:
-                admins_detectes = [a["entity"] for a in admin_struct if a.get("entity")]
+                admins_detectes = [a.get("entity", "") for a in admin_struct if a and a.get("entity")]
             doc = {
                 "id": doc_hash,
                 "date_doc": record[1],
@@ -547,7 +532,7 @@ print(f"[✅] Index '{index_name}' prêt.")
 
             documents.append(doc)
             # 🔎 Indexation unique des dénominations TVA (après avoir rempli documents[])
-            print("🔍 Indexation des dénominations par TVA (1 seule lecture du CSV)…")
+            print(" Indexation des dénominations par TVA (1 seule lecture du CSV)…")
 
     # --------------------------------------------------------------------------------------------------------------
     # LOGGERS EN CAS DE CHAMPS OBLIGATOIRE VIDE (Pour tous les mots clefs)
@@ -569,7 +554,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             missing.append("TVA")
 
         if missing:
-            logger_champs_manquants_obligatoires.warning(f"[❌ Champs manquants] DOC={doc.get('id')} | Manquants: {missing}")
+            logger_champs_manquants_obligatoires.warning(f"[ Champs manquants] DOC={doc.get('id')} | Manquants: {missing}")
 
     # --------------------------------------------------------------------------------------------------------------
     # 🧩 Enrichissement BCE (uniquement depuis le fichier CSV local, sans fetch ni fallback)
@@ -591,7 +576,7 @@ print(f"[✅] Index '{index_name}' prêt.")
         for tva in tvas:
             if not verifier_tva_belge(tva):
                 logger_tva_invalide.warning(
-                    f"[❌ TVA invalide] {tva} | DOC={doc.get('id')} | URL={doc.get('url')}"
+                    f"[ TVA invalide] {tva} | DOC={doc.get('id')} | URL={doc.get('url')}"
                 )
                 continue
 
@@ -724,7 +709,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             bce = format_bce(tva)
             if not bce:
                 logger_tva_invalide.warning(
-                    f"[❌ TVA invalide] {tva} | DOC={doc.get('id')} | URL={doc.get('url')}"
+                    f"[ TVA invalide] {tva} | DOC={doc.get('id')} | URL={doc.get('url')}"
                 )
                 continue
 
@@ -741,7 +726,7 @@ print(f"[✅] Index '{index_name}' prêt.")
             # verifier si on ratte pas des adresses ici
             if not has_nom and not has_adresse:
                 logger_champs_manquants_csv_bce.warning(
-                    f"[⚠️ BCE sans dénomination ni adresse] "
+                    f"[ BCE sans dénomination ni adresse] "
                     f"DOC={doc.get('id')} | BCE={bce} | keyword={keyword} | URL={doc.get('url')}"
                 )
 
@@ -749,24 +734,24 @@ print(f"[✅] Index '{index_name}' prêt.")
     #                                       VERIFIVATION FINALE AVANT D ENVOYER A MEILI
     # --------------------------------------------------------------------------------------------------------------
     if not documents:
-        print("❌ Aucun document à indexer.")
+        print(" Aucun document à indexer.")
         sys.exit(1)
 
     # 🔍 Log des doublons avant déduplication
-    print(f"[📋] Total initial de documents : {len(documents)}")
+    print(f" Total initial de documents : {len(documents)}")
     hash_to_docs = defaultdict(list)
     for doc in documents:
         hash_to_docs[doc["id"]].append(doc)
 
     duplicates = {h: docs for h, docs in hash_to_docs.items() if len(docs) > 1}
     if duplicates:
-        print(f"[⚠️] {len(duplicates)} doublons détectés avant nettoyage :")
+        print(f" {len(duplicates)} doublons détectés avant nettoyage :")
         for h, docs in duplicates.items():
             print(f" - id = {h} (×{len(docs)})")
             for d in docs:
-                print(f"    • URL: {d['url']} | Date: {d['date_doc']}")
+                print(f" URL: {d['url']} | Date: {d['date_doc']}")
     else:
-        print("[✅] Aucun doublon détecté avant nettoyage.")
+        print(" Aucun doublon détecté avant nettoyage.")
 
     # 🔁 Garde uniquement le plus récent par id
     unique_docs = {}
@@ -774,12 +759,12 @@ print(f"[✅] Index '{index_name}' prêt.")
         unique_docs[doc["id"]] = doc
     documents = list(unique_docs.values())
 
-    print(f"[✅] Total après déduplication : {len(documents)}")
+    print(f" Total après déduplication : {len(documents)}")
 
     # 🚀 Indexation vers Meilisearch
     batch_size = 3000
     task_ids = []
-    print(f"[📦] Indexation de {len(documents)} documents en batchs de {batch_size}…")
+    print(f" Indexation de {len(documents)} documents en batchs de {batch_size}…")
 
     for i in tqdm(range(0, len(documents), batch_size), desc="Envoi vers Meilisearch"):
         batch = documents[i:i + batch_size]
@@ -787,17 +772,17 @@ print(f"[✅] Index '{index_name}' prêt.")
         task_ids.append(task.task_uid)
 
     # 🕒 Attente de la complétion
-    print(f"[⏳] Attente de {len(task_ids)} tâches Meili…")
+    print(f" Attente de {len(task_ids)} tâches Meili…")
     for uid in task_ids:
         client.wait_for_task(uid, timeout_in_ms=180_000)
         task_info = client.get_task(uid)
-        print(f" - Task {uid} → {task_info.status}")
+        print(f" - Task {uid}  {task_info.status}")
         if task_info.status == "failed":
-            print(f"   ❌ Erreur : {task_info.error}")
+            print(f" Erreur : {task_info.error}")
 
     # 📊 Vérifie résultat final
     stats = index.get_stats()
-    print(f"[📊] Documents réellement indexés dans Meili: {stats.number_of_documents}")
+    print(f" Documents réellement indexés dans Meili: {stats.number_of_documents}")
     # ===============================================================================================================
 
     #                     -> CSV APPEL ANNEXES MONITEUR BELGE
@@ -809,18 +794,29 @@ print(f"[✅] Index '{index_name}' prêt.")
     #                   FICHIERS CSV CONTENANT LES DONNES NECESSAIRES POUR LES APPELS AUX ANNEXES
     #                                             DU MONITEUR BELGE
     # --------------------------------------------------------------------------------------------------------------
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+    csv_path = os.path.join(export_dir, "moniteur_enrichissement.csv")
+
+    # détermine si le fichier existait
+    file_exists = os.path.exists(csv_path)
+
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["tva", "id", "url", "keyword", "denoms_by_bce", "adresses_by_bce", "denom_fallback_bce"])
+
+        # n’écrit l’en-tête que si le fichier vient d’être créé
+        if not file_exists:
+            writer.writerow(["tva", "id", "url", "keyword", "denoms_by_bce",
+                             "adresses_by_bce", "denom_fallback_bce"])
+
         for doc in documents:
             for tva in doc.get("TVA", []):
-                writer.writerow([tva, doc["id"], doc["url"], doc["keyword"], doc["denoms_by_bce"],
-                                 doc["adresses_by_bce"], doc["denom_fallback_bce"]])
+                writer.writerow([tva, doc["id"], doc["url"], doc["keyword"],
+                                 doc["denoms_by_bce"], doc["adresses_by_bce"],
+                                 doc["denom_fallback_bce"]])
+
     # --------------------------------------------------------------------------------------------------------------
     #                                                    BASE DE DONNEE : POSTGRE
     #
     # --------------------------------------------------------------------------------------------------------------
-    print("[📥] Connexion à PostgreSQL…")
     # create_table_moniteur()
     # insert_documents_moniteur(documents)
 
@@ -833,7 +829,7 @@ print(f"[✅] Index '{index_name}' prêt.")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(documents, f, indent=2, ensure_ascii=False)
 
-    print(f"[💾] Fichier JSON enrichi sauvegardé: {json_path}")
+    print(f" Fichier JSON enrichi sauvegardé: {json_path}")
 
 
 if __name__ == "__main__":
